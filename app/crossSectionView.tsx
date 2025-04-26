@@ -51,8 +51,12 @@ export default function CrossSectionViewScreen() {
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
 
-  const { processedBlockModel, processedElevation, processedPitData } =
-    useMiningData();
+  const {
+    processedBlockModel,
+    processedElevation,
+    processedPitData,
+    fullBlockModelData,
+  } = useMiningData();
 
   useEffect(() => {
     loadCrossSectionData();
@@ -62,8 +66,30 @@ export default function CrossSectionViewScreen() {
     try {
       setLoading(true);
 
-      // If we already have processed data in the context, use it
-      if (processedBlockModel || processedElevation || processedPitData) {
+      // Check if we have the full block model data in context
+      if (fullBlockModelData) {
+        console.log(
+          "Using full block model data from context:",
+          fullBlockModelData.length,
+          "blocks"
+        );
+
+        // Extract the block data needed for visualization
+        const extractedBlocks = fullBlockModelData.map((block) => ({
+          centroid_x: parseFloat(block.centroid_x || block.x || 0),
+          centroid_y: parseFloat(block.centroid_y || block.y || 0),
+          centroid_z: parseFloat(block.centroid_z || block.z || 0),
+          dim_x: parseFloat(block.dim_x || block.width || 10),
+          dim_y: parseFloat(block.dim_y || block.length || 10),
+          dim_z: parseFloat(block.dim_z || block.height || 10),
+          rock: block.rock || "unknown",
+          color: block.color || getColorForRock(block.rock || "unknown"),
+        }));
+
+        setBlockModelData(extractedBlocks);
+      }
+      // If no full data, check if we have processed data
+      else if (processedBlockModel || processedElevation || processedPitData) {
         console.log("Using previously processed data from context");
         console.log(
           "Block model data in context:",
@@ -81,7 +107,7 @@ export default function CrossSectionViewScreen() {
           "features"
         );
 
-        // Directly use the data without transformation for now
+        // Try to extract block data from processed features
         if (processedBlockModel?.features) {
           const extractedBlocks = processedBlockModel.features.map(
             (f: GeoJSONFeature) => {
@@ -122,40 +148,51 @@ export default function CrossSectionViewScreen() {
           console.log("Extracted pit data:", extractedPitData.length);
           setPitData(extractedPitData);
         }
+      } else {
+        // No data in context, need to load from files
+        console.log("No data in context, loading from files");
 
-        setLoading(false);
-        return;
-      }
-      // Load file data
-      const files = await FileService.getFileInfo();
-      const file = files.find((f) => f.name === fileName);
+        // Load file data
+        const files = await FileService.getFileInfo();
+        const file = files.find((f) => f.name === fileName);
 
-      if (!file) {
-        Alert.alert("Error", "File data not found");
-        return;
-      }
+        if (!file) {
+          Alert.alert("Error", "File data not found");
+          return;
+        }
 
-      // Load block model data
-      if (file.files.blockModel) {
-        const blockModelData = await FileService.parseCSVFile(
-          file.files.blockModel.uri
-        );
-        // Skip header rows
-        setBlockModelData(blockModelData.slice(3));
-      }
+        // Load block model data
+        if (file.files.blockModel) {
+          const blockModelData = await FileService.parseCSVFile(
+            file.files.blockModel.uri
+          );
+          // Skip header rows
+          const parsedBlocks = blockModelData.slice(3).map((block: any) => ({
+            centroid_x: parseFloat(block.centroid_x || block.x || 0),
+            centroid_y: parseFloat(block.centroid_y || block.y || 0),
+            centroid_z: parseFloat(block.centroid_z || block.z || 0),
+            dim_x: parseFloat(block.dim_x || block.width || 10),
+            dim_y: parseFloat(block.dim_y || block.length || 10),
+            dim_z: parseFloat(block.dim_z || block.height || 10),
+            rock: block.rock || "unknown",
+            color: getColorForRock(block.rock || "unknown"),
+          }));
+          setBlockModelData(parsedBlocks);
+        }
 
-      // Load elevation data
-      if (file.files.elevation) {
-        const elevationData = await FileService.parseLiDARFile(
-          file.files.elevation.uri
-        );
-        setElevationData(elevationData);
-      }
+        // Load elevation data
+        if (file.files.elevation) {
+          const elevationData = await FileService.parseLiDARFile(
+            file.files.elevation.uri
+          );
+          setElevationData(elevationData);
+        }
 
-      // Load pit data
-      if (file.files.pit) {
-        const pitData = await FileService.parseLiDARFile(file.files.pit.uri);
-        setPitData(pitData);
+        // Load pit data
+        if (file.files.pit) {
+          const pitData = await FileService.parseLiDARFile(file.files.pit.uri);
+          setPitData(pitData);
+        }
       }
 
       setLoading(false);
@@ -164,6 +201,20 @@ export default function CrossSectionViewScreen() {
       setLoading(false);
       Alert.alert("Error", "Failed to load cross section data");
     }
+  };
+
+  // Helper function to provide consistent colors for rock types
+  const getColorForRock = (rockType: string): string => {
+    const rockColors: { [key: string]: string } = {
+      ore: "#b40c0d", // Red
+      waste: "#606060", // Gray
+      overburden: "#a37c75", // Brown
+      lim: "#045993", // Blue
+      sap: "#75499c", // Purple
+      unknown: "#CCCCCC", // Light gray
+    };
+
+    return rockColors[rockType.toLowerCase()] || "#CCCCCC";
   };
 
   return (

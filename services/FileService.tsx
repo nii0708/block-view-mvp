@@ -17,7 +17,7 @@ export interface MiningDataFile {
   files: {
     blockModel: FileInfo | null;
     elevation: FileInfo | null;
-    pit: FileInfo | null; 
+    pit: FileInfo | null;
     orthophoto: FileInfo | null;
   };
 }
@@ -216,9 +216,14 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
 
 /**
  * Parse an STR file (LiDAR data) and return the parsed data
+ * Added options for sampling to reduce data size
  */
 export const parseLiDARFile = async (
-  fileUri: string
+  fileUri: string,
+  options: {
+    maxPoints?: number; // Maximum number of points to return
+    sampleRate?: number; // Sample every N points
+  } = {}
 ): Promise<LiDARPoint[]> => {
   try {
     console.log(`Reading STR file from URI: ${fileUri.substring(0, 50)}...`);
@@ -250,8 +255,28 @@ export const parseLiDARFile = async (
           // Skip header row and process data rows
           const dataRows = results.data.slice(1) as LiDARRow[];
 
+          // Apply sampling if requested
+          let processedRows = dataRows;
+
+          // If maxPoints is specified, calculate appropriate sampling rate
+          if (options.maxPoints && dataRows.length > options.maxPoints) {
+            const sampleRate = Math.ceil(dataRows.length / options.maxPoints);
+            console.log(
+              `Data has ${dataRows.length} points, sampling every ${sampleRate}th point to get ~${options.maxPoints} points`
+            );
+            processedRows = dataRows.filter(
+              (_, index) => index % sampleRate === 0
+            );
+          }
+          // Otherwise if sampleRate is specified, use that
+          else if (options.sampleRate && options.sampleRate > 1) {
+            const rate = options.sampleRate; // Create a local constant to satisfy TypeScript
+            console.log(`Sampling every ${rate}th point`);
+            processedRows = dataRows.filter((_, index) => index % rate === 0);
+          }
+
           // Process each row into the required format
-          const processedData = dataRows
+          const processedData = processedRows
             .filter((row: LiDARRow) => {
               // Ensure row has enough columns
               return Array.isArray(row) && row.length >= 4;

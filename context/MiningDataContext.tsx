@@ -2,12 +2,20 @@ import React, { createContext, useState, useContext, ReactNode } from "react";
 
 // Define the shape of your context data
 interface MiningDataContextType {
+  // Top-down view data (dissolved/processed)
   processedBlockModel: any | null;
   processedElevation: any[] | null;
   processedPitData: any | null;
+
+  // Full block model data (all elevations)
+  fullBlockModelData: any[] | null;
+
+  // Setters
   setProcessedBlockModel: (data: any) => void;
   setProcessedElevation: (data: any[]) => void;
   setProcessedPitData: (data: any) => void;
+  setFullBlockModelData: (data: any[]) => void;
+
   clearData: () => void;
 }
 
@@ -20,6 +28,7 @@ const MiningDataContext = createContext<MiningDataContextType | undefined>(
 export const MiningDataProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
+  // Top-down view data (processed/dissolved)
   const [processedBlockModel, setProcessedBlockModel] = useState<any | null>(
     null
   );
@@ -28,10 +37,16 @@ export const MiningDataProvider: React.FC<{ children: ReactNode }> = ({
   );
   const [processedPitData, setProcessedPitData] = useState<any | null>(null);
 
+  // Full block model data (all elevations)
+  const [fullBlockModelData, setFullBlockModelData] = useState<any[] | null>(
+    null
+  );
+
   const clearData = () => {
     setProcessedBlockModel(null);
     setProcessedElevation(null);
     setProcessedPitData(null);
+    setFullBlockModelData(null);
   };
 
   return (
@@ -40,9 +55,11 @@ export const MiningDataProvider: React.FC<{ children: ReactNode }> = ({
         processedBlockModel,
         processedElevation,
         processedPitData,
+        fullBlockModelData,
         setProcessedBlockModel,
         setProcessedElevation,
         setProcessedPitData,
+        setFullBlockModelData,
         clearData,
       }}
     >

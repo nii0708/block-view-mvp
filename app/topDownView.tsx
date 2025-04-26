@@ -27,7 +27,10 @@ import {
   pointsToGeoJSONLine,
   calculateLineDistance,
 } from "../utils/lineDrawerUtils";
-import { processElevationData } from "../utils/elevationUtils";
+import {
+  processElevationData,
+  createBoundingBoxFromBlockModel,
+} from "../utils/elevationUtils";
 import { useMiningData } from "../context/MiningDataContext";
 
 // Get screen dimensions
@@ -63,6 +66,7 @@ export default function TopDownViewScreen() {
     setProcessedBlockModel,
     setProcessedElevation,
     setProcessedPitData,
+    setFullBlockModelData,
     clearData,
   } = useMiningData();
 
@@ -104,9 +108,12 @@ export default function TopDownViewScreen() {
     };
   }, []);
 
-  // Process block model data when available
   useEffect(() => {
     if (blockModelData.length > 0) {
+      // Store the full block model data in context for cross-section view
+      setFullBlockModelData(blockModelData);
+
+      // Process block model data for top-down view
       processBlockModelData();
     }
   }, [blockModelData]);
@@ -167,8 +174,12 @@ export default function TopDownViewScreen() {
       setFileData(file);
       setLoadingProgress(0.2);
 
-      // Process files sequentially to avoid overwhelming the device
-      // Load and parse block model data
+      // Variables to store raw data before processing with explicit type annotations
+      let rawBlockModelData: any[] = [];
+      let rawElevationData: any[] = [];
+      let rawPitData: any[] = [];
+
+      // Load and parse block model data first
       if (file.files.blockModel) {
         setLoadingMessage("Loading block model data...");
         try {
@@ -181,80 +192,74 @@ export default function TopDownViewScreen() {
           );
 
           // Skip the header rows (first 3 rows are descriptions)
-          const dataWithoutHeaders = data.slice(3);
-          console.log(
-            "Sample block model data:",
-            dataWithoutHeaders.slice(0, 3)
-          );
-
-          setBlockModelData(dataWithoutHeaders);
-          setLoadingProgress(0.4);
+          rawBlockModelData = data.slice(3);
+          setBlockModelData(rawBlockModelData);
+          setLoadingProgress(0.3);
         } catch (error) {
           console.error("Error processing block model data:", error);
           Alert.alert("Error", "Failed to process block model data");
         }
       }
 
-      // Load and parse LiDAR data
-      if (file.files.elevation) {
-        setLoadingMessage("Loading LiDAR data...");
-        try {
-          const data = await FileService.parseLiDARFile(
-            file.files.elevation.uri
-          );
+      // Create a bounding box from block model data to filter elevation data
+      const blockModelBoundingBox = createBoundingBoxFromBlockModel(
+        rawBlockModelData,
+        100
+      );
 
-          // Data ini mungkin merupakan data elevasi, jadi proses secara berbeda
-          // Sample data karena jumlahnya sangat banyak
-          let processedData = data;
-          if (data.length > 5000) {
-            const step = Math.max(1, Math.ceil(data.length / 5000));
-            console.log(
-              `Data elevasi memiliki ${data.length} titik, sampling setiap ${step} titik`
-            );
-            processedData = data.filter((_, index) => index % step === 0);
-            console.log(`Sampling ke ${processedData.length} titik`);
-          }
-
-          setLidarData(processedData);
-          setLoadingProgress(0.6);
-        } catch (error) {
-          console.error("Error processing LiDAR data:", error);
-          Alert.alert("Error", "Failed to process LiDAR data");
-        }
-      }
+      // Start processing block model data right away
+      processBlockModelData();
 
       // Load and parse elevation data if available
       if (file.files.elevation) {
-        // This is the elevation data
         setLoadingMessage("Loading elevation data...");
         try {
-          const data = await FileService.parseLiDARFile(
-            file.files.elevation.uri
+          // Load raw elevation data with pre-sampling to limit initial data size
+          const elevationStartTime = Date.now();
+          rawElevationData = await FileService.parseLiDARFile(
+            file.files.elevation.uri,
+            {
+              maxPoints: 30000, // Further reduced point limit
+            }
           );
-          // Process as elevation data with the correct source projection
+
+          console.log(
+            `Loaded ${rawElevationData.length} raw elevation data points in ${
+              (Date.now() - elevationStartTime) / 1000
+            }s`
+          );
+
+          // Process elevation data, filtering by block model bounding box
           const processedElevation = processElevationData(
-            data,
+            rawElevationData,
             sourceProjection,
             "lon",
             "lat",
-            "z"
+            "z",
+            blockModelBoundingBox
           );
+
+          console.log(
+            `Processed ${processedElevation.length} elevation points after filtering`
+          );
+
           setElevationData(processedElevation);
-          setLoadingProgress(0.6);
+          setLoadingProgress(0.8);
         } catch (error) {
           console.error("Error processing elevation data:", error);
           Alert.alert("Warning", "Failed to process elevation data");
         }
       }
 
-      // Load and parse pit data
+      // Load and parse LiDAR data for pit boundaries
       if (file.files.pit) {
-        // This is the pit boundary data
         setLoadingMessage("Loading pit boundary data...");
         try {
-          const data = await FileService.parseLiDARFile(file.files.pit.uri);
-          setLidarData(data); // Despite the name, we're storing pit data here
-          setLoadingProgress(0.8);
+          rawPitData = await FileService.parseLiDARFile(file.files.pit.uri, {
+            maxPoints: 10000, // Limit points for better performance
+          });
+          setLidarData(rawPitData);
+          setLoadingProgress(0.9);
         } catch (error) {
           console.error("Error processing pit data:", error);
           Alert.alert("Warning", "Failed to process pit data");
@@ -278,12 +283,14 @@ export default function TopDownViewScreen() {
   const processBlockModelData = () => {
     try {
       setLoadingMessage("Converting block model data to GeoJSON...");
+      setLoadingProgress(0.4);
 
       InteractionManager.runAfterInteractions(() => {
         try {
           console.log(
             `Processing block model data with projection: ${sourceProjection}`
           );
+          const startTime = Date.now();
 
           // Use selected projection and process top elevation only
           const result = blockModelToGeoJSON(
@@ -301,29 +308,23 @@ export default function TopDownViewScreen() {
             return;
           }
 
-          // Limit features to prevent performance issues
-          let optimizedData = result.geoJsonData;
-          if (optimizedData?.features?.length > MAX_FEATURES) {
-            console.log(
-              `Limiting GeoJSON features from ${optimizedData.features.length} to ${MAX_FEATURES}`
-            );
-            optimizedData = {
-              ...optimizedData,
-              features: optimizedData.features.slice(0, MAX_FEATURES),
-            };
-          }
-
+          console.log(
+            `Block model data converted to GeoJSON in ${
+              (Date.now() - startTime) / 1000
+            }s`
+          );
           console.log(
             `Block model converted to GeoJSON with ${
-              optimizedData?.features?.length || 0
+              result.geoJsonData?.features?.length || 0
             } features`
           );
 
-          setProcessedBlockModel(optimizedData);
-
-          setGeoJsonData(optimizedData);
+          setProcessedBlockModel(result.geoJsonData);
+          setGeoJsonData(result.geoJsonData);
           setMapCenter(result.mapCenter);
           setMapZoom(result.mapZoom);
+
+          setLoadingProgress(0.6);
         } catch (error) {
           console.error("Error processing block model data:", error);
           Alert.alert("Error", "Failed to process block model data");
