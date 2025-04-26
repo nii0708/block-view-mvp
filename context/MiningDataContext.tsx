@@ -53,6 +53,7 @@ export const MiningDataProvider: React.FC<{ children: ReactNode }> = ({
 
 export const useMiningData = () => {
   const context = useContext(MiningDataContext);
+
   if (context === undefined) {
     throw new Error("useMiningData must be used within a MiningDataProvider");
   }

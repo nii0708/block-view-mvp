@@ -104,9 +104,9 @@ export function convertCoordinates(
     }
 
     // Log koordinat input untuk debugging
-    console.log(
-      `Converting from ${fromProj} to ${toProj}: [${coords[0]}, ${coords[1]}]`
-    );
+    // console.log(
+    //   `Converting from ${fromProj} to ${toProj}: [${coords[0]}, ${coords[1]}]`
+    // );
 
     // Do the conversion
     // PENTING: Untuk UTM ke WGS84, urutan UTM adalah [easting, northing]
@@ -114,7 +114,7 @@ export function convertCoordinates(
     const result = proj4(fromProj, toProj, coords);
 
     // Log hasil konversi untuk debugging
-    console.log(`Conversion result: [${result[0]}, ${result[1]}]`);
+    // console.log(`Conversion result: [${result[0]}, ${result[1]}]`);
 
     // Hasil proj4 untuk EPSG:4326 selalu berupa [longitude, latitude]
     // yang merupakan format yang diharapkan oleh GeoJSON

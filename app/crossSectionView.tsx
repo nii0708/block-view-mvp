@@ -54,6 +54,11 @@ export default function CrossSectionViewScreen() {
   const { processedBlockModel, processedElevation, processedPitData } =
     useMiningData();
 
+    // console.log("processedBlockModel", processedBlockModel);
+    // console.log("jumlah processedElevation", processedBlockModel.length);
+    // console.log("processedElevation", processedElevation);
+    // console.log("processedPitData", processedPitData);
+
   useEffect(() => {
     loadCrossSectionData();
   }, []);
@@ -101,6 +106,7 @@ export default function CrossSectionViewScreen() {
           );
           console.log("Extracted block data:", extractedBlocks.length);
           setBlockModelData(extractedBlocks);
+          console.log("Block model data:", blockModelData.length);
         }
 
         // Just pass through the elevation data

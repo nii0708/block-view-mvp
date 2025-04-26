@@ -129,7 +129,7 @@ export default function TopDownViewScreen() {
         const maxElev = Math.max(...validElevations);
 
         // Set to show ENTIRE range initially
-        console.log(`Setting full elevation range: ${minElev} to ${maxElev}`);
+        // console.log(`Setting full elevation range: ${minElev} to ${maxElev}`);
         setElevationRange({ min: minElev, max: maxElev });
 
         // Start with full data visible
@@ -175,17 +175,17 @@ export default function TopDownViewScreen() {
           const data = await FileService.parseCSVFile(
             file.files.blockModel.uri
           );
-          console.log(
-            "Block model data loaded, first few rows:",
-            data.slice(0, 3)
-          );
+          // console.log(
+          //   "Block model data loaded, first few rows:",
+          //   data.slice(0, 3)
+          // );
 
           // Skip the header rows (first 3 rows are descriptions)
           const dataWithoutHeaders = data.slice(3);
-          console.log(
-            "Sample block model data:",
-            dataWithoutHeaders.slice(0, 3)
-          );
+          // console.log(
+          //   "Sample block model data:",
+          //   dataWithoutHeaders.slice(0, 3)
+          // );
 
           setBlockModelData(dataWithoutHeaders);
           setLoadingProgress(0.4);
@@ -208,11 +208,11 @@ export default function TopDownViewScreen() {
           let processedData = data;
           if (data.length > 5000) {
             const step = Math.max(1, Math.ceil(data.length / 5000));
-            console.log(
-              `Data elevasi memiliki ${data.length} titik, sampling setiap ${step} titik`
-            );
+            // console.log(
+            //   `Data elevasi memiliki ${data.length} titik, sampling setiap ${step} titik`
+            // );
             processedData = data.filter((_, index) => index % step === 0);
-            console.log(`Sampling ke ${processedData.length} titik`);
+            // console.log(`Sampling ke ${processedData.length} titik`);
           }
 
           setLidarData(processedData);
@@ -292,6 +292,16 @@ export default function TopDownViewScreen() {
             true
           );
 
+          console.log("Jumlah data result " + result.geoJsonData.features.length);
+
+          const resultForCrossSection = blockModelToGeoJSON(
+            blockModelData,
+            sourceProjection,
+            false
+          )
+
+          console.log("Jumlah data result cross section " + resultForCrossSection.geoJsonData.features.length);
+
           if (result.error) {
             console.error("Error in blockModelToGeoJSON:", result.error);
             Alert.alert(
@@ -302,26 +312,27 @@ export default function TopDownViewScreen() {
           }
 
           // Limit features to prevent performance issues
-          let optimizedData = result.geoJsonData;
-          if (optimizedData?.features?.length > MAX_FEATURES) {
-            console.log(
-              `Limiting GeoJSON features from ${optimizedData.features.length} to ${MAX_FEATURES}`
-            );
-            optimizedData = {
-              ...optimizedData,
-              features: optimizedData.features.slice(0, MAX_FEATURES),
-            };
-          }
+          let optimizedData = resultForCrossSection.geoJsonData;
+          // console.log("", optimizedData.features.length);
+          // if (optimizedData?.features?.length > MAX_FEATURES) {
+          //   console.log(
+          //     `Limiting GeoJSON features from ${optimizedData.features.length} to ${MAX_FEATURES}`
+          //   );
+          //   optimizedData = {
+          //     ...optimizedData,
+          //     features: optimizedData.features.slice(0, MAX_FEATURES),
+          //   };
+          // }
 
-          console.log(
-            `Block model converted to GeoJSON with ${
-              optimizedData?.features?.length || 0
-            } features`
-          );
+          // console.log(
+          //   `Block model converted to GeoJSON with ${
+          //     optimizedData?.features?.length || 0
+          //   } features`
+          // );
 
-          setProcessedBlockModel(optimizedData);
+          setProcessedBlockModel(resultForCrossSection.geoJsonData); // ini harus yang semuanya
 
-          setGeoJsonData(optimizedData);
+          setGeoJsonData(result.geoJsonData); // ini harus yang di filter
           setMapCenter(result.mapCenter);
           setMapZoom(result.mapZoom);
         } catch (error) {

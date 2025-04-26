@@ -82,10 +82,14 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
 
   useEffect(() => {
     if (mapIsReady && webViewRef.current) {
-      console.log("Sending data to WebView...");
+      console.log("..");
 
       // Jangan batasi jumlah fitur kecuali SANGAT besar
       let optimizedGeoJsonData = geoJsonData;
+
+      console.log("Jumlah data yang di lempar ke leafletmap "
+        + optimizedGeoJsonData?.features?.length
+      )
 
       if (optimizedGeoJsonData?.features?.length > 5000) {
         console.log(

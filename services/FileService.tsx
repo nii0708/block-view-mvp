@@ -172,10 +172,10 @@ export const pickSVG = async (): Promise<FileInfo | null> => {
  */
 export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
   try {
-    console.log(`Reading CSV file from URI: ${fileUri.substring(0, 50)}...`);
+    // console.log(`Reading CSV file from URI: ${fileUri.substring(0, 50)}...`);
     const fileContent = await FileSystem.readAsStringAsync(fileUri);
-    console.log(`CSV file content length: ${fileContent.length} bytes`);
-    console.log(`CSV sample: ${fileContent.substring(0, 100)}...`);
+    // console.log(`CSV file content length: ${fileContent.length} bytes`);
+    // console.log(`CSV sample: ${fileContent.substring(0, 100)}...`);
 
     return new Promise((resolve, reject) => {
       Papa.parse(fileContent, {
@@ -191,11 +191,11 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
             return;
           }
 
-          console.log(
-            `Successfully parsed CSV with ${results.data.length} rows`
-          );
+          // console.log(
+          //   `Successfully parsed CSV with ${results.data.length} rows`
+          // );
           if (results.data.length > 0) {
-            console.log(`Sample CSV row:`, results.data[0]);
+            // console.log(`Sample CSV row:`, results.data[0]);
           }
 
           // Skip the first 3 rows for block model data (important!)

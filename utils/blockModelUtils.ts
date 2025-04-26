@@ -211,12 +211,12 @@ export function processBlockModelCSV(
       rock: row.rock || row.rock_type || row.material || "Unknown",
     }));
 
-    // If requested, filter to only keep the top elevation blocks
-    if (topElevationOnly) {
-      console.log(`Original block count: ${mappedData.length}`);
-      mappedData = filterTopElevationBlocks(mappedData);
-      console.log(`Filtered to top elevation blocks: ${mappedData.length}`);
-    }
+    // // If requested, filter to only keep the top elevation blocks
+    // if (topElevationOnly) {
+    //   console.log(`Original block count: ${mappedData.length}`);
+    //   mappedData = filterTopElevationBlocks(mappedData);
+    //   console.log(`Filtered to top elevation blocks: ${mappedData.length}`);
+    // }
 
     // Create the mapping
     const rockColorMap = createRockColorMapping(mappedData, hexColors);
