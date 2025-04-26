@@ -1,10 +1,12 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { WebView } from "react-native-webview";
 
 interface LeafletMapProps {
   onMapPress?: (point: any) => void;
   onMapReady?: () => void;
+  onCoordinateChange?: (coordinates: { lat: number; lng: number }) => void;
+  onAddPointFromCrosshair?: (addPointFunc: () => void) => void;
   style?: any;
   geoJsonData?: any;
   pitGeoJsonData?: any;
@@ -13,6 +15,9 @@ interface LeafletMapProps {
   selectedPoints?: any[];
   isCreateLineMode?: boolean;
   elevationRange?: { min: number; max: number };
+  hideInternalCoordinates?: boolean;
+  useCrosshairForDrawing?: boolean;
+  lineColor?: string;
 }
 
 interface GeoJSONFeature {
@@ -30,6 +35,8 @@ interface GeoJSONFeature {
 const LeafletMap: React.FC<LeafletMapProps> = ({
   onMapPress,
   onMapReady,
+  onCoordinateChange,
+  onAddPointFromCrosshair,
   style,
   geoJsonData,
   pitGeoJsonData,
@@ -37,7 +44,10 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   mapZoom = 5,
   selectedPoints = [],
   isCreateLineMode = false,
-  elevationRange = { min: 0, max: 1000 }, // Default range
+  elevationRange = { min: 0, max: 1000 },
+  hideInternalCoordinates = true,
+  useCrosshairForDrawing = true,
+  lineColor = "#CFE625",
 }) => {
   const [loading, setLoading] = useState(true);
   const webViewRef = useRef<WebView>(null);
@@ -47,15 +57,14 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     lng: 0,
   });
 
+  // Keep track of processed points to avoid duplicate processing
+  const processedPointsRef = useRef<string[]>([]);
+
   // Filter pit data berdasarkan range elevasi
   const getFilteredPitData = () => {
     if (!pitGeoJsonData || !pitGeoJsonData.features) {
       return pitGeoJsonData;
     }
-
-    console.log(
-      `Filtering pit data with elevation range: ${elevationRange.min} to ${elevationRange.max}`
-    );
 
     // Use a wide buffer to include more features
     const buffer = 50; // Add a 50m buffer on either side
@@ -70,37 +79,23 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
       }
     );
 
-    console.log(
-      `Filtered pit features from ${pitGeoJsonData.features.length} to ${filteredFeatures.length}`
-    );
-
     return {
       ...pitGeoJsonData,
       features: filteredFeatures,
     };
   };
 
+  // Update GeoJSON data only when changed
   useEffect(() => {
     if (mapIsReady && webViewRef.current) {
-      console.log("Sending data to WebView...");
-
       // Jangan batasi jumlah fitur kecuali SANGAT besar
       let optimizedGeoJsonData = geoJsonData;
 
       if (optimizedGeoJsonData?.features?.length > 5000) {
-        console.log(
-          `WARNING: Limiting WebView GeoJSON features from ${optimizedGeoJsonData.features.length} to 5000 for performance`
-        );
         optimizedGeoJsonData = {
           ...optimizedGeoJsonData,
           features: optimizedGeoJsonData.features.slice(0, 5000),
         };
-      } else {
-        console.log(
-          `Rendering all ${
-            optimizedGeoJsonData?.features?.length || 0
-          } block model features`
-        );
       }
 
       // Get filtered pit data based on elevation range
@@ -110,16 +105,14 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
       (function() {
         try {
           if (typeof updateMapData === 'function') {
-            console.log("Calling updateMapData with GeoJSON and PitGeoJSON data");
             updateMapData({
               geoJsonData: ${JSON.stringify(optimizedGeoJsonData)},
               pitGeoJsonData: ${JSON.stringify(filteredPitData)},
               mapCenter: ${JSON.stringify(mapCenter)},
-              mapZoom: ${mapZoom}
+              mapZoom: ${mapZoom},
+              skipFitBounds: true // Prevent auto-zooming
             });
             return true;
-          } else {
-            console.log("updateMapData function not found");
           }
         } catch (error) {
           console.error("Error updating map data:", error);
@@ -136,21 +129,22 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     elevationRange,
   ]);
 
-  // Update selected points and drawing mode
+  // Update drawing mode and line points only when they change
   useEffect(() => {
     if (mapIsReady && webViewRef.current) {
+      // Stringify the selected points to compare efficiently
+      const pointsString = JSON.stringify(selectedPoints);
+
       webViewRef.current.injectJavaScript(`
         (function() {
           try {
             if (typeof updateMapState === 'function') {
-              console.log("Updating map state with selected points and drawing mode");
               updateMapState({
                 isDrawingMode: ${isCreateLineMode},
-                linePoints: ${JSON.stringify(selectedPoints)}
+                linePoints: ${pointsString},
+                noZoom: true // Flag to prevent automatic zooming
               });
               return true;
-            } else {
-              console.log("updateMapState function not found");
             }
           } catch (error) {
             console.error("Error updating map state:", error);
@@ -160,7 +154,30 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     }
   }, [selectedPoints, isCreateLineMode, mapIsReady]);
 
-  // HTML content with Leaflet map with performance optimizations
+  const addPointFromCrosshair = useCallback(() => {
+    if (mapIsReady && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        (function() {
+          try {
+            if (typeof addPointFromCrosshair === 'function') {
+              addPointFromCrosshair();
+              return true;
+            }
+          } catch (error) {
+            console.error("Error adding point from crosshair:", error);
+          }
+        })();
+      `);
+    }
+  }, [mapIsReady]);
+
+  useEffect(() => {
+    if (onAddPointFromCrosshair && mapIsReady) {
+      onAddPointFromCrosshair(addPointFromCrosshair);
+    }
+  }, [onAddPointFromCrosshair, addPointFromCrosshair, mapIsReady]);
+
+  // HTML content with improved Leaflet map
   const htmlContent = `
     <!DOCTYPE html>
     <html>
@@ -204,17 +221,51 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         .drawing-active {
           cursor: crosshair !important;
         }
-        /* Hide the built-in coordinates display since we handle it in React Native */
         #coordinates-display {
           display: none;
         }
         
-        /* Styling for the drawing tool */
+        /* Crosshair styles */
+        .crosshair {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 30px;
+          height: 30px;
+          margin: -15px 0 0 -15px;
+          pointer-events: none;
+          z-index: 1000;
+        }
+        .crosshair:before,
+        .crosshair:after {
+          content: '';
+          position: absolute;
+          background: ${lineColor};
+        }
+        .crosshair:before {
+          width: 2px;
+          height: 100%;
+          left: 50%;
+          margin-left: -1px;
+        }
+        .crosshair:after {
+          height: 2px;
+          width: 100%;
+          top: 50%;
+          margin-top: -1px;
+        }
+        
+        /* Point and line styling */
         .line-preview {
-          stroke: white;
+          stroke: ${lineColor};
           stroke-width: 2;
           stroke-dasharray: 5, 5;
           pointer-events: none;
+        }
+        .point-marker {
+          opacity: 0.8;
+          border: 2px solid #fff;
+          box-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
       </style>
     </head>
@@ -234,8 +285,14 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         let lineLayer;
         let isDrawingMode = false;
         let crosshairMarker;
-        let tempLine; // For the line preview during drawing
-        let firstPoint = null; // First point of the drawing line
+        let tempLine;
+        let firstPoint = null;
+        let useCrosshairForDrawing = ${useCrosshairForDrawing};
+        let lineColor = "${lineColor}";
+        
+        // Prevent multiple updates by tracking state
+        let lastUpdateState = "";
+        let processingUpdate = false;
         
         // Initialize map
         function initMap() {
@@ -246,25 +303,24 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
             L.Browser.mobile = true;
             L.Browser.touch = true;
             
-            // Create map instance with initial center and performance optimizations
+            // Create map instance with optimization settings
             map = L.map('map', {
               center: ${JSON.stringify(mapCenter)},
               zoom: ${mapZoom},
               attributionControl: false,
-              preferCanvas: true, // Use canvas for better performance
+              preferCanvas: true,
               zoomSnap: 0.5,
-              zoomAnimation: false, // Disable animations for better performance
+              zoomAnimation: false,
               markerZoomAnimation: false,
               maxZoom: 19,
-              renderer: L.canvas({ tolerance: 5 }) // Improve performance by reducing precision
+              renderer: L.canvas({ tolerance: 5 })
             });
             
-            // Disable and re-enable interactions for better mobile performance
-            map.keyboard.disable();
-            map.dragging.disable();
-            map.dragging.enable();
+            // Add touch handling improvements
             map.touchZoom.disable();
             map.touchZoom.enable();
+            map.dragging.disable();
+            map.dragging.enable();
             
             // Add base layers
             const baseOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -294,8 +350,13 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
               type: 'mapReady'
             }));
             
-            // Track map center changes for coordinate display
+            // Track map center changes with throttling
+            let lastMoveTime = 0;
             map.on('move', function() {
+              const now = Date.now();
+              if (now - lastMoveTime < 100) return; // Throttle to 10 updates per second
+              lastMoveTime = now;
+              
               const center = map.getCenter();
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'mapMove',
@@ -309,7 +370,6 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
             // Add click event handler with throttling
             let lastClick = 0;
             map.on('click', function(e) {
-              // Throttle clicks to 300ms to prevent double-clicks
               const now = Date.now();
               if (now - lastClick < 300) return;
               lastClick = now;
@@ -324,29 +384,6 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                   y: e.containerPoint.y
                 }
               }));
-              
-              // If in drawing mode, handle drawing
-              if (isDrawingMode) {
-                handleDrawingClick(e.latlng);
-              }
-            });
-            
-            // Add mousemove event for line drawing preview
-            map.on('mousemove', function(e) {
-              if (isDrawingMode && firstPoint) {
-                updateDrawingPreview(e.latlng);
-              }
-            });
-            
-            // Also handle touch move for mobile
-            map.on('touchmove', function(e) {
-              if (isDrawingMode && firstPoint && e.touches && e.touches.length > 0) {
-                const touchPoint = map.containerPointToLatLng([
-                  e.touches[0].clientX,
-                  e.touches[0].clientY
-                ]);
-                updateDrawingPreview(touchPoint);
-              }
             });
             
             // Send initial center coordinates
@@ -365,84 +402,123 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           }
         }
         
-        // Function to handle drawing line clicks
-        function handleDrawingClick(latlng) {
-          if (!firstPoint) {
-            // First click - set the first point
-            firstPoint = latlng;
+        // Function to add point from crosshair - IMPROVED
+        function addPointFromCrosshair() {
+          try {
+            const centerPoint = map.getCenter();
+            console.log("addPointFromCrosshair called, center:", centerPoint);
             
-            // Create a marker at the first point
-            const marker = L.marker(latlng).addTo(map);
-            markers.push(marker);
-            
-            // Create the temporary line
-            tempLine = L.polyline([latlng, latlng], {
-              color: 'white',
-              weight: 2,
-              dashArray: '5, 5'
-            }).addTo(map);
-          } else {
-            // Second click - complete the line
-            const secondPoint = latlng;
-            
-            // Add marker for the second point
-            const marker = L.marker(secondPoint).addTo(map);
-            markers.push(marker);
-            
-            // Create the final line
-            if (lineLayer) {
-              map.removeLayer(lineLayer);
+            // Check if we're still in drawing mode
+            if (!isDrawingMode) {
+              console.log("Not in drawing mode, ignoring point add");
+              return;
             }
             
-            lineLayer = L.polyline([firstPoint, secondPoint], {
-              color: 'blue',
-              weight: 3
-            }).addTo(map);
-            
-            // Remove the preview line
-            if (tempLine) {
-              map.removeLayer(tempLine);
-              tempLine = null;
+            if (!firstPoint) {
+              // First point
+              firstPoint = centerPoint;
+              console.log("Setting first point:", firstPoint);
+              
+              // Create visible marker
+              const marker = L.circleMarker(centerPoint, {
+                radius: 6,
+                color: lineColor,
+                fillColor: '#fff',
+                fillOpacity: 1,
+                weight: 2,
+                className: 'point-marker'
+              }).addTo(map);
+              markers.push(marker);
+              
+              // Create temporary line for preview
+              tempLine = L.polyline([centerPoint, centerPoint], {
+                color: lineColor,
+                weight: 2,
+                dashArray: '5, 5'
+              }).addTo(map);
+              
+              // Notify React Native of the first point
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'pointAdded',
+                data: {
+                  point: [centerPoint.lat, centerPoint.lng],
+                  isFirstPoint: true,
+                  pointKey: \`first-\${centerPoint.lat}-\${centerPoint.lng}\` // Add a unique key
+                }
+              }));
+            } else {
+              // Second point - complete the line
+              const secondPoint = centerPoint;
+              console.log("Setting second point:", secondPoint);
+              
+              // Create marker for second point
+              const marker = L.circleMarker(secondPoint, {
+                radius: 6,
+                color: lineColor,
+                fillColor: '#fff',
+                fillOpacity: 1,
+                weight: 2,
+                className: 'point-marker'
+              }).addTo(map);
+              markers.push(marker);
+              
+              // Create the final line
+              if (lineLayer) {
+                map.removeLayer(lineLayer);
+              }
+              
+              lineLayer = L.polyline([firstPoint, secondPoint], {
+                color: lineColor,
+                weight: 3
+              }).addTo(map);
+              console.log("Created permanent line between points");
+              
+              // Remove preview line
+              if (tempLine) {
+                map.removeLayer(tempLine);
+                tempLine = null;
+              }
+              
+              // Notify React Native of the complete line with a unique key
+              const lineKey = \`line-\${firstPoint.lat}-\${firstPoint.lng}-\${secondPoint.lat}-\${secondPoint.lng}\`;
+              
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'lineComplete',
+                data: {
+                  points: [
+                    [firstPoint.lat, firstPoint.lng],
+                    [secondPoint.lat, secondPoint.lng]
+                  ],
+                  isLineComplete: true,
+                  lineKey: lineKey
+                }
+              }));
+              
+              // Reset first point
+              firstPoint = null;
             }
-            
-            // Notify React Native of the complete line
+          } catch (err) {
+            console.error("Error in addPointFromCrosshair:", err);
             window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'lineComplete',
+              type: 'error',
               data: {
-                points: [
-                  [firstPoint.lat, firstPoint.lng],
-                  [secondPoint.lat, secondPoint.lng]
-                ]
+                message: "Error adding point: " + err.message
               }
             }));
-            
-            // Reset first point to allow drawing a new line
-            firstPoint = null;
           }
         }
         
-        // Update the drawing preview line
-        function updateDrawingPreview(currentPoint) {
-          if (tempLine && firstPoint) {
-            tempLine.setLatLngs([firstPoint, currentPoint]);
-          }
-        }
-        
-        // Function to update the map with new data
+        // Update map with GeoJSON data
         function updateMapData(data) {
           try {
             console.log("updateMapData called");
             
-            // If we have GeoJSON data for block model
+            // Block model GeoJSON handling
             if (data.geoJsonData && data.geoJsonData.features) {
-              console.log("Processing block model GeoJSON data with", data.geoJsonData.features.length, "features");
-              
-              // Remove existing layer if it exists
               if (geoJsonLayer) {
                 map.removeLayer(geoJsonLayer);
               }
               
-              // Add the GeoJSON layer with performance optimizations
               geoJsonLayer = L.geoJSON(data.geoJsonData, {
                 style: function(feature) {
                   return {
@@ -454,7 +530,6 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                   };
                 },
                 onEachFeature: function(feature, layer) {
-                  // Only add popup for specific rock types to reduce memory usage
                   if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
                     const props = feature.properties;
                     const popupContent = \`
@@ -467,41 +542,21 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                   }
                 }
               }).addTo(map);
-              
-              console.log("Block model GeoJSON layer added to map");
-              
-              // PENTING: Focus ke block model secara langsung setelah layer ditambahkan
-              if (geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
-                console.log("Immediately focusing to block model bounds");
-                map.fitBounds(geoJsonLayer.getBounds(), { 
-                  padding: [30, 30],
-                  maxZoom: 14  // Batasi zoom maksimum
-                });
-              }
             }
             
-            // If we have pit data
+            // Pit GeoJSON handling
             if (data.pitGeoJsonData && data.pitGeoJsonData.features) {
-              console.log("Processing pit GeoJSON data with", data.pitGeoJsonData.features.length, "features");
-              
-              // Debug info for pit data
-              console.log("Pit data features sample:", 
-                data.pitGeoJsonData.features.length > 0 ? 
-                JSON.stringify(data.pitGeoJsonData.features[0].geometry.coordinates.slice(0, 2)) : 'No features');
-              
-              // Remove existing layer if it exists
               if (pitLayer) {
                 map.removeLayer(pitLayer);
               }
               
-              // Add the pit layer with improved styling and grouping
               pitLayer = L.geoJSON(data.pitGeoJsonData, {
                 style: function(feature) {
                   return {
-                    color: '#FF6600', // Brighter orange
-                    weight: 4,        // Thicker lines
-                    opacity: 1.0,     // Fully opaque
-                    dashArray: '5, 5' // Dashed line pattern
+                    color: '#FF6600',
+                    weight: 4,
+                    opacity: 1.0,
+                    dashArray: '5, 5'
                   };
                 },
                 onEachFeature: function(feature, layer) {
@@ -517,68 +572,30 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                   }
                 }
               }).addTo(map);
-              
-              console.log("Pit GeoJSON layer added to map");
-              
-              // PENTING: Log koordinat pit untuk debugging
-              if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
-                const bounds = pitLayer.getBounds();
-                console.log("Pit layer bounds:", [
-                  [bounds.getSouth(), bounds.getWest()],
-                  [bounds.getNorth(), bounds.getEast()]
-                ]);
-              }
             }
             
-            // VERSI PERBAIKAN: Fit bounds dengan prioritas yang jelas
-            let finalBounds = null;
-            
-            // Prioritas 1: Jika kedua layer tersedia, gunakan keduanya
-            if (geoJsonLayer && geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid() && 
-                pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
+            // Only fit bounds once on initial load, not on updates
+            if (!data.skipFitBounds) {
+              let finalBounds = null;
               
-              finalBounds = geoJsonLayer.getBounds().extend(pitLayer.getBounds());
-              console.log("Using combined bounds from both layers");
-            }
-            // Prioritas 2: Jika hanya block model yang tersedia
-            else if (geoJsonLayer && geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
-              finalBounds = geoJsonLayer.getBounds();
-              console.log("Using bounds from block model only");
-            }
-            // Prioritas 3: Jika hanya pit boundary yang tersedia
-            else if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
-              finalBounds = pitLayer.getBounds();
-              console.log("Using bounds from pit boundary only");
-            }
-            
-            // Jika ada bounds yang valid, gunakan
-            if (finalBounds && finalBounds.isValid()) {
-              // Tambahkan padding untuk memastikan semua terlihat
-              const paddedBounds = L.latLngBounds(
-                [finalBounds.getSouth() - 0.01, finalBounds.getWest() - 0.01],
-                [finalBounds.getNorth() + 0.01, finalBounds.getEast() + 0.01]
-              );
-              
-              console.log("Fitting map to bounds with padding");
-              map.fitBounds(paddedBounds, { 
-                padding: [30, 30],
-                maxZoom: 14  // Batasi zoom maksimum
-              });
-              
-              // Send the initial center coordinates after fitting bounds
-              const center = map.getCenter();
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'mapMove',
-                data: {
-                  lat: center.lat,
-                  lng: center.lng
+              if (geoJsonLayer && geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
+                finalBounds = geoJsonLayer.getBounds();
+                
+                if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
+                  finalBounds.extend(pitLayer.getBounds());
                 }
-              }));
-            }
-            // Jika tidak ada bounds, gunakan koordinat yang diberikan
-            else if (data.mapCenter && data.mapCenter.length === 2) {
-              console.log("Setting map center to:", data.mapCenter);
-              map.setView(data.mapCenter, data.mapZoom || 12);
+              } else if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
+                finalBounds = pitLayer.getBounds();
+              }
+              
+              if (finalBounds && finalBounds.isValid()) {
+                map.fitBounds(finalBounds, { 
+                  padding: [30, 30],
+                  maxZoom: 14
+                });
+              } else if (data.mapCenter && data.mapCenter.length === 2) {
+                map.setView(data.mapCenter, data.mapZoom || 12);
+              }
             }
             
             console.log('Map data update complete');
@@ -587,38 +604,33 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           }
         }
         
-        // Function to update the selected points and drawing mode
+        // Function to update the selected points and drawing mode - IMPROVED
         function updateMapState(state) {
           try {
-            console.log("updateMapState called");
+            // Prevent repeated same-state updates
+            const stateString = JSON.stringify(state);
+            if (lastUpdateState === stateString || processingUpdate) {
+              return;
+            }
+            
+            lastUpdateState = stateString;
+            processingUpdate = true;
+            
+            console.log("updateMapState called with:", stateString);
             
             // Set drawing mode
             isDrawingMode = state.isDrawingMode;
             
-            // Add visual indicator
             if (isDrawingMode) {
               map._container.style.cursor = 'crosshair';
               document.getElementById('map').classList.add('drawing-active');
-              
-              // Reset drawing state when entering drawing mode
-              firstPoint = null;
-              if (tempLine) {
-                map.removeLayer(tempLine);
-                tempLine = null;
-              }
             } else {
               map._container.style.cursor = '';
               document.getElementById('map').classList.remove('drawing-active');
-              
-              // Clean up any incomplete drawing
-              if (tempLine) {
-                map.removeLayer(tempLine);
-                tempLine = null;
-              }
-              firstPoint = null;
             }
             
             // Clear existing markers and lines
+            console.log("Clearing existing markers and lines");
             markers.forEach(marker => map.removeLayer(marker));
             markers = [];
             
@@ -627,27 +639,66 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
               lineLayer = null;
             }
             
-            // If we have line points, add markers and a line
+            if (tempLine) {
+              map.removeLayer(tempLine);
+              tempLine = null;
+            }
+            
+            // Reset first point
+            firstPoint = null;
+            
+            // If we have line points, add markers and potentially a line
             if (state.linePoints && state.linePoints.length > 0) {
-              console.log("Adding points to map:", state.linePoints);
+              console.log("Processing line points:", state.linePoints);
               
               // Add markers for each point
               state.linePoints.forEach(point => {
-                const marker = L.marker([point[0], point[1]]).addTo(map);
+                const marker = L.circleMarker([point[0], point[1]], {
+                  radius: 6,
+                  color: lineColor,
+                  fillColor: '#fff',
+                  fillOpacity: 1,
+                  weight: 2,
+                  className: 'point-marker'
+                }).addTo(map);
                 markers.push(marker);
               });
               
               // If we have 2 points, draw a line
               if (state.linePoints.length === 2) {
+                console.log("Creating line between points");
                 lineLayer = L.polyline(state.linePoints, {
-                  color: 'blue',
+                  color: lineColor,
                   weight: 3
+                }).addTo(map);
+                
+                // Don't fit bounds automatically - let the user control zoom
+                if (!state.noZoom) {
+                  const lineBounds = L.latLngBounds(state.linePoints);
+                  map.fitBounds(lineBounds, {
+                    padding: [50, 50]
+                  });
+                }
+              }
+              
+              // If we have 1 point and we're in drawing mode, set firstPoint for preview
+              if (state.linePoints.length === 1 && isDrawingMode) {
+                const point = state.linePoints[0];
+                firstPoint = L.latLng(point[0], point[1]);
+                
+                // Create temporary line for preview
+                tempLine = L.polyline([firstPoint, map.getCenter()], {
+                  color: lineColor,
+                  weight: 2,
+                  dashArray: '5, 5'
                 }).addTo(map);
               }
             }
             
-            console.log('Map state updated');
+            processingUpdate = false;
+            console.log('Map state updated successfully');
           } catch (error) {
+            processingUpdate = false;
             console.error('Error updating map state:', error);
           }
         }
@@ -673,14 +724,25 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
       } else if (message.type === "mapClick" && onMapPress) {
         onMapPress(message.data);
       } else if (message.type === "mapMove") {
-        // Update the current coordinates when the map moves
         setCurrentCoordinates(message.data);
+
+        if (onCoordinateChange) {
+          onCoordinateChange(message.data);
+        }
+      } else if (message.type === "pointAdded" && onMapPress) {
+        // Use key to prevent processing the same point multiple times
+        const pointKey = message.data.pointKey || "";
+        if (!processedPointsRef.current.includes(pointKey)) {
+          processedPointsRef.current.push(pointKey);
+          onMapPress(message.data);
+        }
       } else if (message.type === "lineComplete" && onMapPress) {
-        // Pass the completed line to the parent component
-        onMapPress({
-          ...message.data,
-          isLineComplete: true,
-        });
+        // Use key to prevent processing the same line multiple times
+        const lineKey = message.data.lineKey || "";
+        if (!processedPointsRef.current.includes(lineKey)) {
+          processedPointsRef.current.push(lineKey);
+          onMapPress(message.data);
+        }
       }
     } catch (error) {
       console.error("Error parsing WebView message:", error);
@@ -717,7 +779,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         }}
       />
 
-      {/* Dynamic coordinates display based on map center */}
+      {/* Coordinates display hidden by default */}
       <View style={styles.coordinatesContainer}>
         <Text style={styles.coordinatesText}>
           x:{Math.round(currentCoordinates.lng)}, y:
@@ -738,6 +800,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     position: "relative",
+    width: "100%",
+    height: "100%",
   },
   webview: {
     flex: 1,
@@ -764,6 +828,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 1,
     borderColor: "#ddd",
+    display: "none",
   },
   coordinatesText: {
     fontSize: 12,

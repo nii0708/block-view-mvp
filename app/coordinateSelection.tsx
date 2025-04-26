@@ -128,16 +128,15 @@ export default function CoordinateSelectionScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header */}
+      {/* Header - Redesigned to match other pages */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <MaterialIcons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Select Coordinate System</Text>
-        <View style={styles.headerRight} />
+        <TouchableOpacity
+          style={styles.homeButton}
+          onPress={() => router.push("/")}
+        >
+          <MaterialIcons name="home" size={24} color="black" />
+        </TouchableOpacity>
       </View>
 
       {/* Description */}
@@ -206,7 +205,6 @@ export default function CoordinateSelectionScreen() {
           onPress={handleContinue}
         >
           <Text style={styles.continueButtonText}>Continue</Text>
-          <MaterialIcons name="arrow-forward" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -220,25 +218,22 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    alignItems: "center",
+    paddingHorizontal: 20,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
   },
-  backButton: {
-    padding: 8,
-  },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "600",
+    fontFamily: "Montserrat_600SemiBold",
     color: "#333",
-    flex: 1,
-    textAlign: "center",
   },
-  headerRight: {
-    width: 40, // To balance the header
+  homeButton: {
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   descriptionContainer: {
     backgroundColor: "#f8f8f8",
@@ -255,6 +250,7 @@ const styles = StyleSheet.create({
   descriptionText: {
     flex: 1,
     fontSize: 14,
+    fontFamily: "Montserrat_400Regular",
     color: "#555",
     lineHeight: 20,
   },
@@ -265,12 +261,13 @@ const styles = StyleSheet.create({
   },
   fileInfoLabel: {
     fontSize: 14,
+    fontFamily: "Montserrat_400Regular",
     color: "#555",
     marginBottom: 4,
   },
   fileName: {
     fontSize: 16,
-    fontWeight: "500",
+    fontFamily: "Montserrat_600SemiBold",
     color: "#333",
   },
   scrollView: {
@@ -299,7 +296,7 @@ const styles = StyleSheet.create({
   },
   projectionName: {
     fontSize: 16,
-    fontWeight: "500",
+    fontFamily: "Montserrat_500Medium",
     color: "#333",
     flex: 1,
   },
@@ -308,6 +305,7 @@ const styles = StyleSheet.create({
   },
   projectionDescription: {
     fontSize: 14,
+    fontFamily: "Montserrat_400Regular",
     color: "#666",
   },
   buttonContainer: {
@@ -316,18 +314,15 @@ const styles = StyleSheet.create({
     borderTopColor: "#e0e0e0",
   },
   continueButton: {
-    backgroundColor: "#0066CC",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    backgroundColor: "#CFE625",
+    paddingVertical: 15,
     borderRadius: 8,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   continueButtonText: {
-    color: "#fff",
+    color: "#000",
     fontSize: 16,
-    fontWeight: "600",
-    marginRight: 8,
+    fontFamily: "Montserrat_600SemiBold",
   },
 });

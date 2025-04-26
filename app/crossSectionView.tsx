@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -35,6 +35,7 @@ interface GeoJSONCollection {
 export default function CrossSectionViewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const dataLoadedRef = useRef(false);
 
   // Parse parameters from TopDownView
   const startLat = parseFloat((params.startLat as string) || "0");
@@ -58,16 +59,20 @@ export default function CrossSectionViewScreen() {
     fullBlockModelData,
   } = useMiningData();
 
+  // Load data only once when component mounts
   useEffect(() => {
-    loadCrossSectionData();
+    if (!dataLoadedRef.current) {
+      dataLoadedRef.current = true;
+      loadCrossSectionData();
+    }
   }, []);
 
-  const loadCrossSectionData = async () => {
+  const loadCrossSectionData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Check if we have the full block model data in context
-      if (fullBlockModelData) {
+      // First check if we have the full block model data in context
+      if (fullBlockModelData && fullBlockModelData.length > 0) {
         console.log(
           "Using full block model data from context:",
           fullBlockModelData.length,
@@ -91,21 +96,6 @@ export default function CrossSectionViewScreen() {
       // If no full data, check if we have processed data
       else if (processedBlockModel || processedElevation || processedPitData) {
         console.log("Using previously processed data from context");
-        console.log(
-          "Block model data in context:",
-          processedBlockModel?.features?.length || 0,
-          "features"
-        );
-        console.log(
-          "Elevation data in context:",
-          processedElevation?.length || 0,
-          "points"
-        );
-        console.log(
-          "Pit data in context:",
-          processedPitData?.features?.length || 0,
-          "features"
-        );
 
         // Try to extract block data from processed features
         if (processedBlockModel?.features) {
@@ -125,7 +115,6 @@ export default function CrossSectionViewScreen() {
               };
             }
           );
-          console.log("Extracted block data:", extractedBlocks.length);
           setBlockModelData(extractedBlocks);
         }
 
@@ -145,7 +134,6 @@ export default function CrossSectionViewScreen() {
               z: f.properties?.level || 0,
             })
           );
-          console.log("Extracted pit data:", extractedPitData.length);
           setPitData(extractedPitData);
         }
       } else {
@@ -194,14 +182,19 @@ export default function CrossSectionViewScreen() {
           setPitData(pitData);
         }
       }
-
-      setLoading(false);
     } catch (error) {
       console.error("Error loading cross section data:", error);
-      setLoading(false);
       Alert.alert("Error", "Failed to load cross section data");
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [
+    fileName,
+    fullBlockModelData,
+    processedBlockModel,
+    processedElevation,
+    processedPitData,
+  ]);
 
   // Helper function to provide consistent colors for rock types
   const getColorForRock = (rockType: string): string => {
@@ -217,17 +210,27 @@ export default function CrossSectionViewScreen() {
     return rockColors[rockType.toLowerCase()] || "#CCCCCC";
   };
 
+  // Handle back button
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  // Handle home button
+  const handleHome = useCallback(() => {
+    router.push("/");
+  }, [router]);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+          <MaterialIcons name="arrow-back" size={24} color="black" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Cross Section View</Text>
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={() => router.push("/")}
-        >
+        <TouchableOpacity style={styles.iconButton} onPress={handleHome}>
           <MaterialIcons name="home" size={24} color="black" />
         </TouchableOpacity>
       </View>
@@ -240,14 +243,22 @@ export default function CrossSectionViewScreen() {
           <>
             {/* Cross Section Info */}
             <View style={styles.infoContainer}>
-              <Text style={styles.infoTitle}>Cross Section Details</Text>
-              <Text style={styles.infoText}>
-                Start: {startLat.toFixed(6)}, {startLng.toFixed(6)}
-              </Text>
-              <Text style={styles.infoText}>
-                End: {endLat.toFixed(6)}, {endLng.toFixed(6)}
-              </Text>
-              <Text style={styles.infoText}>Length: {length.toFixed(1)} m</Text>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Start:</Text>
+                <Text style={styles.infoValue}>
+                  {startLat.toFixed(6)}, {startLng.toFixed(6)}
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>End:</Text>
+                <Text style={styles.infoValue}>
+                  {endLat.toFixed(6)}, {endLng.toFixed(6)}
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Length:</Text>
+                <Text style={styles.infoValue}>{length.toFixed(1)} meters</Text>
+              </View>
             </View>
 
             {/* Cross Section WebView */}
@@ -283,9 +294,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
+  backButton: {
+    padding: 8,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "600",
+    flex: 1,
+    textAlign: "center",
   },
   iconButton: {
     padding: 8,
@@ -296,36 +312,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   infoContainer: {
-    padding: 10,
-    backgroundColor: "#f5f5f5",
-    maxHeight: 100,
+    padding: 16,
+    backgroundColor: "#f8f9fa",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
   },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 5,
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
   },
-  infoText: {
-    fontSize: 12,
-    color: "#333",
-    marginBottom: 2,
+  infoLabel: {
+    fontSize: 14,
+    color: "#6c757d",
+    fontWeight: "500",
   },
-  zoomControls: {
-    position: "absolute",
-    top: 110,
-    right: 10,
-    zIndex: 10,
-  },
-  zoomButton: {
-    width: 40,
-    height: 40,
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: "#ddd",
+  infoValue: {
+    fontSize: 14,
+    color: "#212529",
+    fontWeight: "400",
   },
   graphContainer: {
     flex: 1,

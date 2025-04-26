@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -34,44 +34,20 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
 }) => {
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState(
-    "Loading cross section..."
+    "Preparing cross section..."
   );
   const [error, setError] = useState<string | null>(null);
   const [chartWidth, setChartWidth] = useState<number>(0);
   const webViewRef = useRef<WebView>(null);
-
-  // Log data for debugging
-  useEffect(() => {
-    console.log("CrossSectionWebView props:", {
-      blockModelCount: blockModelData?.length || 0,
-      elevationCount: elevationData?.length || 0,
-      pitCount: pitData?.length || 0,
-      startPoint: { lat: startLat, lng: startLng },
-      endPoint: { lat: endLat, lng: endLng },
-      lineLength,
-    });
-
-    // Log first few items of each dataset
-    if (blockModelData?.length > 0) {
-      console.log("Sample block model data:", blockModelData.slice(0, 2));
-    }
-  }, [blockModelData, elevationData, pitData]);
+  const renderedRef = useRef<boolean>(false);
 
   // Preprocess blockModelData to sample or limit it
-  const getOptimizedBlockData = () => {
+  const getOptimizedBlockData = useMemo(() => {
     try {
       if (!blockModelData || blockModelData.length === 0) return [];
 
       // If we have a very large dataset, sample it
       if (blockModelData.length > 3000) {
-        console.log(
-          `Sampling block model data from ${blockModelData.length} to 3000 blocks`
-        );
-
-        // Option 1: Simple random sampling
-        // return blockModelData.sort(() => 0.5 - Math.random()).slice(0, 3000);
-
-        // Option 2: Systematic sampling (take every Nth block)
         const samplingInterval = Math.ceil(blockModelData.length / 3000);
         return blockModelData.filter(
           (_, index) => index % samplingInterval === 0
@@ -83,9 +59,221 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
       console.error("Error optimizing block data:", e);
       return blockModelData.slice(0, 1000); // Fallback to first 1000 blocks
     }
+  }, [blockModelData]);
+
+  // Generate D3 HTML content only once with memoization
+  const d3Html = useMemo(() => {
+    return generateD3Html(
+      getOptimizedBlockData,
+      elevationData,
+      pitData,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      lineLength,
+      sourceProjection
+    );
+  }, [
+    getOptimizedBlockData,
+    elevationData,
+    pitData,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    lineLength,
+    sourceProjection,
+  ]);
+
+  // Handle messages from WebView with debouncing
+  const handleMessage = (event: any) => {
+    try {
+      const message = JSON.parse(event.nativeEvent.data);
+
+      switch (message.type) {
+        case "renderComplete":
+          if (!renderedRef.current) {
+            renderedRef.current = true;
+            setLoading(false);
+            if (message.chartWidth) {
+              setChartWidth(message.chartWidth);
+            }
+          }
+          break;
+        case "renderError":
+          setError(message.error);
+          setLoading(false);
+          break;
+        case "debug":
+          // Just log to console, not to UI
+          console.log("WebView debug:", message.message);
+          break;
+        case "chartDimensions":
+          if (message.width && message.width !== chartWidth) {
+            setChartWidth(message.width);
+          }
+          break;
+        case "progressUpdate":
+          if (message.message) {
+            setLoadingMessage(message.message);
+          }
+          break;
+      }
+    } catch (e) {
+      console.error("Error parsing WebView message:", e);
+    }
   };
 
-  // Safely stringify data
+  // Inject a fallback rendering function if needed
+  const injectDebugCode = () => {
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        (function() {
+          document.getElementById('loading').style.display = 'flex';
+          document.getElementById('message').textContent = 'Rendering simplified version...';
+          document.getElementById('progress-fill').style.width = '50%';
+          
+          setTimeout(() => {
+            try {
+              // Force redraw with fallback data
+              document.querySelector('#chart svg')?.remove();
+              
+              // Generate test data and render
+              renderWithTestData(${lineLength});
+            } catch (err) {
+              document.getElementById('loading').style.display = 'none';
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'renderError',
+                  error: 'Fallback render failed: ' + err.message
+                }));
+              }
+            }
+          }, 500);
+          
+          return true;
+        })();
+      `);
+    }
+  };
+
+  // Custom loading component for WebView
+  const renderLoadingComponent = () => {
+    return (
+      <View style={styles.webViewLoading}>
+        <ActivityIndicator size="small" color="#0066CC" />
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#0066CC" />
+          <Text style={styles.loadingText}>{loadingMessage}</Text>
+        </View>
+      )}
+
+      <ScrollView
+        horizontal={true}
+        style={styles.scrollContainer}
+        contentContainerStyle={{
+          width: chartWidth > 0 ? chartWidth : undefined,
+        }}
+      >
+        <WebView
+          ref={webViewRef}
+          source={{ html: d3Html }}
+          style={[
+            styles.webview,
+            { width: chartWidth > 0 ? chartWidth : "100%" },
+          ]}
+          originWhitelist={["*"]}
+          javaScriptEnabled={true}
+          onMessage={handleMessage}
+          onError={(e) => {
+            console.error("WebView error:", e.nativeEvent);
+            setError(`WebView error: ${e.nativeEvent.description}`);
+          }}
+          startInLoadingState={false}
+          renderLoading={renderLoadingComponent}
+          cacheEnabled={true}
+        />
+      </ScrollView>
+
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Button title="Try Simplified Render" onPress={injectDebugCode} />
+        </View>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    position: "relative",
+  },
+  scrollContainer: {
+    flex: 1,
+  },
+  webview: {
+    height: "100%",
+  },
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(240, 240, 240, 0.9)",
+    zIndex: 10,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#0066CC",
+  },
+  errorContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(255, 0, 0, 0.1)",
+    padding: 10,
+  },
+  errorText: {
+    color: "red",
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  webViewLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
+
+// Generate D3 HTML function
+function generateD3Html(
+  blockModelData: any[],
+  elevationData: any[],
+  pitData: any[],
+  startLat: number,
+  startLng: number,
+  endLat: number,
+  endLng: number,
+  lineLength: number,
+  sourceProjection: string
+): string {
+  // Safely stringify data to prevent errors
   const safeStringify = (data: any) => {
     try {
       return JSON.stringify(data || []);
@@ -95,45 +283,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
     }
   };
 
-  // Generate simpler test data for debugging
-  const generateTestData = () => {
-    const testBlocks = [];
-    // Create some test blocks along the cross-section line
-    for (let i = 0; i < 10; i++) {
-      const ratio = i / 10;
-      const lng = startLng + ratio * (endLng - startLng);
-      const lat = startLat + ratio * (endLat - startLat);
-
-      // Alternate between ore, waste, and lim rock types
-      const rockType = i % 3 === 0 ? "ore" : i % 3 === 1 ? "waste" : "lim";
-      const color =
-        i % 3 === 0 ? "#b40c0d" : i % 3 === 1 ? "#606060" : "#045993";
-
-      testBlocks.push({
-        centroid_x: lng,
-        centroid_y: lat,
-        centroid_z: 50 - i * 5,
-        dim_x: 10,
-        dim_y: 10,
-        dim_z: 10,
-        rock: rockType,
-        color: color,
-      });
-    }
-    return testBlocks;
-  };
-
-  // D3 implementation with progressive loading and performance optimizations
-  const generateD3Html = () => {
-    // Optimize block model data before sending to WebView
-    const optimizedBlockData = getOptimizedBlockData();
-    console.log(`Sending ${optimizedBlockData.length} blocks to WebView`);
-
-    // Use test data for fallback if needed
-    const useTestData = optimizedBlockData.length === 0;
-    const dataBlocks = useTestData ? generateTestData() : optimizedBlockData;
-
-    return `
+  return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -145,42 +295,26 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
       <script src="https://d3js.org/d3.v7.min.js"></script>
       
       <style>
-        body {
-          font-family: Arial, sans-serif;
+        html, body {
           margin: 0;
           padding: 0;
+          font-family: Arial, sans-serif;
           background-color: #f8f8f8;
           overflow: hidden;
           touch-action: pan-y;
-        }
-        .header {
-          background-color: white;
-          padding: 15px;
-          border-bottom: 1px solid #ddd;
-          position: sticky;
-          top: 0;
-          z-index: 10;
-        }
-        h1 {
-          margin: 0;
-          color: #0066CC;
-          font-size: 20px;
-        }
-        .info {
-          padding: 10px 15px;
-          font-size: 14px;
+          -webkit-overflow-scrolling: touch;
         }
         #chart-container {
+          margin-top: 10px;
           width: 100%;
-          height: 70vh;
+          height: 80vh;
           overflow-x: auto;
           overflow-y: hidden;
           background-color: white;
-          border-top: 1px solid #ddd;
-          -webkit-overflow-scrolling: touch;
         }
         #chart {
           height: 100%;
+          width: 100%;
         }
         .block {
           stroke: #000;
@@ -205,13 +339,34 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         .grid path {
           stroke-width: 0;
         }
-        .loading {
+        .tooltip {
           position: absolute;
+          background: white;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          padding: 8px;
+          font-size: 12px;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.2s;
+          z-index: 100;
+        }
+        .legend {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 10px;
+          border-radius: 4px;
+          border: 1px solid #ddd;
+        }
+        .loading {
+          position: fixed;
           top: 0;
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(255,255,255,0.8);
+          background: rgba(255,255,255,0.9);
           display: flex;
           flex-direction: column;
           justify-content: center;
@@ -249,39 +404,9 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           width: 0%;
           transition: width 0.2s;
         }
-        .tooltip {
-          position: absolute;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          padding: 8px;
-          font-size: 12px;
-          pointer-events: none;
-          opacity: 0;
-          transition: opacity 0.2s;
-          z-index: 100;
-        }
-        .legend {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: rgba(255, 255, 255, 0.9);
-          padding: 10px;
-          border-radius: 4px;
-          border: 1px solid #ddd;
-        }
       </style>
     </head>
     <body>
-      <div class="header">
-        <h1>Cross Section View</h1>
-        <div class="info">
-          <div>Start: ${startLat.toFixed(6)}, ${startLng.toFixed(6)}</div>
-          <div>End: ${endLat.toFixed(6)}, ${endLng.toFixed(6)}</div>
-          <div>Length: ${lineLength.toFixed(1)} meters</div>
-        </div>
-      </div>
-      
       <div id="chart-container">
         <div id="chart"></div>
       </div>
@@ -297,16 +422,25 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
       </div>
       
       <script>
-        // For debug logging
+        // Prevent double rendering
+        let isRendering = false;
+        let hasRendered = false;
+        
+        // For debug logging with throttling
+        let lastLogTime = 0;
         function debug(message) {
-          console.log(message);
-          
-          // Send to React Native for logging
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'debug',
-              message: message
-            }));
+          const now = Date.now();
+          if (now - lastLogTime > 500) { // Throttle logging
+            lastLogTime = now;
+            console.log(message);
+            
+            // Send to React Native
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'debug',
+                message: message
+              }));
+            }
           }
         }
         
@@ -336,24 +470,8 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           sendToRN('progressUpdate', { percent, message });
         }
         
-        // Setup a timeout to prevent infinite processing
-        const processTimeout = setTimeout(() => {
-          if (document.getElementById('loading').style.display !== 'none') {
-            debug("Processing timeout reached, using fallback data");
-            document.getElementById('message').textContent = 'Taking too long, using simplified data...';
-            
-            // Force rendering with simplified data
-            sectionBlocks = generateTestBlocks();
-            elevationProfile = generateTestElevationProfile();
-            pitProfile = [];
-            
-            // Render the visualization
-            setTimeout(renderVisualization, 500);
-          }
-        }, 20000); // 20 second timeout
-        
         // Parsed data
-        const blockModelData = ${safeStringify(dataBlocks)};
+        const blockModelData = ${safeStringify(blockModelData)};
         const elevationData = ${safeStringify(elevationData)};
         const pitData = ${safeStringify(pitData)};
         
@@ -368,7 +486,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         let elevationProfile = [];
         let pitProfile = [];
         
-        // Color mapping for rock types - match the colors used in top-down view
+        // Color mapping for rock types
         const rockColorMap = {
           "ore": "#b40c0d",       // Red
           "waste": "#606060",     // Gray
@@ -392,43 +510,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         // Project a point onto the cross-section line
         function projectPointOntoLine(point, lineStart, lineEnd, isUTMPoint = false) {
           try {
-            // If we're dealing with UTM coordinates but the line is in WGS84
-            if (isUTMPoint) {
-              // Calculate UTM bounds
-              let utmMinX = Infinity, utmMaxX = -Infinity;
-              let utmMinY = Infinity, utmMaxY = -Infinity;
-              
-              // Sample a subset of blocks for bounds calculation
-              const sampleSize = Math.min(blockModelData.length, 1000);
-              for (let i = 0; i < sampleSize; i++) {
-                const block = blockModelData[i];
-                const x = parseFloat(block.centroid_x);
-                const y = parseFloat(block.centroid_y);
-                
-                if (!isNaN(x) && !isNaN(y)) {
-                  utmMinX = Math.min(utmMinX, x);
-                  utmMaxX = Math.max(utmMaxX, x);
-                  utmMinY = Math.min(utmMinY, y);
-                  utmMaxY = Math.max(utmMaxY, y);
-                }
-              }
-              
-              // Calculate relative position in UTM space
-              const relX = (point.x - utmMinX) / (utmMaxX - utmMinX);
-              const relY = (point.y - utmMinY) / (utmMaxY - utmMinY);
-              
-              // Use position to determine distance along line
-              // This is a simplified approach
-              const ratio = (relX + relY) / 2;
-              const distance = ratio * lineLength;
-              
-              return {
-                ratio,
-                distanceAlongLine: distance,
-                distanceToLine: 0  // Simplified
-              };
-            }
-            
             // Standard projection for WGS84 coordinates
             const lineVec = {
               x: lineEnd.lng - lineStart.lng,
@@ -463,7 +544,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               distanceToLine
             };
           } catch (err) {
-            console.error("Error in projection:", err.message);
             return {
               ratio: 0,
               distanceAlongLine: 0,
@@ -472,115 +552,73 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           }
         }
         
-        // Process block model data for cross-section view
+        // Process block model data for cross-section view (optimized)
         function processCrossSectionBlockModel() {
           try {
             updateProgress(10, "Analyzing block model data...");
-            debug("Processing block model data for cross-section...");
+            
+            // Determine if we need to process all blocks or sample
+            const blockCount = blockModelData.length;
+            const processInterval = blockCount > 3000 ? Math.ceil(blockCount / 3000) : 1;
             
             // Check if blocks are in UTM or WGS84
-            const isUTM = blockModelData.length > 0 && 
+            const isUTM = blockCount > 0 && 
                          (isUTMCoordinate(parseFloat(blockModelData[0].centroid_x)) || 
                           isUTMCoordinate(parseFloat(blockModelData[0].centroid_y)));
             
-            debug(\`Block model appears to be in \${isUTM ? 'UTM' : 'WGS84'} coordinates\`);
-            updateProgress(20, \`Processing \${blockModelData.length} blocks...\`);
-            
-            // Determine the maximum number of blocks to process for performance
-            const maxBlocks = isUTM ? blockModelData.length : 3000;
-            const processInterval = Math.max(1, Math.ceil(blockModelData.length / maxBlocks));
-            
             // Process blocks to find intersections with line
             const intersectingBlocks = [];
-            let processedCount = 0;
             
-            for (let i = 0; i < blockModelData.length; i += processInterval) {
+            for (let i = 0; i < blockCount; i += processInterval) {
               const block = blockModelData[i];
               
-              // Get block information
-              const x = parseFloat(block.centroid_x);
-              const y = parseFloat(block.centroid_y);
-              const z = parseFloat(block.centroid_z);
-              const width = parseFloat(block.dim_x) || 10;
-              const height = parseFloat(block.dim_z) || 10;
-              
               // Skip invalid blocks
-              if (isNaN(x) || isNaN(y) || isNaN(z)) {
-                continue;
+              const x = parseFloat(block.centroid_x || block.x || 0);
+              const y = parseFloat(block.centroid_y || block.y || 0);
+              const z = parseFloat(block.centroid_z || block.z || 0);
+              
+              if (isNaN(x) || isNaN(y) || isNaN(z)) continue;
+              
+              // Project block center onto the line
+              const blockPoint = { lng: x, lat: y };
+              const projection = projectPointOntoLine(blockPoint, startPoint, endPoint);
+              
+              // Width and height with fallbacks
+              const width = parseFloat(block.dim_x || block.width || 10);
+              const height = parseFloat(block.dim_z || block.height || 10);
+              
+              // Only include blocks near the line
+              if (projection.ratio >= 0 && projection.ratio <= 1 && 
+                  projection.distanceToLine < width * 2) {
+                
+                intersectingBlocks.push({
+                  distance: projection.distanceAlongLine,
+                  width: width,
+                  height: height,
+                  elevation: z,
+                  rock: block.rock || "unknown",
+                  color: block.color || getColorForRockType(block.rock || "unknown")
+                });
               }
               
-              // For UTM projection, use a different approach
-              if (isUTM) {
-                // Project block center onto the line
-                const projection = projectPointOntoLine(
-                  { x, y }, 
-                  startPoint, 
-                  endPoint,
-                  true // Flag that this is a UTM point
-                );
-                
-                // Only include blocks that are along the line segment
-                if (projection.ratio >= 0 && projection.ratio <= 1) {
-                  intersectingBlocks.push({
-                    ...block,
-                    distance: projection.distanceAlongLine,
-                    width: width,
-                    height: height,
-                    elevation: z,
-                    rock: block.rock || "unknown",
-                    color: block.color || getColorForRockType(block.rock)
-                  });
-                }
-              } else {
-                // For WGS84 coordinates, use direct projection
-                const blockPoint = { lng: x, lat: y };
-                const projection = projectPointOntoLine(blockPoint, startPoint, endPoint);
-                
-                // Add the block if it's close enough to the line
-                if (projection.ratio >= 0 && projection.ratio <= 1 && 
-                    projection.distanceToLine < width * 2) {
-                  intersectingBlocks.push({
-                    ...block,
-                    distance: projection.distanceAlongLine,
-                    width: width,
-                    height: height,
-                    elevation: z,
-                    rock: block.rock || "unknown",
-                    color: block.color || getColorForRockType(block.rock)
-                  });
-                }
-              }
-              
-              // Update progress periodically
-              processedCount++;
-              if (processedCount % Math.max(1, Math.floor(blockModelData.length / 10)) === 0) {
-                const percent = 20 + Math.min(40, Math.round((processedCount / blockModelData.length) * 40));
-                updateProgress(percent, \`Processing blocks: \${processedCount} / \${blockModelData.length}\`);
+              // Update progress for large datasets
+              if (blockCount > 1000 && i % Math.max(1, Math.floor(blockCount / 10)) === 0) {
+                const percent = 10 + Math.min(40, Math.round((i / blockCount) * 40));
+                updateProgress(percent, \`Processing blocks: \${i} / \${blockCount}\`);
               }
             }
             
-            debug(\`Found \${intersectingBlocks.length} blocks intersecting with cross-section line\`);
-            updateProgress(60, \`Found \${intersectingBlocks.length} blocks for cross-section\`);
+            // Sort blocks by distance
+            intersectingBlocks.sort((a, b) => a.distance - b.distance);
             
-            // If no blocks found, fall back to test blocks
+            updateProgress(50, "Block processing complete");
+            
+            // If no blocks found, fallback to test data
             if (intersectingBlocks.length === 0) {
-              debug("No blocks found, using test blocks");
               return generateTestBlocks();
             }
             
-            // Optimize the number of blocks if there are too many
-            let optimizedBlocks = intersectingBlocks;
-            if (intersectingBlocks.length > 500) {
-              debug(\`Optimizing: reducing from \${intersectingBlocks.length} to 500 blocks\`);
-              const interval = Math.ceil(intersectingBlocks.length / 500);
-              optimizedBlocks = intersectingBlocks.filter((_, i) => i % interval === 0);
-            }
-            
-            // Sort blocks by distance along the line
-            optimizedBlocks.sort((a, b) => a.distance - b.distance);
-            
-            updateProgress(70, "Block processing complete");
-            return optimizedBlocks;
+            return intersectingBlocks;
           } catch (err) {
             debug("Error processing blocks: " + err.message);
             return generateTestBlocks(); // Fallback
@@ -603,73 +641,28 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           return testBlocks;
         }
         
-        // Calculate min and max elevations for Y-axis scaling
-        function getElevationRange(blocks, elevationPoints, pitPoints) {
-          try {
-            const allElevations = [];
-            
-            // Add block model elevations
-            blocks.forEach(block => {
-              const blockZ = parseFloat(block.elevation || block.centroid_z || 0);
-              const blockHeight = parseFloat(block.height || block.dim_z || 10);
-              const top = blockZ + blockHeight/2;
-              const bottom = blockZ - blockHeight/2;
-              
-              if (!isNaN(top)) allElevations.push(top);
-              if (!isNaN(bottom)) allElevations.push(bottom);
+        // Generate test elevation profile
+        function generateTestElevationProfile() {
+          const testPoints = [];
+          for (let i = 0; i <= 20; i++) {
+            const distance = i * lineLength / 20;
+            const elevation = 80 - Math.sin(i/3) * 20;
+            testPoints.push({
+              distance: distance,
+              elevation: elevation
             });
-            
-            // Add elevation data
-            if (elevationPoints && elevationPoints.length > 0) {
-              elevationPoints.forEach(point => {
-                if (point.z !== undefined && !isNaN(point.z)) {
-                  allElevations.push(parseFloat(point.z));
-                } else if (point.elevation !== undefined && !isNaN(point.elevation)) {
-                  allElevations.push(parseFloat(point.elevation));
-                }
-              });
-            }
-            
-            // Add pit data elevations
-            if (pitPoints && pitPoints.length > 0) {
-              pitPoints.forEach(point => {
-                if (point.z !== undefined && !isNaN(point.z)) {
-                  allElevations.push(parseFloat(point.z));
-                } else if (point.level !== undefined && !isNaN(point.level)) {
-                  allElevations.push(parseFloat(point.level));
-                }
-              });
-            }
-            
-            // Filter out invalid values
-            const validElevations = allElevations.filter(e => !isNaN(e));
-            
-            if (validElevations.length === 0) {
-              debug("No valid elevations found, using default range");
-              return { min: 0, max: 100 }; // Default range
-            }
-            
-            // Find min and max with padding
-            const min = Math.min(...validElevations) - 20;
-            const max = Math.max(...validElevations) + 20;
-            
-            debug(\`Elevation range: \${min.toFixed(1)} to \${max.toFixed(1)}\`);
-            return { min, max };
-          } catch (err) {
-            debug("Error getting elevation range: " + err.message);
-            return { min: 0, max: 100 }; // Default range on error
           }
+          return testPoints;
         }
         
-        // Process elevation data for visualization
+        // Process elevation data for visualization (simplified)
         function processElevationData() {
           if (!elevationData || elevationData.length === 0) {
-            debug("No elevation data to process");
             return generateTestElevationProfile();
           }
           
           try {
-            updateProgress(75, "Processing elevation data...");
+            updateProgress(60, "Processing elevation data...");
             
             // Create points for every 5% of the line length
             const numPoints = 20;
@@ -679,24 +672,26 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               const ratio = i / numPoints;
               const distance = ratio * lineLength;
               
-              // Find closest elevation points and interpolate
+              // Find closest elevation point through simplified approach
               let closestElevation = null;
               let minDistance = Infinity;
               
-              elevationData.forEach(point => {
+              for (let j = 0; j < elevationData.length; j++) {
+                const point = elevationData[j];
                 const pointLocation = {
                   lng: parseFloat(point.x || point.lon || 0),
                   lat: parseFloat(point.y || point.lat || 0)
                 };
                 
-                const projection = projectPointOntoLine(pointLocation, startPoint, endPoint);
-                const distanceFromRatio = Math.abs(projection.ratio - ratio);
+                const dx = pointLocation.lng - (startPoint.lng + ratio * (endPoint.lng - startPoint.lng));
+                const dy = pointLocation.lat - (startPoint.lat + ratio * (endPoint.lat - startPoint.lat));
+                const distance = Math.sqrt(dx*dx + dy*dy);
                 
-                if (distanceFromRatio < minDistance) {
-                  minDistance = distanceFromRatio;
+                if (distance < minDistance) {
+                  minDistance = distance;
                   closestElevation = parseFloat(point.z || point.elevation || 0);
                 }
-              });
+              }
               
               processedPoints.push({
                 distance: distance,
@@ -704,44 +699,28 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               });
             }
             
-            debug(\`Processed \${processedPoints.length} elevation points\`);
+            updateProgress(70, "Elevation processing complete");
             return processedPoints;
           } catch (err) {
-            debug("Error processing elevation data: " + err.message);
             return generateTestElevationProfile();
           }
         }
         
-        // Generate test elevation profile
-        function generateTestElevationProfile() {
-          const testPoints = [];
-          for (let i = 0; i <= 20; i++) {
-            const distance = i * lineLength / 20;
-            // Create a simple terrain profile
-            const elevation = 80 - Math.sin(i/3) * 20;
-            testPoints.push({
-              distance: distance,
-              elevation: elevation
-            });
-          }
-          debug("Generated test elevation profile");
-          return testPoints;
-        }
-        
-        // Process pit data for visualization
+        // Process pit data for visualization (simplified)
         function processPitData() {
           if (!pitData || pitData.length === 0) {
-            debug("No pit data to process");
             return [];
           }
           
           try {
-            updateProgress(85, "Processing pit data...");
+            updateProgress(80, "Processing pit data...");
             
             // Find pit points near the line
             const relevantPitPoints = [];
+            const pitCount = Math.min(pitData.length, 1000);
             
-            pitData.forEach(point => {
+            for (let i = 0; i < pitCount; i++) {
+              const point = pitData[i];
               const pointLocation = {
                 lng: parseFloat(point.x || 0),
                 lat: parseFloat(point.y || 0)
@@ -752,40 +731,86 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               // Only include points close to the line
               if (projection.ratio >= 0 && projection.ratio <= 1) {
                 relevantPitPoints.push({
-                  ...point,
                   distance: projection.distanceAlongLine,
                   elevation: parseFloat(point.z || point.level || 0)
                 });
               }
-            });
+            }
             
             // Sort by distance along the line
             relevantPitPoints.sort((a, b) => a.distance - b.distance);
             
-            debug(\`Processed \${relevantPitPoints.length} pit points\`);
+            updateProgress(85, "Pit data processing complete");
             return relevantPitPoints;
           } catch (err) {
-            debug("Error processing pit data: " + err.message);
             return [];
           }
         }
         
-        // Rendering function (separated for progressive loading)
+        // Get elevation range for Y-axis scaling
+        function getElevationRange(blocks, elevationPoints, pitPoints) {
+          try {
+            const allElevations = [];
+            
+            // Add block model elevations
+            blocks.forEach(block => {
+              const blockZ = parseFloat(block.elevation || 0);
+              const blockHeight = parseFloat(block.height || 10);
+              allElevations.push(blockZ + blockHeight/2);
+              allElevations.push(blockZ - blockHeight/2);
+            });
+            
+            // Add elevation data
+            if (elevationPoints && elevationPoints.length > 0) {
+              elevationPoints.forEach(point => {
+                if (point.elevation !== null && !isNaN(point.elevation)) {
+                  allElevations.push(point.elevation);
+                }
+              });
+            }
+            
+            // Add pit data elevations
+            if (pitPoints && pitPoints.length > 0) {
+              pitPoints.forEach(point => {
+                if (!isNaN(point.elevation)) {
+                  allElevations.push(point.elevation);
+                }
+              });
+            }
+            
+            // Filter out invalid values
+            const validElevations = allElevations.filter(e => !isNaN(e));
+            
+            if (validElevations.length === 0) {
+              return { min: 0, max: 100 }; // Default range
+            }
+            
+            // Find min and max with padding
+            const min = Math.min(...validElevations) - 20;
+            const max = Math.max(...validElevations) + 20;
+            
+            return { min, max };
+          } catch (err) {
+            return { min: 0, max: 100 }; // Default range on error
+          }
+        }
+        
+        // Rendering function 
         function renderVisualization() {
+          if (isRendering || hasRendered) return; // Prevent double rendering
+          
+          isRendering = true;
+          
           try {
             updateProgress(90, "Rendering visualization...");
-            
-            // Clear any existing timeout
-            clearTimeout(processTimeout);
             
             // Setup chart dimensions
             const margin = { top: 40, right: 60, bottom: 60, left: 60 };
             
-            // Decide if we need horizontal scrolling
+            // Create a responsive width based on data
             const blockCount = sectionBlocks.length;
             const needsScrolling = blockCount > 15 || lineLength > 1000;
             
-            // Calculate width for the chart
             const chartWidth = needsScrolling ? 
               Math.max(window.innerWidth * 1.5, lineLength / 5, blockCount * 30) : 
               window.innerWidth;
@@ -798,7 +823,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             sendToRN('chartDimensions', { width: chartWidth });
             
             // Get elevation range for scaling
-            const elevRange = getElevationRange(sectionBlocks, elevationData, pitData);
+            const elevRange = getElevationRange(sectionBlocks, elevationProfile, pitProfile);
             
             // Create SVG with proper dimensions for scrolling
             const svg = d3.select('#chart')
@@ -870,8 +895,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                   .tickSize(-innerWidth)
                   .tickFormat('')
               );
-              
-            updateProgress(92, "Drawing terrain elevation...");
             
             // Draw elevation profile if available
             if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
@@ -881,7 +904,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                   .x(d => xScale(d.distance))
                   .y(d => yScale(d.elevation))
                   .curve(d3.curveBasis)
-                  .defined(d => d.elevation !== null); // Skip null elevations
+                  .defined(d => d.elevation !== null);
                   
                 g.append('path')
                   .datum(elevationProfile.filter(p => p.elevation !== null))
@@ -896,7 +919,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                   .y0(innerHeight)
                   .y1(d => yScale(d.elevation))
                   .curve(d3.curveBasis)
-                  .defined(d => d.elevation !== null); // Skip null elevations
+                  .defined(d => d.elevation !== null);
                   
                 g.append('path')
                   .datum(elevationProfile.filter(p => p.elevation !== null))
@@ -906,8 +929,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                 debug("Error drawing elevation profile: " + err.message);
               }
             }
-            
-            updateProgress(94, "Drawing pit boundaries...");
             
             // Draw pit boundaries if available
             if (pitProfile && pitProfile.length > 0) {
@@ -928,8 +949,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               }
             }
             
-            updateProgress(96, "Drawing blocks...");
-            
             // Collect unique rock types and colors for legend
             const uniqueRocks = {};
             
@@ -945,11 +964,10 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                   uniqueRocks[rockType] = color;
                 });
                 
-                // Draw blocks - use optimized rendering for large datasets
-                const blockSelection = g.selectAll('.block')
-                  .data(sectionBlocks);
-                
-                blockSelection.enter()
+                // Draw all blocks at once for better performance
+                g.selectAll('.block')
+                  .data(sectionBlocks)
+                  .enter()
                   .append('rect')
                   .attr('class', 'block')
                   .attr('x', d => xScale(d.distance - d.width/2))
@@ -992,8 +1010,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                 debug("Error drawing blocks: " + err.message);
               }
             }
-            
-            updateProgress(98, "Creating legend...");
             
             // Create legend
             const legend = g.append('g')
@@ -1073,6 +1089,10 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             // Hide loading indicator
             document.getElementById('loading').style.display = 'none';
             
+            // Mark as rendered
+            hasRendered = true;
+            isRendering = false;
+            
             // Let React Native know rendering is complete
             sendToRN('renderComplete', { 
               message: 'D3 visualization complete',
@@ -1080,17 +1100,26 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               chartWidth: chartWidth
             });
           } catch (error) {
+            isRendering = false;
             debug('Error rendering visualization: ' + error.toString());
             document.getElementById('message').textContent = 'Error: ' + error.toString();
             sendToRN('renderError', { error: error.toString() });
           }
         }
         
+        // Function to render with test data (for fallback)
+        function renderWithTestData(lineLen) {
+          sectionBlocks = generateTestBlocks();
+          elevationProfile = generateTestElevationProfile();
+          pitProfile = [];
+          
+          // Render the visualization
+          renderVisualization();
+        }
+        
         // Main entry point
-        document.addEventListener('DOMContentLoaded', async function() {
+        document.addEventListener('DOMContentLoaded', function() {
           try {
-            debug('D3.js visualization starting');
-            
             // Check if D3 is loaded
             if (!window.d3) {
               document.getElementById('message').textContent = 'Error: D3.js not loaded';
@@ -1100,27 +1129,23 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             
             // Process all data in sequence with progress updates
             try {
-              debug("Processing block model data...");
-              sectionBlocks = processCrossSectionBlockModel();
-              debug(\`Processed \${sectionBlocks.length} blocks for cross-section\`);
-              
-              debug("Processing elevation data...");
-              elevationProfile = processElevationData();
-              
-              debug("Processing pit data...");
-              pitProfile = processPitData();
-              
-              // Render the visualization
-              renderVisualization();
+              setTimeout(() => {
+                // Set a short timeout to let the WebView stabilize
+                debug("Processing block model data...");
+                sectionBlocks = processCrossSectionBlockModel();
+                
+                debug("Processing elevation data...");
+                elevationProfile = processElevationData();
+                
+                debug("Processing pit data...");
+                pitProfile = processPitData();
+                
+                // Render the visualization
+                renderVisualization();
+              }, 10);
             } catch (err) {
               debug("Error in data processing: " + err.message);
-              // Use fallback data
-              sectionBlocks = generateTestBlocks();
-              elevationProfile = generateTestElevationProfile();
-              pitProfile = [];
-              
-              // Render with fallback data
-              renderVisualization();
+              renderWithTestData(lineLength);
             }
           } catch (error) {
             debug('Error in main processing: ' + error.toString());
@@ -1131,189 +1156,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
       </script>
     </body>
     </html>
-    `;
-  };
-
-  const d3Html = generateD3Html();
-
-  const handleMessage = (event: any) => {
-    try {
-      const message = JSON.parse(event.nativeEvent.data);
-
-      if (message.type === "renderComplete") {
-        console.log("Render complete message received:", message);
-        setLoading(false);
-        if (message.chartWidth) {
-          setChartWidth(message.chartWidth);
-        }
-      } else if (message.type === "renderError") {
-        setError(message.error);
-      } else if (message.type === "debug") {
-        // Just log to console, not to UI
-        console.log("WebView debug:", message.message);
-      } else if (message.type === "chartDimensions") {
-        // Update chart dimensions for scrolling
-        if (message.width) {
-          setChartWidth(message.width);
-        }
-      } else if (message.type === "progressUpdate") {
-        // Update loading progress message
-        if (message.message) {
-          setLoadingMessage(message.message);
-        }
-      }
-    } catch (e) {
-      console.error("Error parsing WebView message:", e);
-    }
-  };
-
-  const injectDebugCode = () => {
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`
-        (function() {
-          document.getElementById('loading').style.display = 'flex';
-          document.getElementById('message').textContent = 'Rendering simplified version...';
-          document.getElementById('progress-fill').style.width = '50%';
-          
-          setTimeout(() => {
-            try {
-              // Force redraw with fallback data
-              document.querySelector('#chart svg')?.remove();
-              
-              // Generate test blocks
-              const testBlocks = [];
-              for (let i = 0; i < 10; i++) {
-                testBlocks.push({
-                  distance: i * ${lineLength} / 10,
-                  width: 30,
-                  height: 10,
-                  elevation: 50 - i * 5,
-                  rock: i % 3 === 0 ? "ore" : (i % 3 === 1 ? "waste" : "lim"),
-                  color: i % 3 === 0 ? "#b40c0d" : (i % 3 === 1 ? "#606060" : "#045993")
-                });
-              }
-              
-              // Generate test elevation profile
-              const testElevation = [];
-              for (let i = 0; i <= 20; i++) {
-                testElevation.push({
-                  distance: i * ${lineLength} / 20,
-                  elevation: 80 - Math.sin(i/3) * 20
-                });
-              }
-              
-              // Use test data
-              sectionBlocks = testBlocks;
-              elevationProfile = testElevation;
-              pitProfile = [];
-              
-              // Render visualization with test data
-              renderVisualization();
-            } catch (err) {
-              document.getElementById('loading').style.display = 'none';
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'renderError',
-                  error: 'Fallback render failed: ' + err.message
-                }));
-              }
-            }
-          }, 500);
-          
-          return true;
-        })();
-      `);
-    }
-  };
-
-  return (
-    <View style={styles.container}>
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#0066CC" />
-          <Text style={styles.loadingText}>{loadingMessage}</Text>
-        </View>
-      )}
-
-      {/* Use ScrollView for horizontal scrolling with dynamic width */}
-      <ScrollView
-        horizontal={true}
-        style={styles.scrollContainer}
-        contentContainerStyle={{
-          width: chartWidth > 0 ? chartWidth : undefined,
-        }}
-      >
-        <WebView
-          ref={webViewRef}
-          source={{ html: d3Html }}
-          style={[
-            styles.webview,
-            { width: chartWidth > 0 ? chartWidth : "100%" },
-          ]}
-          originWhitelist={["*"]}
-          javaScriptEnabled={true}
-          onMessage={handleMessage}
-          onError={(e) => {
-            console.error("WebView error:", e.nativeEvent);
-            setError(`WebView error: ${e.nativeEvent.description}`);
-          }}
-          onLoadStart={() => console.log("WebView load starting...")}
-          onLoad={() => console.log("WebView loaded successfully!")}
-          scrollEnabled={true}
-        />
-      </ScrollView>
-
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Button title="Try Simplified Render" onPress={injectDebugCode} />
-        </View>
-      )}
-    </View>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    position: "relative",
-  },
-  scrollContainer: {
-    flex: 1,
-  },
-  webview: {
-    height: "100%",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(240, 240, 240, 0.8)",
-    zIndex: 10,
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#0066CC",
-  },
-  errorContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(255, 0, 0, 0.1)",
-    padding: 10,
-  },
-  errorText: {
-    color: "red",
-    fontSize: 14,
-    marginBottom: 10,
-  },
-});
+  `;
+}
 
 export default CrossSectionWebView;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -49,6 +49,29 @@ export default function TopDownViewScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Loading data...");
 
+  // State for create line mode
+  const [isCreateLineMode, setIsCreateLineMode] = useState(false);
+
+  // Refs for tracking state changes
+  const processedMessagesRef = useRef<Set<string>>(new Set());
+  const [addPointFunc, setAddPointFunc] = useState<(() => void) | null>(null);
+
+  const handleCoordinateChange = useCallback(
+    (coords: { lat: number; lng: number }) => {
+      setCoordinates({
+        lat: coords.lat || 0,
+        lng: coords.lng || 0,
+        x: coords.lng || 0,
+        y: coords.lat || 0,
+      });
+    },
+    []
+  );
+
+  const handleAddPointCallback = useCallback((addPointFunction: () => void) => {
+    setAddPointFunc(() => addPointFunction);
+  }, []);
+
   // State for file data
   const [fileData, setFileData] = useState<FileService.MiningDataFile | null>(
     null
@@ -70,9 +93,6 @@ export default function TopDownViewScreen() {
     clearData,
   } = useMiningData();
 
-  // State for create line mode
-  const [isCreateLineMode, setIsCreateLineMode] = useState(false);
-
   // State for selected points
   const [selectedPoints, setSelectedPoints] = useState<any[]>([]);
   const [lineLength, setLineLength] = useState(0);
@@ -92,6 +112,16 @@ export default function TopDownViewScreen() {
   // Load file data on mount
   useEffect(() => {
     loadFileData();
+
+    // Clear state on mount
+    setSelectedPoints([]);
+    setLineLength(0);
+    processedMessagesRef.current.clear();
+
+    return () => {
+      // Clear context data when component unmounts
+      clearData();
+    };
   }, [fileName]);
 
   useEffect(() => {
@@ -100,13 +130,6 @@ export default function TopDownViewScreen() {
       setProcessedElevation(elevationData);
     }
   }, [elevationData]);
-
-  useEffect(() => {
-    return () => {
-      // Clear context data when component unmounts
-      clearData();
-    };
-  }, []);
 
   useEffect(() => {
     if (blockModelData.length > 0) {
@@ -136,7 +159,6 @@ export default function TopDownViewScreen() {
         const maxElev = Math.max(...validElevations);
 
         // Set to show ENTIRE range initially
-        console.log(`Setting full elevation range: ${minElev} to ${maxElev}`);
         setElevationRange({ min: minElev, max: maxElev });
 
         // Start with full data visible
@@ -186,10 +208,6 @@ export default function TopDownViewScreen() {
           const data = await FileService.parseCSVFile(
             file.files.blockModel.uri
           );
-          console.log(
-            "Block model data loaded, first few rows:",
-            data.slice(0, 3)
-          );
 
           // Skip the header rows (first 3 rows are descriptions)
           rawBlockModelData = data.slice(3);
@@ -223,12 +241,6 @@ export default function TopDownViewScreen() {
             }
           );
 
-          console.log(
-            `Loaded ${rawElevationData.length} raw elevation data points in ${
-              (Date.now() - elevationStartTime) / 1000
-            }s`
-          );
-
           // Process elevation data, filtering by block model bounding box
           const processedElevation = processElevationData(
             rawElevationData,
@@ -237,10 +249,6 @@ export default function TopDownViewScreen() {
             "lat",
             "z",
             blockModelBoundingBox
-          );
-
-          console.log(
-            `Processed ${processedElevation.length} elevation points after filtering`
           );
 
           setElevationData(processedElevation);
@@ -287,9 +295,6 @@ export default function TopDownViewScreen() {
 
       InteractionManager.runAfterInteractions(() => {
         try {
-          console.log(
-            `Processing block model data with projection: ${sourceProjection}`
-          );
           const startTime = Date.now();
 
           // Use selected projection and process top elevation only
@@ -307,17 +312,6 @@ export default function TopDownViewScreen() {
             );
             return;
           }
-
-          console.log(
-            `Block model data converted to GeoJSON in ${
-              (Date.now() - startTime) / 1000
-            }s`
-          );
-          console.log(
-            `Block model converted to GeoJSON with ${
-              result.geoJsonData?.features?.length || 0
-            } features`
-          );
 
           setProcessedBlockModel(result.geoJsonData);
           setGeoJsonData(result.geoJsonData);
@@ -342,15 +336,6 @@ export default function TopDownViewScreen() {
 
       InteractionManager.runAfterInteractions(() => {
         try {
-          console.log(
-            `Processing pit data with projection: ${sourceProjection}`
-          );
-
-          // Debug data mentah
-          if (lidarData.length > 0) {
-            console.log("Raw pit data sample:", lidarData[0]);
-          }
-
           // Pastikan semua field ada dan tipe datanya benar
           const pitDataFormat = lidarData.map((point) => ({
             x: point.lon || point.x || 0,
@@ -361,8 +346,6 @@ export default function TopDownViewScreen() {
             type: 0,
           }));
 
-          console.log("Pit data format sample:", pitDataFormat[0]);
-
           // Batas jumlah data yang diproses untuk mencegah overload
           const pitDataSample =
             pitDataFormat.length > 10000
@@ -370,10 +353,6 @@ export default function TopDownViewScreen() {
                   (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
                 )
               : pitDataFormat;
-
-          console.log(
-            `Processing ${pitDataSample.length} out of ${pitDataFormat.length} pit points`
-          );
 
           const result = processPitDataToGeoJSON(
             pitDataSample,
@@ -385,10 +364,6 @@ export default function TopDownViewScreen() {
             Alert.alert("Warning", "Failed to convert LiDAR data to GeoJSON");
             return;
           }
-
-          console.log(
-            `Processed pit GeoJSON has ${result.features.length} features`
-          );
 
           if (result) {
             setProcessedPitData(result);
@@ -405,58 +380,97 @@ export default function TopDownViewScreen() {
     }
   };
 
-  // Handle map press
-  const handleMapPress = (point: any) => {
-    if (!isCreateLineMode) return;
+  // Handle map press with deduplication
+  const handleMapPress = useCallback((point: any) => {
+    // Update koordinat
+    if (point.lat !== undefined && point.lng !== undefined) {
+      setCoordinates({
+        lat: point.lat || 0,
+        lng: point.lng || 0,
+        x: point.lng || 0,
+        y: point.lat || 0,
+      });
+    }
 
-    setCoordinates(point);
+    // Handle point added events with key-based deduplication
+    if (point.isFirstPoint && point.point) {
+      const pointKey = point.pointKey || JSON.stringify(point.point);
 
-    // Check if this is a complete line message
+      // Check if we've already processed this point
+      if (processedMessagesRef.current.has(pointKey)) {
+        return;
+      }
+
+      // Mark as processed
+      processedMessagesRef.current.add(pointKey);
+
+      // Update state with the new point
+      setSelectedPoints([point.point]);
+    }
+
+    // Handle completed line with key-based deduplication
     if (point.isLineComplete && point.points) {
-      console.log("Line completed:", point.points);
-      setSelectedPoints(point.points);
+      const lineKey = point.lineKey || JSON.stringify(point.points);
 
-      // Calculate distance for the line
+      // Check if we've already processed this line
+      if (processedMessagesRef.current.has(lineKey)) {
+        return;
+      }
+
+      // Mark as processed
+      processedMessagesRef.current.add(lineKey);
+
+      // Update state with the line points
+      setSelectedPoints(point.points);
       const distance = calculateLineDistance(point.points);
       setLineLength(Math.round(distance));
+    }
+  }, []);
+
+  // Handle undo button
+  const handleUndo = useCallback(() => {
+    if (selectedPoints.length > 0) {
+      const newPoints = selectedPoints.slice(0, -1);
+      setSelectedPoints(newPoints);
+
+      if (selectedPoints.length <= 1) {
+        setLineLength(0);
+      }
+
+      // Clear processed messages to allow re-adding points
+      processedMessagesRef.current.clear();
+    }
+  }, [selectedPoints]);
+
+  // Handle add point button
+  const handleAddPoint = useCallback(() => {
+    // If we already have 2 points, reset
+    if (selectedPoints.length >= 2) {
+      setSelectedPoints([]);
+      setLineLength(0);
+      processedMessagesRef.current.clear();
       return;
     }
 
-    // Legacy point-by-point handling
-    // Add new point if less than 2 points
-    if (selectedPoints.length < 2) {
-      const newPoints = [...selectedPoints, [point.lat, point.lng]];
+    // Use the add point function from LeafletMap
+    if (addPointFunc) {
+      addPointFunc();
+    } else {
+      // Fallback if addPointFunc is not available
+      const newPoint = [coordinates.lat || 0, coordinates.lng || 0];
+      const newPoints = [...selectedPoints, newPoint];
       setSelectedPoints(newPoints);
 
-      // Calculate distance if 2 points
+      // Calculate line length if we now have 2 points
       if (newPoints.length === 2) {
         const distance = calculateLineDistance(newPoints);
         setLineLength(Math.round(distance));
       }
     }
-  };
-
-  // Handle undo button
-  const handleUndo = () => {
-    if (selectedPoints.length > 0) {
-      setSelectedPoints(selectedPoints.slice(0, -1));
-      if (selectedPoints.length <= 1) {
-        setLineLength(0);
-      }
-    }
-  };
-
-  // Handle add point button
-  const handleAddPoint = () => {
-    if (selectedPoints.length === 2) {
-      // Reset if already 2 points
-      setSelectedPoints([]);
-      setLineLength(0);
-    }
-  };
+  }, [addPointFunc, coordinates, selectedPoints]);
 
   // Navigate to cross section view
-  const handleCreateCrossSection = () => {
+  const handleCreateCrossSection = useCallback(() => {
     if (selectedPoints.length !== 2) return;
 
     router.push({
@@ -469,55 +483,79 @@ export default function TopDownViewScreen() {
         length: lineLength.toString(),
         elevation: elevation.toString(),
         fileName: String(fileName),
-        projection: sourceProjection, // Pass projection to cross section view
+        projection: sourceProjection,
       },
     });
-  };
+  }, [
+    selectedPoints,
+    lineLength,
+    elevation,
+    fileName,
+    sourceProjection,
+    router,
+  ]);
 
   // Toggle ruler mode
-  const toggleRulerMode = () => {
-    setIsCreateLineMode(!isCreateLineMode);
-    if (!isCreateLineMode) {
-      setSelectedPoints([]);
-      setLineLength(0);
-    }
-  };
+  const toggleRulerMode = useCallback(() => {
+    setIsCreateLineMode((prev) => !prev);
+    setSelectedPoints([]);
+    setLineLength(0);
+    processedMessagesRef.current.clear();
+  }, []);
 
-  // Handle slider thumb pan
-  const handleSliderChange = (value: number) => {
-    setIntervalValue(Math.min(30, Math.max(0, value)));
+  const handleSliderChange = useCallback(
+    (value: number) => {
+      setIntervalValue(Math.min(30, Math.max(0, value)));
 
-    if (lidarData.length > 0) {
-      const elevations = lidarData.map((point) => parseFloat(String(point.z)));
-      const validElevations = elevations.filter((e) => !isNaN(e));
+      if (lidarData.length > 0) {
+        const elevations = lidarData.map((point) =>
+          parseFloat(String(point.z))
+        );
+        const validElevations = elevations.filter((e) => !isNaN(e));
 
-      if (validElevations.length > 0) {
-        const minElev = Math.min(...validElevations);
-        const maxElev = Math.max(...validElevations);
-        const range = maxElev - minElev;
+        if (validElevations.length > 0) {
+          const minElev = Math.min(...validElevations);
+          const maxElev = Math.max(...validElevations);
+          const range = maxElev - minElev;
 
-        // Calculate new max based on slider
-        const intervalPercent = value / 30;
-        const newMax = minElev + range * intervalPercent;
+          // Calculate new max based on slider
+          const intervalPercent = value / 30;
+          const newMax = minElev + range * intervalPercent;
 
-        console.log(`Updating elevation range: ${minElev} to ${newMax}`);
-        setElevationRange({ min: minElev, max: newMax });
+          setElevationRange({ min: minElev, max: newMax });
+        }
       }
-    }
-  };
+    },
+    [lidarData]
+  );
 
   // Handle map ready
-  const handleMapReady = () => {
+  const handleMapReady = useCallback(() => {
     setMapReady(true);
-    console.log("Map is ready!");
-  };
+  }, []);
 
   // Render header
   const renderHeader = () => {
     const title = isCreateLineMode ? "Create Line" : "Top Down View";
 
+    const handleBackPress = () => {
+      if (isCreateLineMode) {
+        // Kembali ke Top Down View
+        setIsCreateLineMode(false);
+        setSelectedPoints([]);
+        setLineLength(0);
+        processedMessagesRef.current.clear();
+      } else {
+        // Kembali ke halaman sebelumnya
+        router.back();
+      }
+    };
+
     return (
       <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
+          <MaterialIcons name="arrow-back" size={24} color="black" />
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>{title}</Text>
         <TouchableOpacity
           style={styles.homeButton}
@@ -558,12 +596,18 @@ export default function TopDownViewScreen() {
           style={styles.input}
           value={
             selectedPoints.length > 0
-              ? `${coordinates.lng.toFixed(6)}, ${coordinates.lat.toFixed(6)}`
+              ? `${(coordinates.lng || 0).toFixed(6)}, ${(
+                  coordinates.lat || 0
+                ).toFixed(6)}`
               : ""
           }
           editable={false}
         />
       </View>
+
+      <Text style={styles.debugInfo}>
+        Selected points: {selectedPoints.length}
+      </Text>
     </View>
   );
 
@@ -575,7 +619,14 @@ export default function TopDownViewScreen() {
           <Text style={styles.actionButtonText}>Undo</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.actionButton} onPress={handleAddPoint}>
+        <TouchableOpacity
+          style={[
+            styles.actionButton,
+            selectedPoints.length >= 2 && styles.disabledActionButton,
+          ]}
+          onPress={handleAddPoint}
+          disabled={selectedPoints.length >= 2}
+        >
           <Text style={styles.actionButtonText}>Add point</Text>
         </TouchableOpacity>
       </View>
@@ -583,7 +634,7 @@ export default function TopDownViewScreen() {
       <TouchableOpacity
         style={[
           styles.createSectionButton,
-          selectedPoints.length !== 2 && { opacity: 0.5 },
+          selectedPoints.length !== 2 && styles.disabledSectionButton,
         ]}
         onPress={handleCreateCrossSection}
         disabled={selectedPoints.length !== 2}
@@ -610,11 +661,18 @@ export default function TopDownViewScreen() {
             {isCreateLineMode && renderCreateLineInputs()}
 
             {/* Map Container */}
-            <View style={styles.mapContainer}>
-              {/* This is where we render the LeafletMap component with GeoJSON data */}
+            <View
+              style={[
+                styles.mapContainer,
+                { height: isCreateLineMode ? windowWidth : windowWidth * 1.3 },
+              ]}
+            >
+              {/* LeafletMap component */}
               <LeafletMap
                 onMapPress={handleMapPress}
                 onMapReady={handleMapReady}
+                onCoordinateChange={handleCoordinateChange}
+                onAddPointFromCrosshair={handleAddPointCallback}
                 style={styles.map}
                 geoJsonData={geoJsonData}
                 pitGeoJsonData={pitGeoJsonData}
@@ -623,6 +681,9 @@ export default function TopDownViewScreen() {
                 selectedPoints={selectedPoints}
                 isCreateLineMode={isCreateLineMode}
                 elevationRange={elevationRange}
+                hideInternalCoordinates={true}
+                useCrosshairForDrawing={true}
+                lineColor="#CFE625"
               />
 
               {/* Crosshair indicator */}
@@ -681,9 +742,9 @@ export default function TopDownViewScreen() {
                   <View style={styles.coordinatesDisplay}>
                     <Text style={styles.coordinatesText}>
                       {mapReady
-                        ? `x:${Math.round(coordinates.lng)}, y:${Math.round(
-                            coordinates.lat
-                          )}`
+                        ? `x:${Math.round(
+                            coordinates?.lng || 0
+                          )}, y:${Math.round(coordinates?.lat || 0)}`
                         : "Loading..."}
                     </Text>
                   </View>
@@ -716,14 +777,16 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
+    flex: 1,
+    textAlign: "center",
   },
   homeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#f5f5f5",
+    padding: 8,
     alignItems: "center",
     justifyContent: "center",
+  },
+  backButton: {
+    padding: 8,
   },
   content: {
     flex: 1,
@@ -756,9 +819,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: "#f9f9f9",
   },
+  debugInfo: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 5,
+  },
   mapContainer: {
     width: windowWidth,
-    height: windowWidth,
     position: "relative",
     backgroundColor: "#f5f5f5",
   },
@@ -794,7 +861,8 @@ const styles = StyleSheet.create({
   },
   createLineButtons: {
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 20,
+    marginTop: "auto",
   },
   actionButtonsRow: {
     flexDirection: "row",
@@ -809,16 +877,24 @@ const styles = StyleSheet.create({
     flex: 0.48,
     alignItems: "center",
   },
+  disabledActionButton: {
+    backgroundColor: "#e0e0e0",
+    opacity: 0.7,
+  },
   actionButtonText: {
     color: "#333",
     fontWeight: "500",
   },
   createSectionButton: {
-    backgroundColor: "#f0f0f0",
+    backgroundColor: "#CFE625", // Warna kuning
     paddingVertical: 15,
     borderRadius: 20,
     alignItems: "center",
     marginTop: 5,
+    marginBottom: 10,
+  },
+  disabledSectionButton: {
+    backgroundColor: "#f0f0f0", // Warna abu-abu
   },
   createSectionButtonText: {
     color: "#333",
@@ -826,8 +902,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   controlsContainer: {
-    flex: 1,
     paddingHorizontal: 20,
+    marginTop: 10,
   },
   intervalContainer: {
     marginTop: 20,
@@ -871,7 +947,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 20,
+    marginTop: 15,
     paddingVertical: 10,
   },
   rulerButton: {
@@ -892,12 +968,16 @@ const styles = StyleSheet.create({
   },
   coordinatesDisplay: {
     backgroundColor: "#f0f0f0",
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
+    marginHorizontal: 10,
+    alignItems: "center",
+    alignSelf: "center",
   },
   coordinatesText: {
     fontSize: 14,
     color: "#333",
+    fontFamily: "Montserrat_400Regular",
   },
 });

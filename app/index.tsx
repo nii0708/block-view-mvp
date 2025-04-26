@@ -133,7 +133,7 @@ const SwipeableItem = ({
         {...(isSelectionMode ? {} : panResponder.panHandlers)}
       >
         <TouchableOpacity
-          activeOpacity={0.7}
+          activeOpacity={1.0}
           style={styles.fileItem}
           onPress={() => (isSelectionMode ? onSelect(item) : onPress(item))}
           onLongPress={() => !isSelectionMode && onSelect(item)}

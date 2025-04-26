@@ -14,21 +14,20 @@ interface FileNameDialogProps {
   visible: boolean;
   onCancel: () => void;
   onSubmit: (fileName: string) => void;
-  isProcessing?: boolean; // Tambahkan prop ini
+  isProcessing?: boolean;
 }
 
 const FileNameDialog: React.FC<FileNameDialogProps> = ({
   visible,
   onCancel,
   onSubmit,
-  isProcessing = false, // Default ke false
+  isProcessing = false,
 }) => {
   const [fileName, setFileName] = useState("");
 
   const handleSubmit = () => {
     if (fileName.trim()) {
       onSubmit(fileName);
-      // Tidak perlu reset nama file di sini karena akan dilakukan setelah proses selesai
     }
   };
 
@@ -44,51 +43,41 @@ const FileNameDialog: React.FC<FileNameDialogProps> = ({
           <Text style={styles.title}>File name</Text>
 
           <TextInput
-            style={[styles.input, isProcessing && styles.disabledInput]}
+            style={styles.input}
             placeholder="Value"
             value={fileName}
             onChangeText={setFileName}
             autoFocus
-            editable={!isProcessing} // Disable saat processing
           />
-
-          {isProcessing && (
-            <View style={styles.processingContainer}>
-              <ActivityIndicator size="small" color="#CFE625" />
-              <Text style={styles.processingText}>Processing data...</Text>
-            </View>
-          )}
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={onCancel}
-              disabled={isProcessing} // Disable saat processing
+              disabled={isProcessing}
             >
-              <Text
-                style={[
-                  styles.cancelButtonText,
-                  isProcessing && styles.disabledText,
-                ]}
-              >
-                Cancel
-              </Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.submitButton,
-                (!fileName.trim() || isProcessing) && styles.disabledButton,
+                !fileName.trim() && styles.disabledButton,
               ]}
               onPress={handleSubmit}
-              disabled={!fileName.trim() || isProcessing} // Disable jika tidak ada nama file atau sedang processing
+              disabled={!fileName.trim() || isProcessing}
             >
-              <Text style={styles.submitButtonText}>
-                {isProcessing ? "Submitting..." : "Submit"}
-              </Text>
+              <Text style={styles.submitButtonText}>Submit</Text>
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Loading Overlay - Hanya muncul saat isProcessing true */}
+        {isProcessing && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -100,6 +89,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "center",
     alignItems: "center",
+    position: "relative", // Untuk penempatan loadingOverlay
   },
   dialogContainer: {
     width: Dimensions.get("window").width * 0.85,
@@ -111,6 +101,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+    zIndex: 1,
   },
   title: {
     fontSize: 18,
@@ -125,21 +116,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginBottom: 20,
   },
-  disabledInput: {
-    backgroundColor: "#f9f9f9",
-    color: "#999",
-  },
-  processingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  processingText: {
-    color: "#555",
-    marginLeft: 10,
-    fontSize: 14,
-  },
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -151,9 +127,6 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: "#333",
     fontSize: 16,
-  },
-  disabledText: {
-    color: "#999",
   },
   submitButton: {
     backgroundColor: "#CFE625",
@@ -168,6 +141,18 @@ const styles = StyleSheet.create({
     color: "#333",
     fontSize: 16,
     fontWeight: "600",
+  },
+  // Loading overlay yang menutupi seluruh layar ketika proses upload
+  loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2, // Pastikan overlay ini di atas dialog
   },
 });
 
