@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
   InteractionManager,
+  BackHandler,
 } from "react-native";
 import {
   MaterialIcons,
@@ -109,6 +110,29 @@ export default function TopDownViewScreen() {
     y: 0,
   });
 
+  useEffect(() => {
+    // Membuat handler untuk tombol back
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        // Jika dalam mode Create Line, kembali ke Top Down View saja
+        if (isCreateLineMode) {
+          setIsCreateLineMode(false);
+          setSelectedPoints([]);
+          setLineLength(0);
+          processedMessagesRef.current.clear();
+          return true; // Menandakan kita sudah menangani event back
+        }
+
+        // Jika dalam mode normal Top Down View, biarkan default behavior (kembali ke halaman sebelumnya)
+        return false; // Tidak menangani event, biarkan default behavior
+      }
+    );
+
+    // Cleanup: remove event listener saat komponen unmount
+    return () => backHandler.remove();
+  }, [isCreateLineMode]);
+
   // Load file data on mount
   useEffect(() => {
     loadFileData();
@@ -133,10 +157,10 @@ export default function TopDownViewScreen() {
 
   useEffect(() => {
     if (blockModelData.length > 0) {
-      // Store the full block model data in context for cross-section view
+      // Simpan data lengkap di context untuk cross-section view
       setFullBlockModelData(blockModelData);
 
-      // Process block model data for top-down view
+      // Proses data block model untuk top-down view (hanya elevasi tertinggi)
       processBlockModelData();
     }
   }, [blockModelData]);
@@ -297,15 +321,25 @@ export default function TopDownViewScreen() {
         try {
           const startTime = Date.now();
 
-          // Use selected projection and process top elevation only
-          const result = blockModelToGeoJSON(
+          // Untuk tampilan top-down, kita hanya butuh surface blocks
+          const resultForTopDown = blockModelToGeoJSON(
             blockModelData,
             sourceProjection,
-            true
+            true // true untuk topElevationOnly
           );
 
-          if (result.error) {
-            console.error("Error in blockModelToGeoJSON:", result.error);
+          // Penting: Untuk cross-section view, kita butuh SEMUA block
+          const resultForCrossSection = blockModelToGeoJSON(
+            blockModelData,
+            sourceProjection,
+            false // false untuk mendapatkan semua block
+          );
+
+          if (resultForCrossSection.error) {
+            console.error(
+              "Error in blockModelToGeoJSON:",
+              resultForCrossSection.error
+            );
             Alert.alert(
               "Error",
               "Failed to convert block model data to GeoJSON"
@@ -313,10 +347,13 @@ export default function TopDownViewScreen() {
             return;
           }
 
-          setProcessedBlockModel(result.geoJsonData);
-          setGeoJsonData(result.geoJsonData);
-          setMapCenter(result.mapCenter);
-          setMapZoom(result.mapZoom);
+          // Simpan data yang lengkap (untuk cross-section) ke context
+          setProcessedBlockModel(resultForCrossSection.geoJsonData);
+
+          // Gunakan data yang sudah difilter (top elevation only) untuk tampilan top-down
+          setGeoJsonData(resultForTopDown.geoJsonData);
+          setMapCenter(resultForTopDown.mapCenter);
+          setMapZoom(resultForTopDown.mapZoom);
 
           setLoadingProgress(0.6);
         } catch (error) {
@@ -538,24 +575,8 @@ export default function TopDownViewScreen() {
   const renderHeader = () => {
     const title = isCreateLineMode ? "Create Line" : "Top Down View";
 
-    const handleBackPress = () => {
-      if (isCreateLineMode) {
-        // Kembali ke Top Down View
-        setIsCreateLineMode(false);
-        setSelectedPoints([]);
-        setLineLength(0);
-        processedMessagesRef.current.clear();
-      } else {
-        // Kembali ke halaman sebelumnya
-        router.back();
-      }
-    };
-
     return (
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-          <MaterialIcons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>{title}</Text>
         <TouchableOpacity
           style={styles.homeButton}
@@ -773,20 +794,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "700",
-    flex: 1,
-    textAlign: "center",
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#333",
   },
   homeButton: {
     padding: 8,
     alignItems: "center",
     justifyContent: "center",
-  },
-  backButton: {
-    padding: 8,
   },
   content: {
     flex: 1,

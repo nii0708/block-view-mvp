@@ -12,7 +12,7 @@ interface BlockModelGeoJSONResult {
 export const blockModelToGeoJSON = (
   blockModelData: any[],
   sourceProjection = "EPSG:4326",
-  topElevationOnly = true
+  topElevationOnly = false
 ): BlockModelGeoJSONResult => {
   if (!blockModelData || blockModelData.length === 0) {
     return {
@@ -44,12 +44,14 @@ export const blockModelToGeoJSON = (
       ? filterTopElevationBlocks(mappedData)
       : mappedData;
 
+    console.log("First data row:", JSON.stringify(filteredData[0]));
+
     // Process the data into GeoJSON with the specified projection
     const processedData = processBlockModelCSV(filteredData, sourceProjection);
 
-    console.log(
-      `Processed block model data to GeoJSON, features: ${processedData.features?.length}`
-    );
+    // console.log(
+    //   `Processed block model data to GeoJSON, features: ${processedData.features?.length}`
+    // );
 
     // Calculate initial map center if features are available
     let mapCenter = [0, 0];

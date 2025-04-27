@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -7,35 +7,21 @@ import {
   TouchableOpacity,
   StatusBar,
   Alert,
+  Share,
+  Platform,
 } from "react-native";
-import { MaterialIcons } from "@expo/vector-icons";
+import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as FileService from "../services/FileService";
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import LoadingScreen from "../components/LoadingScreen";
-import CrossSectionWebView from "../components/CrossSectionWebView";
 import { useMiningData } from "../context/MiningDataContext";
-
-interface GeoJSONFeature {
-  type: string;
-  properties: {
-    [key: string]: any;
-    level?: number;
-  };
-  geometry: {
-    type: string;
-    coordinates: number[][][];
-  };
-}
-
-interface GeoJSONCollection {
-  type: string;
-  features: GeoJSONFeature[];
-}
+import CrossSectionWebView from "../components/CrossSectionWebView";
+import ExportDialog from "../components/ExportDialog";
 
 export default function CrossSectionViewScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const dataLoadedRef = useRef(false);
 
   // Parse parameters from TopDownView
   const startLat = parseFloat((params.startLat as string) || "0");
@@ -43,43 +29,39 @@ export default function CrossSectionViewScreen() {
   const endLat = parseFloat((params.endLat as string) || "0");
   const endLng = parseFloat((params.endLng as string) || "0");
   const length = parseFloat((params.length as string) || "0");
-  const fileName = params.fileName as string;
   const projection = params.projection as string;
 
-  // State for data
+  // State for loading and export dialog
   const [loading, setLoading] = useState(true);
+  const [exportDialogVisible, setExportDialogVisible] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // State for data
   const [blockModelData, setBlockModelData] = useState<any[]>([]);
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
 
-  const {
-    processedBlockModel,
-    processedElevation,
-    processedPitData,
-    fullBlockModelData,
-  } = useMiningData();
+  // Get data from context
+  const { fullBlockModelData, processedElevation, processedPitData } =
+    useMiningData();
 
-  // Load data only once when component mounts
+  // Load data on component mount
   useEffect(() => {
-    if (!dataLoadedRef.current) {
-      dataLoadedRef.current = true;
-      loadCrossSectionData();
-    }
+    loadCrossSectionData();
   }, []);
 
+  // Load and filter data for cross-section
   const loadCrossSectionData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // First check if we have the full block model data in context
+      // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
         console.log(
-          "Using full block model data from context:",
-          fullBlockModelData.length,
-          "blocks"
+          `Preparing ${fullBlockModelData.length} blocks for cross-section`
         );
 
-        // Extract the block data needed for visualization
+        // Direct mapping without filtering (WebView will handle filtering)
         const extractedBlocks = fullBlockModelData.map((block) => ({
           centroid_x: parseFloat(block.centroid_x || block.x || 0),
           centroid_y: parseFloat(block.centroid_y || block.y || 0),
@@ -88,116 +70,47 @@ export default function CrossSectionViewScreen() {
           dim_y: parseFloat(block.dim_y || block.length || 10),
           dim_z: parseFloat(block.dim_z || block.height || 10),
           rock: block.rock || "unknown",
-          color: block.color || getColorForRock(block.rock || "unknown"),
+          color: block.color || getRockColor(block.rock || "unknown"),
         }));
 
-        setBlockModelData(extractedBlocks);
-      }
-      // If no full data, check if we have processed data
-      else if (processedBlockModel || processedElevation || processedPitData) {
-        console.log("Using previously processed data from context");
-
-        // Try to extract block data from processed features
-        if (processedBlockModel?.features) {
-          const extractedBlocks = processedBlockModel.features.map(
-            (f: GeoJSONFeature) => {
-              // Extract just the properties needed for visualization
-              const props = f.properties || {};
-              return {
-                centroid_x: props.centroid_x || 0,
-                centroid_y: props.centroid_y || 0,
-                centroid_z: props.centroid_z || 0,
-                dim_x: props.dim_x || 10,
-                dim_y: props.dim_y || 10,
-                dim_z: props.dim_z || 10,
-                rock: props.rock || "unknown",
-                color: props.color || "#CCCCCC",
-              };
-            }
+        // Sample data if too large
+        if (extractedBlocks.length > 10000) {
+          const samplingRate = Math.ceil(extractedBlocks.length / 10000);
+          const sampledBlocks = extractedBlocks.filter(
+            (_, i) => i % samplingRate === 0
           );
+          console.log(
+            `Sampled ${sampledBlocks.length} blocks from ${extractedBlocks.length}`
+          );
+          setBlockModelData(sampledBlocks);
+        } else {
           setBlockModelData(extractedBlocks);
         }
-
-        // Just pass through the elevation data
-        if (processedElevation) {
-          setElevationData(processedElevation);
-        }
-
-        // For pit data, extract basic properties
-        if (processedPitData?.features) {
-          const extractedPitData = processedPitData.features.map(
-            (f: GeoJSONFeature) => ({
-              level: f.properties?.level || 0,
-              // Use first coordinate point
-              x: f.geometry?.coordinates?.[0]?.[0] || 0,
-              y: f.geometry?.coordinates?.[0]?.[1] || 0,
-              z: f.properties?.level || 0,
-            })
-          );
-          setPitData(extractedPitData);
-        }
-      } else {
-        // No data in context, need to load from files
-        console.log("No data in context, loading from files");
-
-        // Load file data
-        const files = await FileService.getFileInfo();
-        const file = files.find((f) => f.name === fileName);
-
-        if (!file) {
-          Alert.alert("Error", "File data not found");
-          return;
-        }
-
-        // Load block model data
-        if (file.files.blockModel) {
-          const blockModelData = await FileService.parseCSVFile(
-            file.files.blockModel.uri
-          );
-          // Skip header rows
-          const parsedBlocks = blockModelData.slice(3).map((block: any) => ({
-            centroid_x: parseFloat(block.centroid_x || block.x || 0),
-            centroid_y: parseFloat(block.centroid_y || block.y || 0),
-            centroid_z: parseFloat(block.centroid_z || block.z || 0),
-            dim_x: parseFloat(block.dim_x || block.width || 10),
-            dim_y: parseFloat(block.dim_y || block.length || 10),
-            dim_z: parseFloat(block.dim_z || block.height || 10),
-            rock: block.rock || "unknown",
-            color: getColorForRock(block.rock || "unknown"),
-          }));
-          setBlockModelData(parsedBlocks);
-        }
-
-        // Load elevation data
-        if (file.files.elevation) {
-          const elevationData = await FileService.parseLiDARFile(
-            file.files.elevation.uri
-          );
-          setElevationData(elevationData);
-        }
-
-        // Load pit data
-        if (file.files.pit) {
-          const pitData = await FileService.parseLiDARFile(file.files.pit.uri);
-          setPitData(pitData);
-        }
+        console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
       }
+
+      // Process elevation data if available
+      if (processedElevation && processedElevation.length > 0) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        setElevationData(processedElevation);
+      }
+
+      // Process pit data if available
+      if (processedPitData?.features) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        setPitData(processedPitData.features);
+      }
+
+      setLoading(false);
     } catch (error) {
       console.error("Error loading cross section data:", error);
       Alert.alert("Error", "Failed to load cross section data");
-    } finally {
       setLoading(false);
     }
-  }, [
-    fileName,
-    fullBlockModelData,
-    processedBlockModel,
-    processedElevation,
-    processedPitData,
-  ]);
+  }, [fullBlockModelData, processedElevation, processedPitData]);
 
-  // Helper function to provide consistent colors for rock types
-  const getColorForRock = (rockType: string): string => {
+  // Helper function to get color for rock type
+  const getRockColor = (rockType: string): string => {
     const rockColors: { [key: string]: string } = {
       ore: "#b40c0d", // Red
       waste: "#606060", // Gray
@@ -210,27 +123,120 @@ export default function CrossSectionViewScreen() {
     return rockColors[rockType.toLowerCase()] || "#CCCCCC";
   };
 
-  // Handle back button
-  const handleBack = useCallback(() => {
-    router.back();
-  }, [router]);
-
   // Handle home button
   const handleHome = useCallback(() => {
     router.push("/");
   }, [router]);
 
+  // Handle export button press
+  const handleExportPress = useCallback(() => {
+    setExportDialogVisible(true);
+  }, []);
+
+  // Handle export dialog cancel
+  const handleExportCancel = useCallback(() => {
+    setExportDialogVisible(false);
+  }, []);
+
+  // Handle export data
+  const handleExport = useCallback(
+    async (dataType: string) => {
+      try {
+        setIsExporting(true);
+
+        // Prepare the data to export based on the selection
+        let dataToExport: any;
+        let fileName: string;
+
+        switch (dataType) {
+          case "blockModel":
+            dataToExport = blockModelData;
+            fileName = `cross_section_blocks_${new Date().getTime()}.json`;
+            break;
+          case "elevation":
+            dataToExport = elevationData;
+            fileName = `cross_section_elevation_${new Date().getTime()}.json`;
+            break;
+          case "pit":
+            dataToExport = pitData;
+            fileName = `cross_section_pit_${new Date().getTime()}.json`;
+            break;
+          case "all":
+            dataToExport = {
+              metadata: {
+                startPoint: { lat: startLat, lng: startLng },
+                endPoint: { lat: endLat, lng: endLng },
+                length: length,
+                projection: projection,
+                exportDate: new Date().toISOString(),
+              },
+              blockModelData: blockModelData,
+              elevationData: elevationData,
+              pitData: pitData,
+            };
+            fileName = `cross_section_all_${new Date().getTime()}.json`;
+            break;
+          default:
+            throw new Error("Invalid data type selected");
+        }
+
+        // Convert data to JSON string
+        const jsonString = JSON.stringify(dataToExport, null, 2);
+
+        // Create a file in the temporary directory
+        const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, jsonString);
+
+        // Share the file
+        if (Platform.OS === "ios") {
+          await Share.share({
+            url: fileUri,
+            title: "Export Cross Section Data",
+          });
+        } else {
+          // For Android
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(fileUri, {
+              mimeType: "application/json",
+              dialogTitle: "Export Cross Section Data",
+            });
+          } else {
+            Alert.alert("Error", "Sharing is not available on this device");
+          }
+        }
+
+        setIsExporting(false);
+        setExportDialogVisible(false);
+      } catch (error) {
+        console.error("Error exporting data:", error);
+        Alert.alert(
+          "Export Error",
+          "Failed to export the data. Please try again."
+        );
+        setIsExporting(false);
+      }
+    },
+    [
+      blockModelData,
+      elevationData,
+      pitData,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      length,
+      projection,
+    ]
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header */}
+      {/* Header - Updated to match coordinateSelection.tsx */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <MaterialIcons name="arrow-back" size={24} color="black" />
-        </TouchableOpacity>
         <Text style={styles.headerTitle}>Cross Section View</Text>
-        <TouchableOpacity style={styles.iconButton} onPress={handleHome}>
+        <TouchableOpacity style={styles.homeButton} onPress={handleHome}>
           <MaterialIcons name="home" size={24} color="black" />
         </TouchableOpacity>
       </View>
@@ -259,25 +265,59 @@ export default function CrossSectionViewScreen() {
                 <Text style={styles.infoLabel}>Length:</Text>
                 <Text style={styles.infoValue}>{length.toFixed(1)} meters</Text>
               </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Data:</Text>
+                <Text style={styles.infoValue}>
+                  {blockModelData.length} blocks, {elevationData.length}{" "}
+                  elevation points,
+                  {pitData.length} pit points
+                </Text>
+              </View>
             </View>
 
-            {/* Cross Section WebView */}
-            <View style={styles.graphContainer}>
-              <CrossSectionWebView
-                startLat={startLat}
-                startLng={startLng}
-                endLat={endLat}
-                endLng={endLng}
-                blockModelData={blockModelData}
-                elevationData={elevationData}
-                pitData={pitData}
-                lineLength={length}
-                sourceProjection={projection}
-              />
+            {/* Graph container with absolute positioned export button */}
+            <View style={styles.graphWithExportContainer}>
+              {/* Cross Section WebView - Now takes all available space */}
+              <View style={styles.graphContainer}>
+                <CrossSectionWebView
+                  startLat={startLat}
+                  startLng={startLng}
+                  endLat={endLat}
+                  endLng={endLng}
+                  blockModelData={blockModelData}
+                  elevationData={elevationData}
+                  pitData={pitData}
+                  lineLength={length}
+                  sourceProjection={projection}
+                />
+              </View>
+
+              {/* Export Button - Now floats at the bottom */}
+              <View style={styles.exportButtonContainer}>
+                <TouchableOpacity
+                  style={styles.exportButton}
+                  onPress={handleExportPress}
+                >
+                  <MaterialCommunityIcons
+                    name="export"
+                    size={20}
+                    color="#333"
+                  />
+                  <Text style={styles.exportButtonText}>Export Data</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </>
         )}
       </View>
+
+      {/* Export Dialog */}
+      <ExportDialog
+        visible={exportDialogVisible}
+        onCancel={handleExportCancel}
+        onExport={handleExport}
+        isProcessing={isExporting}
+      />
     </SafeAreaView>
   );
 }
@@ -293,17 +333,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 12,
-  },
-  backButton: {
-    padding: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "600",
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#333",
     flex: 1,
-    textAlign: "center",
   },
-  iconButton: {
+  homeButton: {
     padding: 8,
     alignItems: "center",
     justifyContent: "center",
@@ -332,9 +371,38 @@ const styles = StyleSheet.create({
     color: "#212529",
     fontWeight: "400",
   },
+  graphWithExportContainer: {
+    flex: 1,
+    position: "relative", // For absolute positioning of the export button
+  },
   graphContainer: {
     flex: 1,
     backgroundColor: "#fff",
     overflow: "hidden",
+  },
+  exportButtonContainer: {
+    paddingHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  exportButton: {
+    backgroundColor: "#D9D9D9",
+    height: 50,
+    borderRadius: 10,
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    elevation: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+  exportButtonText: {
+    fontSize: 15,
+    color: "#333",
+    fontWeight: "500",
+    marginLeft: 16,
   },
 });
