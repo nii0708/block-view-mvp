@@ -233,6 +233,8 @@ export function processBlockModelCSV(
       color: rockColorMap[row.rock] || "#aaaaaa",
     }));
 
+    console.log("First data row:", JSON.stringify(filteredData[0]));
+
     // Create polygon features with projection conversion
     const polygons = createPolygonsFromCoordsAndDims(
       filteredData,

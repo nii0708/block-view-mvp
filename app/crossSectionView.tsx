@@ -63,114 +63,213 @@ export default function CrossSectionViewScreen() {
     loadCrossSectionData();
   }, []);
 
-  const loadCrossSectionData = async () => {
-    try {
-      setLoading(true);
+  // In your CrossSectionViewScreen.tsx file
+// Replace the loadCrossSectionData function with this updated version:
 
-      // If we already have processed data in the context, use it
-      if (processedBlockModel || processedElevation || processedPitData) {
-        console.log("Using previously processed data from context");
-        console.log(
-          "Block model data in context:",
-          processedBlockModel?.features?.length || 0,
-          "features"
-        );
-        console.log(
-          "Elevation data in context:",
-          processedElevation?.length || 0,
-          "points"
-        );
-        console.log(
-          "Pit data in context:",
-          processedPitData?.features?.length || 0,
-          "features"
-        );
+const loadCrossSectionData = async () => {
+  try {
+    setLoading(true);
+    console.log("Loading cross section data...");
 
-        // Directly use the data without transformation for now
-        if (processedBlockModel?.features) {
-          const extractedBlocks = processedBlockModel.features.map(
-            (f: GeoJSONFeature) => {
-              // Extract just the properties needed for visualization
-              const props = f.properties || {};
-              return {
-                centroid_x: props.centroid_x || 0,
-                centroid_y: props.centroid_y || 0,
-                centroid_z: props.centroid_z || 0,
-                dim_x: props.dim_x || 10,
-                dim_y: props.dim_y || 10,
-                dim_z: props.dim_z || 10,
-                rock: props.rock || "unknown",
-                color: props.color || "#CCCCCC",
-              };
-            }
-          );
-          console.log("Extracted block data:", extractedBlocks.length);
-          setBlockModelData(extractedBlocks);
-          console.log("Block model data:", blockModelData.length);
+    // First, check if processedBlockModel actually has features
+    if (processedBlockModel?.features && processedBlockModel.features.length > 0) {
+      console.log("Using processedBlockModel from context with", processedBlockModel.features.length, "features");
+      
+      // Transform the data to match what CrossSectionWebView expects
+      const extractedBlocks = processedBlockModel.features.map(
+        (f) => {
+          // Make sure properties exist and extract the necessary fields
+          const props = f.properties || {};
+          return {
+            centroid_x: props.centroid_x !== undefined ? Number(props.centroid_x) : 0,
+            centroid_y: props.centroid_y !== undefined ? Number(props.centroid_y) : 0,
+            centroid_z: props.centroid_z !== undefined ? Number(props.centroid_z) : 0,
+            dim_x: props.dim_x !== undefined ? Number(props.dim_x) : 25,
+            dim_y: props.dim_y !== undefined ? Number(props.dim_y) : 25,
+            dim_z: props.dim_z !== undefined ? Number(props.dim_z) : 2,
+            rock: props.rock || "unknown",
+            color: props.color || "#CCCCCC",
+          };
         }
+      );
+      
+      console.log("Transformed block data:", extractedBlocks.length, "items");
+      // Log first item to check structure
+      if (extractedBlocks.length > 0) {
+        console.log("Sample block:", JSON.stringify(extractedBlocks[0]));
+      }
+      
+      setBlockModelData(extractedBlocks);
+    } else {
+      console.log("No processed block model data in context, trying to load from file...");
+      
+      // Load file data
+      const files = await FileService.getFileInfo();
+      console.log("files found:", files?.length || 0);
 
-        // Just pass through the elevation data
-        if (processedElevation) {
-          setElevationData(processedElevation);
-        }
-
-        // For pit data, extract basic properties
-        if (processedPitData?.features) {
-          const extractedPitData = processedPitData.features.map(
-            (f: GeoJSONFeature) => ({
-              level: f.properties?.level || 0,
-              // Use first coordinate point
-              x: f.geometry?.coordinates?.[0]?.[0] || 0,
-              y: f.geometry?.coordinates?.[0]?.[1] || 0,
-              z: f.properties?.level || 0,
-            })
-          );
-          console.log("Extracted pit data:", extractedPitData.length);
-          setPitData(extractedPitData);
-        }
-
+      const file = files.find((f) => f.name === fileName);
+      
+      if (!file) {
+        console.warn("File not found:", fileName);
+        setBlockModelData([]);
         setLoading(false);
         return;
       }
-      // Load file data
-      const files = await FileService.getFileInfo();
-      const file = files.find((f) => f.name === fileName);
 
-      if (!file) {
-        Alert.alert("Error", "File data not found");
-        return;
+      console.log("Found file:", file.name);
+
+      // Load block model data from file
+      if (file.files && file.files.blockModel) {
+        console.log("Loading block model from:", file.files.blockModel.uri);
+        try {
+          const blockModelData = await FileService.parseCSVFile(
+            file.files.blockModel.uri
+          );
+          
+          if (blockModelData && blockModelData.length > 3) {
+            console.log("Loaded block model with", blockModelData.length, "rows");
+            
+            // Skip header rows and process data
+            const processedData = blockModelData.slice(3).map(item => ({
+              ...item,
+              // Ensure numeric values
+              centroid_x: Number(item.centroid_x || 0),
+              centroid_y: Number(item.centroid_y || 0),
+              centroid_z: Number(item.centroid_z || 0),
+              dim_x: Number(item.dim_x || 10),
+              dim_y: Number(item.dim_y || 10),
+              dim_z: Number(item.dim_z || 10)
+            }));
+            
+            console.log("Processed block model data:", processedData.length);
+            setBlockModelData(processedData);
+          } else {
+            console.warn("Block model data is empty or too short");
+            setBlockModelData([]);
+          }
+        } catch (error) {
+          console.error("Error parsing block model file:", error);
+          setBlockModelData([]);
+        }
+      } else {
+        console.warn("No block model file found in the file object");
+        setBlockModelData([]);
       }
 
-      // Load block model data
-      if (file.files.blockModel) {
-        const blockModelData = await FileService.parseCSVFile(
-          file.files.blockModel.uri
+      // Just pass through the elevation data
+      if (processedElevation) {
+        setElevationData(processedElevation);
+      } else {
+        setElevationData([]);
+      }
+
+      // For pit data, extract basic properties
+      if (processedPitData?.features && processedPitData.features.length > 0) {
+        const extractedPitData = processedPitData.features.map(
+          (f) => ({
+            level: f.properties?.level || 0,
+            x: f.geometry?.coordinates?.[0]?.[0] || 0,
+            y: f.geometry?.coordinates?.[0]?.[1] || 0,
+            z: f.properties?.level || 0,
+          })
         );
-        // Skip header rows
-        setBlockModelData(blockModelData.slice(3));
-      }
-
-      // Load elevation data
-      if (file.files.elevation) {
-        const elevationData = await FileService.parseLiDARFile(
-          file.files.elevation.uri
-        );
-        setElevationData(elevationData);
-      }
-
-      // Load pit data
-      if (file.files.pit) {
-        const pitData = await FileService.parseLiDARFile(file.files.pit.uri);
-        setPitData(pitData);
+        console.log("Extracted pit data:", extractedPitData.length);
+        setPitData(extractedPitData);
+      } else {
+        setPitData([]);
       }
 
       setLoading(false);
-    } catch (error) {
-      console.error("Error loading cross section data:", error);
-      setLoading(false);
-      Alert.alert("Error", "Failed to load cross section data");
+      return;
     }
-  };
+    
+    // If no context data, try to load from files
+    console.log("No context data, loading from files...");
+    
+    // Load file data
+    const files = await FileService.getFileInfo();
+    console.log("files:", files);
+
+    const file = files.find((f) => f.name === fileName);
+    console.log("file:", file);
+
+    if (!file) {
+      Alert.alert("Error", "File data not found");
+      setLoading(false);
+      return;
+    }
+
+    // Load block model data
+    if (file.files.blockModel) {
+      console.log("Loading block model from file:", file.files.blockModel.uri);
+      const blockModelData = await FileService.parseCSVFile(
+        file.files.blockModel.uri
+      );
+      console.log("Block model data loaded:", blockModelData?.length || 0, "rows");
+      
+      // Make sure we have data and skip header rows
+      if (blockModelData && blockModelData.length > 3) {
+        const processedData = blockModelData.slice(3).map(item => ({
+          ...item,
+          // Ensure numeric values are numbers not strings
+          centroid_x: Number(item.centroid_x || 0),
+          centroid_y: Number(item.centroid_y || 0),
+          centroid_z: Number(item.centroid_z || 0),
+          dim_x: Number(item.dim_x || 10),
+          dim_y: Number(item.dim_y || 10),
+          dim_z: Number(item.dim_z || 10)
+        }));
+        
+        console.log("Processed block model data:", processedData.length, "items");
+        setBlockModelData(processedData);
+      } else {
+        console.warn("Block model data is empty or too short");
+        setBlockModelData([]);
+      }
+    } else {
+      console.warn("No block model file found");
+      setBlockModelData([]);
+    }
+
+    // Load elevation data
+    if (file.files.elevation) {
+      const elevationData = await FileService.parseLiDARFile(
+        file.files.elevation.uri
+      );
+      setElevationData(elevationData || []);
+    } else {
+      setElevationData([]);
+    }
+
+    // Load pit data
+    if (file.files.pit) {
+      const pitData = await FileService.parseLiDARFile(
+        file.files.pit.uri
+      );
+      setPitData(pitData || []);
+    } else {
+      setPitData([]);
+    }
+
+    setLoading(false);
+  } catch (error) {
+    console.error("Error loading cross section data:", error);
+    // Set empty arrays to prevent undefined values
+    setBlockModelData([]);
+    setElevationData([]);
+    setPitData([]);
+    setLoading(false);
+    Alert.alert("Error", "Failed to load cross section data");
+  }
+};
+
+// Add a debugging useEffect to check the data after it's set
+useEffect(() => {
+  console.log("blockModelData updated:", blockModelData?.length || 0, "items");
+  if (blockModelData && blockModelData.length > 0) {
+    console.log("Sample block model item:", JSON.stringify(blockModelData[0]).substring(0, 200));
+  }
+}, [blockModelData]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -216,7 +315,7 @@ export default function CrossSectionViewScreen() {
                 elevationData={elevationData}
                 pitData={pitData}
                 lineLength={length}
-                sourceProjection={projection}
+                // sourceProjection={projection}
               />
             </View>
           </>

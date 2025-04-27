@@ -44,16 +44,11 @@ export const blockModelToGeoJSON = (
       ? filterTopElevationBlocks(mappedData)
       : mappedData;
 
-      console.log(
-        `Filtered block model data with top elevation blocks: ${filteredData.length}`
-      )
+      console.log("First data row:", JSON.stringify(filteredData[0]));
+
 
     // Process the data into GeoJSON with the specified projection
     const processedData = processBlockModelCSV(filteredData, sourceProjection);
-
-    console.log(
-      `Processed block model data with top elevation blocks: ${processedData.features?.length}`
-    )
 
     // console.log(
     //   `Processed block model data to GeoJSON, features: ${processedData.features?.length}`

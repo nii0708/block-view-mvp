@@ -330,7 +330,9 @@ export default function TopDownViewScreen() {
           //   } features`
           // );
 
-          setProcessedBlockModel(resultForCrossSection.geoJsonData); // ini harus yang semuanya
+          // console.log("resultForCrossSection", result.geoJsonData.features.geometry);
+
+          setProcessedBlockModel(JSON.stringify(resultForCrossSection.geoJsonData)); // ini harus yang semuanya
 
           setGeoJsonData(result.geoJsonData); // ini harus yang di filter
           setMapCenter(result.mapCenter);

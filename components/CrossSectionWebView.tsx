@@ -1,18 +1,7 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity } from "react-native";
 import { WebView } from "react-native-webview";
-
-interface CrossSectionWebViewProps {
-  startLat: number;
-  startLng: number;
-  endLat: number;
-  endLng: number;
-  blockModelData: any[];
-  elevationData?: any[];
-  pitData?: any[];
-  lineLength: number;
-  onClose?: () => void;
-}
+import { createPolygonsFromCoordsAndDims, processBlockModelCSV } from "@/utils/blockModelUtils";
 
 const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   startLat,
@@ -23,16 +12,259 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   elevationData = [],
   pitData = [],
   lineLength,
+  sourceProjection = 'EPSG:32652',
   onClose,
 }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const webViewRef = useRef<WebView>(null);
+  const [processedData, setProcessedData] = useState(null);
+  const [crossSectionData, setCrossSectionData] = useState([]);
+
+  // Helper functions for cross-section calculations
+  const lineIntersectsPolygon = (lineStart, lineEnd, polygon) => {
+    // For each edge of the polygon, check if it intersects with the line segment
+    for (let i = 0; i < polygon.length - 1; i++) {
+      const polyPointA = polygon[i];
+      const polyPointB = polygon[i + 1];
+
+      if (lineSegmentIntersection(
+        lineStart[0], lineStart[1],
+        lineEnd[0], lineEnd[1],
+        polyPointA[0], polyPointA[1],
+        polyPointB[0], polyPointB[1]
+      )) {
+        return true;
+      }
+    }
+
+    // Also check if any of the line endpoints are inside the polygon
+    if (pointInPolygon(lineStart, polygon) || pointInPolygon(lineEnd, polygon)) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const lineSegmentIntersection = (x1, y1, x2, y2, x3, y3, x4, y4) => {
+    // Calculate denominators
+    const den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
+
+    // Lines are parallel or coincident
+    if (den === 0) {
+      return false;
+    }
+
+    // Calculate the line intersection parameters
+    const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / den;
+    const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / den;
+
+    // Check if the intersection is within both line segments
+    return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+  };
+
+  const pointInPolygon = (point, polygon) => {
+    // Ray-casting algorithm
+    let inside = false;
+    const x = point[0];
+    const y = point[1];
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i][0], yi = polygon[i][1];
+      const xj = polygon[j][0], yj = polygon[j][1];
+
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+
+    return inside;
+  };
+
+  const calculatePolygonCentroid = (polygon) => {
+    // Simple average of all vertices (excluding the last if it's the same as the first)
+    const points = polygon.length > 0 && polygon[0][0] === polygon[polygon.length - 1][0] &&
+      polygon[0][1] === polygon[polygon.length - 1][1]
+      ? polygon.slice(0, -1) : polygon;
+
+    const sumX = points.reduce((sum, point) => sum + point[0], 0);
+    const sumY = points.reduce((sum, point) => sum + point[1], 0);
+
+    return [sumX / points.length, sumY / points.length];
+  };
+
+  // Project a point onto a line and calculate the distance along the line
+  const projectPointOntoLine = (point, lineStart, lineEnd) => {
+    const x0 = point[0];
+    const y0 = point[1];
+    const x1 = lineStart[0];
+    const y1 = lineStart[1];
+    const x2 = lineEnd[0];
+    const y2 = lineEnd[1];
+
+    // Vector from start to end of line
+    const lineVectorX = x2 - x1;
+    const lineVectorY = y2 - y1;
+
+    // Vector from start of line to point
+    const pointVectorX = x0 - x1;
+    const pointVectorY = y0 - y1;
+
+    // Calculate dot product
+    const dotProduct = pointVectorX * lineVectorX + pointVectorY * lineVectorY;
+
+    // Calculate squared length of the line
+    const lineSquaredLength = lineVectorX ** 2 + lineVectorY ** 2;
+
+    // Calculate the projection ratio (0 means at start, 1 means at end)
+    const ratio = Math.max(0, Math.min(1, dotProduct / lineSquaredLength));
+
+    // Calculate the projected point
+    const projectedX = x1 + ratio * lineVectorX;
+    const projectedY = y1 + ratio * lineVectorY;
+
+    // Calculate the distance from the start of the line
+    const distance = ratio * Math.sqrt(lineSquaredLength);
+
+    return {
+      projectedPoint: [projectedX, projectedY],
+      distance: distance
+    };
+  };
+
+  // Calculate intersection points between a line and polygon
+  const calculateIntersectionPoints = (startPoint, endPoint, polygon) => {
+    const intersections = [];
+    
+    // Check intersections with each edge of the polygon
+    for (let i = 0; i < polygon.length - 1; i++) {
+      const polyPointA = polygon[i];
+      const polyPointB = polygon[i + 1];
+      
+      // Calculate intersection
+      const x1 = startPoint[0], y1 = startPoint[1];
+      const x2 = endPoint[0], y2 = endPoint[1];
+      const x3 = polyPointA[0], y3 = polyPointA[1];
+      const x4 = polyPointB[0], y4 = polyPointB[1];
+      
+      // Calculate denominators
+      const den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
+      
+      // Skip if lines are parallel
+      if (den === 0) continue;
+      
+      // Calculate the line intersection parameters
+      const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / den;
+      const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / den;
+      
+      // Check if the intersection is within both line segments
+      if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+        // Calculate intersection point
+        const intersectX = x1 + ua * (x2 - x1);
+        const intersectY = y1 + ua * (y2 - y1);
+        
+        // Calculate distance from start point
+        const dx = intersectX - startPoint[0];
+        const dy = intersectY - startPoint[1];
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        intersections.push({
+          point: [intersectX, intersectY],
+          distance: distance
+        });
+      }
+    }
+    
+    return intersections;
+  };
+
+  // Process data before sending to WebView
+  useEffect(() => {
+    try {
+      // First process the block model data into GeoJSON with colors
+      const geoJsonData = processBlockModelCSV(
+        blockModelData,
+        sourceProjection,
+        false // Set topElevationOnly to false to include all blocks
+      );
+      
+      setProcessedData(geoJsonData);
+      console.log(`Processed ${geoJsonData.features.length} block features`);
+
+      // Define the cross-section line
+      const startPoint = [startLng, startLat];
+      const endPoint = [endLng, endLat];
+      
+      // Find blocks that intersect with the line
+      const intersectingBlocks = [];
+
+      if (geoJsonData && geoJsonData.features) {
+        geoJsonData.features.forEach(feature => {
+          if (!feature.geometry || !feature.geometry.coordinates || 
+              !feature.geometry.coordinates[0] || feature.geometry.coordinates[0].length === 0) {
+            return;
+          }
+
+          const polygon = feature.geometry.coordinates[0]; // First (and only) polygon ring
+
+          // Check if the line intersects this polygon
+          if (lineIntersectsPolygon(startPoint, endPoint, polygon)) {
+            // Calculate the intersection points between the line and polygon
+            const intersections = calculateIntersectionPoints(startPoint, endPoint, polygon);
+
+            // If we have intersection points, calculate the segment length within the block
+            if (intersections.length >= 2) {
+              // Sort intersections by distance along the line
+              intersections.sort((a, b) => a.distance - b.distance);
+
+              // Take the first and last intersection to get the entry and exit points
+              const entryPoint = intersections[0];
+              const exitPoint = intersections[intersections.length - 1];
+
+              // Calculate the segment length within the block
+              const segmentLength = exitPoint.distance - entryPoint.distance;
+
+              // Calculate the centroid for this block
+              const centroid = calculatePolygonCentroid(polygon);
+
+              // Add the block to our intersecting blocks with its distance along line
+              intersectingBlocks.push({
+                distance: entryPoint.distance,
+                height: feature.properties.centroid_z,
+                rockType: feature.properties.rock,
+                color: feature.properties.color,
+                dimensions: {
+                  width: segmentLength, // Use the calculated segment width
+                  height: feature.properties.dim_z
+                },
+                lng: feature.properties.centroid_x,
+                lat: feature.properties.centroid_y,
+                entryPoint: entryPoint.point,
+                exitPoint: exitPoint.point,
+                // Include additional properties needed for visualization
+                isIntersection: true
+              });
+            }
+          }
+        });
+      }
+
+      // Sort by distance along the line
+      intersectingBlocks.sort((a, b) => a.distance - b.distance);
+      setCrossSectionData(intersectingBlocks);
+      
+      console.log(`Found ${intersectingBlocks.length} blocks in cross-section`);
+    } catch (error) {
+      console.error("Error preprocessing data:", error);
+      setError("Failed to process geological data");
+    }
+  }, [blockModelData, sourceProjection, startLat, startLng, endLat, endLng]);
 
   // Safely stringify data
-  const safeStringify = (data: any) => {
+  const safeStringify = (data) => {
     try {
-      return JSON.stringify(data || []);
+      if (!data) return "[]";
+      return JSON.stringify(data);
     } catch (e) {
       console.error("Error stringifying data:", e);
       return "[]";
@@ -222,14 +454,11 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         
         document.addEventListener('DOMContentLoaded', function() {
           try {
-            log('Initializing cross-section visualization with line intersection');
+            log('Initializing cross-section visualization');
             
-            // Parse data
-            const blockModelData = ${safeStringify(blockModelData)};
-            log("Block model data length: " + (blockModelData ? blockModelData.length : 0));
-            
+            // Use pre-processed cross-section data from React Native
+            const profileData = ${safeStringify(crossSectionData)};
             const elevationData = ${safeStringify(elevationData)};
-            log("Elevation data length: " + (elevationData ? elevationData.length : 0));
             
             // Start and end points for the cross-section line
             const startLat = ${startLat};
@@ -252,202 +481,13 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             log("Total line distance: " + totalDistance.toFixed(2) + " meters");
             
             // Setup dimensions - responsive to container
-            const width = Math.min(800, window.innerWidth - 40);  // Max width 800px, with 20px padding on each side
-            const height = Math.min(400, window.innerHeight * 0.6);  // Max height 400px
+            const width = Math.min(800, window.innerWidth - 40);
+            const height = Math.min(400, window.innerHeight * 0.6);
             const margin = { top: 40, right: 60, bottom: 60, left: 60 };
             const innerWidth = width - margin.left - margin.right;
             const innerHeight = height - margin.top - margin.bottom;
             
-            // Create GeoJSON features from block model data
-            const geoJsonData = {
-              type: 'FeatureCollection',
-              features: blockModelData
-                .filter(block => {
-                  // Filter out blocks with missing critical coordinates
-                  return block && 
-                         typeof block.centroid_x === 'number' && 
-                         typeof block.centroid_y === 'number' && 
-                         typeof block.centroid_z === 'number';
-                })
-                .map(block => {
-                  // Set default values for any missing properties
-                  const centroid_x = block.centroid_x;
-                  const centroid_y = block.centroid_y;
-                  const centroid_z = block.centroid_z;
-                  const dim_x = block.dim_x || 10; // Default dimension if missing
-                  const dim_y = block.dim_y || 10;
-                  const dim_z = block.dim_z || 10;
-                  
-                  // Create a polygon for the block
-                  return {
-                    type: 'Feature',
-                    properties: {
-                      centroid_x,
-                      centroid_y,
-                      centroid_z,
-                      dim_x,
-                      dim_y,
-                      dim_z,
-                      rock: block.rock || 'UNKNOWN',
-                      color: block.color || '#CCCCCC'
-                    },
-                    geometry: {
-                      type: 'Polygon',
-                      coordinates: [[
-                        // Create a simple polygon around the centroid
-                        [centroid_x - dim_x/2, centroid_y - dim_y/2],
-                        [centroid_x + dim_x/2, centroid_y - dim_y/2],
-                        [centroid_x + dim_x/2, centroid_y + dim_y/2],
-                        [centroid_x - dim_x/2, centroid_y + dim_y/2],
-                        [centroid_x - dim_x/2, centroid_y - dim_y/2]
-                      ]]
-                    }
-                  };
-                })
-            };
-            
-            log("Valid GeoJSON features: " + geoJsonData.features.length);
-            
-            // Check which blocks are intersected by the line
-            const intersectedBlocks = [];
-            
-            geoJsonData.features.forEach(block => {
-              try {
-                // Check if the line intersects the block polygon
-                const polygon = turf.polygon(block.geometry.coordinates);
-                const intersects = turf.booleanIntersects(line, polygon);
-                
-                if (intersects) {
-                  // Find the intersection point(s)
-                  const intersection = turf.lineIntersect(line, polygon);
-                  if (intersection.features.length > 0) {
-                    // Calculate distance along the line for each intersection point
-                    const distances = intersection.features.map(point => {
-                      return turf.distance(startPoint, point, { units: 'meters' });
-                    });
-                    
-                    // Add to intersected blocks with distance along line
-                    intersectedBlocks.push({
-                      block: block,
-                      distance: Math.min(...distances) // Use the closest intersection
-                    });
-                  }
-                }
-              } catch (e) {
-                log("Error checking intersection for block: " + e.message);
-              }
-            });
-            
-            log("Blocks intersected by line: " + intersectedBlocks.length);
-            
-            // Sort blocks by distance along the line
-            intersectedBlocks.sort((a, b) => a.distance - b.distance);
-            
-            // Create profile data from intersected blocks
-            const profileData = intersectedBlocks.map(item => {
-              const block = item.block;
-              const distance = item.distance;
-              
-              return {
-                distance: distance,
-                height: block.properties.centroid_z,
-                rockType: block.properties.rock,
-                color: block.properties.color,
-                dimensions: {
-                  width: block.properties.dim_x,
-                  height: block.properties.dim_z
-                },
-                lng: block.properties.centroid_x,
-                lat: block.properties.centroid_y
-              };
-            });
-            
-            log("Created profile data for " + profileData.length + " blocks");
-            
-            // If no blocks intersected, sample points along the line (fallback)
-            if (profileData.length === 0) {
-              log("No blocks intersected the line directly. Using nearest block sampling as fallback.");
-              
-              // Sample points along the line
-              const samplingDistance = 5; // meters between sample points
-              const numSamples = Math.max(20, Math.ceil(totalDistance / samplingDistance));
-              
-              log("Sampling " + numSamples + " points along the line");
-              
-              // Generate points along the line
-              const points = Array.from({ length: numSamples }, (_, i) => {
-                const fraction = i / (numSamples - 1);
-                try {
-                  return turf.along(line, totalDistance * fraction, { units: 'meters' });
-                } catch (e) {
-                  return null;
-                }
-              }).filter(p => p !== null);
-              
-              // For each point, find the nearest block
-              points.forEach((point, index) => {
-                try {
-                  // Get the coordinates
-                  const ptLng = point.geometry.coordinates[0];
-                  const ptLat = point.geometry.coordinates[1];
-                  
-                  // Find the nearest block
-                  let nearestBlock = null;
-                  let minDistance = Infinity;
-                  
-                  geoJsonData.features.forEach(feature => {
-                    const featureCenter = [
-                      feature.properties.centroid_x,
-                      feature.properties.centroid_y
-                    ];
-                    
-                    try {
-                      const distance = turf.distance(
-                        turf.point([ptLng, ptLat]),
-                        turf.point([featureCenter[0], featureCenter[1]]),
-                        { units: 'meters' }
-                      );
-                      
-                      if (distance < minDistance) {
-                        minDistance = distance;
-                        nearestBlock = feature;
-                      }
-                    } catch (e) {
-                      // Skip if distance calculation fails
-                    }
-                  });
-                  
-                  if (nearestBlock) {
-                    // Calculate distance from start point
-                    const distanceFromStart = turf.distance(
-                      startPoint,
-                      point,
-                      { units: 'meters' }
-                    );
-                    
-                    // Add to profile data
-                    profileData.push({
-                      distance: distanceFromStart,
-                      height: nearestBlock.properties.centroid_z,
-                      rockType: nearestBlock.properties.rock,
-                      color: nearestBlock.properties.color,
-                      dimensions: {
-                        width: nearestBlock.properties.dim_x,
-                        height: nearestBlock.properties.dim_z
-                      },
-                      lng: nearestBlock.properties.centroid_x,
-                      lat: nearestBlock.properties.centroid_y,
-                      isNearestOnly: true // Flag to indicate it's not a direct intersection
-                    });
-                  }
-                } catch (e) {
-                  log("Error processing point at index " + index + ": " + e.message);
-                }
-              });
-              
-              // Sort by distance
-              profileData.sort((a, b) => a.distance - b.distance);
-            }
+            log("Rendering profile data for " + profileData.length + " blocks");
             
             // Process elevation data if available
             let elevationProfile = [];
@@ -515,7 +555,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             
             // Create scales
             const xScale = d3.scaleLinear()
-              .domain([0, d3.max(profileData, d => d.distance) || totalDistance])
+              .domain([0, d3.max(profileData, d => d.distance + d.dimensions.width) || totalDistance])
               .range([0, innerWidth]);
               
             const yScale = d3.scaleLinear()
@@ -618,40 +658,31 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                 .attr('d', area);
             }
             
-            // Calculate block width based on proximity
-            // If blocks are too close together, adjust width to prevent overlap
+            // No need to scale block width - we're using the actual intersection width
             const blockMinWidth = 2; // Minimum width in pixels
-            let blockWidthScale = 1;
-            
-            if (profileData.length > 1) {
-              const avgDistance = totalDistance / (profileData.length - 1);
-              const avgBlockWidth = d3.mean(profileData, d => d.dimensions.width);
-              
-              // If blocks would overlap, scale them down
-              if (avgBlockWidth > avgDistance) {
-                blockWidthScale = 0.8 * avgDistance / avgBlockWidth;
-              }
-            }
             
             // Create a tooltip div
             const tooltip = d3.select('body').append('div')
               .attr('class', 'tooltip')
               .style('opacity', 0);
-              
-            // Add blocks for each intersection point
+            
+            // Log the profile data for debugging
+            log("Rendering profile data: " + profileData.length + " blocks");
+            
+            // Add blocks for each intersection
             g.selectAll('.block')
               .data(profileData)
               .enter()
               .append('rect')
               .attr('class', 'block')
-              .attr('x', d => xScale(d.distance) - (xScale(d.dimensions.width * blockWidthScale) - xScale(0)) / 2)
+              .attr('x', d => xScale(d.distance))
               .attr('y', d => yScale(d.height + d.dimensions.height/2))
-              .attr('width', d => Math.max(blockMinWidth, xScale(d.dimensions.width * blockWidthScale) - xScale(0)))
+              .attr('width', d => Math.max(blockMinWidth, xScale(d.distance + d.dimensions.width) - xScale(d.distance)))
               .attr('height', d => Math.abs(yScale(d.height - d.dimensions.height/2) - yScale(d.height + d.dimensions.height/2)))
               .attr('fill', d => d.color || colorScale(d.rockType))
               .attr('stroke', '#333')
-              .attr('stroke-width', d => d.isNearestOnly ? 0.3 : 0.5) // Different stroke for nearest-only blocks
-              .attr('opacity', d => d.isNearestOnly ? 0.8 : 1) // Different opacity for nearest-only blocks
+              .attr('stroke-width', 0.5)
+              .attr('opacity', 1)
               .on('mouseover', function(event, d) {
                 d3.select(this)
                   .attr('stroke-width', 2)
@@ -666,15 +697,14 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
                     "Rock: " + d.rockType + "<br>" + 
                     "Width: " + d.dimensions.width.toFixed(1) + "m<br>" +
                     "Depth: " + d.dimensions.height.toFixed(1) + "m<br>" +
-                    "Distance: " + d.distance.toFixed(1) + "m" +
-                    (d.isNearestOnly ? "<br><i>(Nearest block)</i>" : "")
+                    "Distance: " + d.distance.toFixed(1) + "m"
                   )
                   .style('left', (event.pageX + 10) + 'px')
                   .style('top', (event.pageY - 28) + 'px');
               })
               .on('mouseout', function(event, d) {
                 d3.select(this)
-                  .attr('stroke-width', d.isNearestOnly ? 0.3 : 0.5)
+                  .attr('stroke-width', 0.5)
                   .attr('stroke', '#333');
                 
                 tooltip.transition()
@@ -757,7 +787,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
     </body>
     </html>
   `;
-
   // Handle messages from WebView
   const handleMessage = (event: any) => {
     try {
