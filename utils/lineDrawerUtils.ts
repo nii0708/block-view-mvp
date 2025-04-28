@@ -4,6 +4,7 @@
  */
 export const addPointToLine = (linePoints: any[], newPoint: any): any[] => {
   // If we already have 2 points, reset to the new point to start a new line
+  // GOOD
   if (linePoints.length >= 2) {
     return [newPoint];
   }

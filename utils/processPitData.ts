@@ -30,12 +30,12 @@ export const processPitDataToGeoJSON = (
       return null;
     }
 
-    console.log(
-      `Processing ${cleanData.length} pit boundary points with sourceProjection: ${sourceProjection}`
-    );
+    // console.log(
+    //   `Processing ${cleanData.length} pit boundary points with sourceProjection: ${sourceProjection}`
+    // );
 
     // Print first few data points for debugging
-    console.log("Sample pit data points:", cleanData.slice(0, 3));
+    // console.log("Sample pit data points:", cleanData.slice(0, 3));
 
     // PERUBAHAN KRITIS: Fungsi konversi koordinat yang benar
     const convertToWGS84 = (x: number | string, y: number | string) => {
@@ -45,9 +45,9 @@ export const processPitDataToGeoJSON = (
         const numY = parseFloat(String(y));
 
         // PENGUJIAN: Log koordinat input dengan lebih terstruktur
-        console.log(
-          `Input point: [${numX}, ${numY}] from source: ${sourceProjection}`
-        );
+        // console.log(
+        //   `Input point: [${numX}, ${numY}] from source: ${sourceProjection}`
+        // );
 
         // PERBAIKAN: Konversi koordinat dengan proporsi yang tepat
         // Untuk kebanyakan UTM zone, kita gunakan order [east, north] -> [long, lat]
@@ -57,7 +57,7 @@ export const processPitDataToGeoJSON = (
           "EPSG:4326"
         );
 
-        console.log(`Converted to WGS84: [${result[0]}, ${result[1]}]`);
+        // console.log(`Converted to WGS84: [${result[0]}, ${result[1]}]`);
 
         // IMPORTANT: GeoJSON mengharapkan koordinat dalam format [longitude, latitude]
         // result[0] = longitude, result[1] = latitude
@@ -91,7 +91,7 @@ export const processPitDataToGeoJSON = (
     // Process each level to create LineStrings
     Object.entries(groupedByLevel).forEach(([levelStr, coords]) => {
       const level = parseFloat(levelStr);
-      console.log(`Processing level ${level} with ${coords.length} points`);
+      // console.log(`Processing level ${level} with ${coords.length} points`);
 
       // Track coordinates similar to the web code
       const coordList: number[][] = [];
@@ -102,9 +102,11 @@ export const processPitDataToGeoJSON = (
         const coordKey = `${coord[0]},${coord[1]}`;
 
         // Check if this coordinate is already in our list (closing the loop)
+        // PROBLEMATIC: AS WE MUST READ ALL PIT DATA
         const existingIndex = coordList.findIndex(
           (c) => `${c[0]},${c[1]}` === coordKey
         );
+
 
         if (existingIndex !== -1) {
           // We found a duplicate, so this closes a line
@@ -135,9 +137,9 @@ export const processPitDataToGeoJSON = (
             // Store the level for this LineString
             levels.push(level);
 
-            console.log(
-              `Created closed LineString at level ${level} with ${lineStringCoords.length} points`
-            );
+            // console.log(
+            //   `Created closed LineString at level ${level} with ${lineStringCoords.length} points`
+            // );
           }
 
           // Reset for the next line
@@ -172,9 +174,9 @@ export const processPitDataToGeoJSON = (
         // Store the level for this LineString
         levels.push(level);
 
-        console.log(
-          `Created open LineString at level ${level} with ${lineStringCoords.length} points`
-        );
+        // console.log(
+        //   `Created open LineString at level ${level} with ${lineStringCoords.length} points`
+        // );
       }
     });
 
@@ -184,21 +186,21 @@ export const processPitDataToGeoJSON = (
       features: lineStrings,
     };
 
-    console.log(
-      `Created GeoJSON with ${lineStrings.length} LineString features across ${
-        new Set(levels).size
-      } levels`
-    );
+    // console.log(
+    //   `Created GeoJSON with ${lineStrings.length} LineString features across ${
+    //     new Set(levels).size
+    //   } levels`
+    // );
 
     // Debug koordinat hasil
     if (
       lineStrings.length > 0 &&
       lineStrings[0].geometry.coordinates.length > 0
     ) {
-      console.log(
-        "First feature coordinates sample:",
-        lineStrings[0].geometry.coordinates.slice(0, 3)
-      );
+      // console.log(
+      //   "First feature coordinates sample:",
+      //   lineStrings[0].geometry.coordinates.slice(0, 3)
+      // );
     }
 
     return pitGeoJson;

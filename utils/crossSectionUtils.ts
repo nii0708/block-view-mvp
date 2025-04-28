@@ -174,8 +174,9 @@ export function filterPitForCrossSection(
 
     const dot = vx * dirX + vy * dirY;
     const t = dot / lineLength;
-
-    if (t < -0.2 || t > 1.2) return false;
+    
+    //JANGAN FILTER BY LENGTH
+    // if (t < -0.2 || t > 1.2) return false;
 
     const projX = startPoint.lng + t * dx;
     const projY = startPoint.lat + t * dy;

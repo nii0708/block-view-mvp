@@ -87,6 +87,7 @@ export const generateD3Html = (
         };
         
         // Find the exact intersection point between two line segments
+        // bisa pake turf.js (sebaiknya)
         const findLineSegmentIntersection = (x1, y1, x2, y2, x3, y3, x4, y4) => {
           // Calculate denominators
           const den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
