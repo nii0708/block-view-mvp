@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "6b302693-6e05-4c86-b94c-cde5ba5b7785"
+      }
+    },
+    "android": {
+      "package": "com.nawafalfa.frontend.v2"
+    }
+  }
+}

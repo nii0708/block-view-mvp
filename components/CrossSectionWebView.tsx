@@ -10,6 +10,10 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 
+import * as turf from "@turf/turf";
+import { convertCoordinates } from "../utils/projectionUtils";
+
+
 // Get window width for fixed calculations
 const windowWidth = Dimensions.get("window").width;
 
@@ -25,6 +29,26 @@ interface CrossSectionWebViewProps {
   sourceProjection: string;
 }
 
+//PLAY START
+function createLineGeoJSON(startLat, startLng, endLat, endLng) {
+  // Create a GeoJSON LineString feature
+  const lineGeoJSON = {
+    type: "Feature",
+    properties: {},
+    geometry: {
+      type: "LineString",
+      coordinates: [
+        [startLng, startLat], // Start point (note: GeoJSON uses [longitude, latitude] order)
+        [endLng, endLat]      // End point
+      ]
+    }
+  };
+  
+  return lineGeoJSON;
+}
+
+//PLAY END
+
 const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   startLat,
   startLng,
@@ -36,6 +60,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   lineLength,
   sourceProjection,
 }) => {
+  console.log(sourceProjection)
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState(
     "Preparing cross section..."
@@ -68,7 +93,12 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           y: parseFloat(point.y || point.original?.y || point.lat || 0),
           elevation: parseFloat(point.elevation || point.z || 0),
         }));
+        console.log('pit data: ',pitData[0].geometry.coordinates[0])
+        console.log('startLat data: ',startLat)
 
+        //PLAY START-------------------------------------
+
+        //OLD
         // Format pit data for WebView consumption
         const pit = pitData.map((point) => {
           // Handle different possible data structures
@@ -88,11 +118,74 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             };
           }
         });
-        console.log('pit : ',pit.length)
+
+        //NEW
+        // Extract line coordinates
+        const intersections = [];
+        try  {
+          const lineGeoJson= createLineGeoJSON(startLat, startLng, endLat, endLng)
+          
+          const lineCoords = lineGeoJson.geometry.coordinates;
+          console.log('line : ', lineCoords)
+
+
+          // Create our pit intersections array
+          
+          // console.log('pitData : ', pitData[0])
+          pitData.forEach((feature) => {
+            // Convert line and ring to Turf line features
+            const ringLine = turf.lineString(
+              feature.geometry.coordinates.map((coord) => coord.slice(0, 2))
+            );
+
+            const intersectionPoints = turf.lineIntersect(ringLine, lineGeoJson);
+            
+            //
+            // Process intersections
+            if (intersectionPoints.features.length > 0) {
+              intersectionPoints.features.forEach((intersectionFeature) => {
+                //change feature to intersectionFeature for clarity.
+                const intersectionCoord = intersectionFeature.geometry; // get the geometry of each feature.
+                // console.log('intersectionPoints :', intersectionPoints);
+                // console.log('intersectionCoord :', intersectionCoord);
+                // console.log('intersectionCoord coordinates:', intersectionCoord.coordinates);
+                const dist =
+                  turf.distance(intersectionCoord.coordinates, lineCoords[0], {
+                    units: "kilometers",
+                  })*1000;
+                  
+                const converted = convertCoordinates(
+                  intersectionCoord.coordinates,
+                              "EPSG:4326",
+                              sourceProjection
+                            );
+                // console.log("ori: ", intersectionCoord.coordinates);
+                console.log("dist: ", dist);
+                intersections.push({
+                  point: converted,
+                  distance: dist,
+                  elevation: feature.properties.level, // Use the pit boundary elevation
+                  type: "pit_boundary",
+                });
+              });
+            }
+          });
+
+          // setPitIntersections(intersections);
+        } catch (error) {
+          console.error("Error finding pit intersections:", error);
+          // setPitIntersections([]);
+        }
+      // console.log(intersections)
+        //PLAY END-------------------------------------
+
+
+        
+        // console.log(intersections,'END')
         return {
           processedBlockData: blocks,
           processedElevationData: elevation,
-          processedPitData: pit,
+          processedPitData: intersections,//pit,
         };
       } catch (e) {
         console.error("Error preprocessing data:", e);
@@ -547,7 +640,7 @@ function generateD3Html(
         const blockModelData = ${safeStringify(blockModelData)};
         const elevationData = ${safeStringify(elevationData)};
         const pitData = ${safeStringify(pitData)};
-        debug('pitData'+pitData.length);
+        
         // Start and end points
         const startPoint = { lat: ${startLat}, lng: ${startLng} };
         const endPoint = { lat: ${endLat}, lng: ${endLng} };
@@ -976,7 +1069,6 @@ function generateD3Html(
           });
           
           updateProgress(30, "Block processing complete");
-          
           return intersectingBlocks.length > 0 ? intersectingBlocks : generateTestBlocks();
         } catch (err) {
           // debug("Error processing blocks: " + err.message);
@@ -1312,7 +1404,11 @@ function generateD3Html(
             // First, process the data
             const sectionBlocks = processCrossSectionBlocks();
             const elevationProfile = processElevationData();
-            const pitProfile = processPitData();
+            const pitProfile = pitData //processPitData();
+            
+            const sortedIntersections = [...pitProfile].sort(
+              (a, b) => a.distance - b.distance
+            );
             
             // Get elevation range
             const elevRange = getElevationRange(sectionBlocks, elevationProfile, pitProfile);
@@ -1345,19 +1441,19 @@ function generateD3Html(
             
             // Create scales
             const xScale = d3.scaleLinear()
-  .domain([0, lineLength])
-  .range([0, innerWidth]);
+            .domain([0, lineLength])
+            .range([0, innerWidth]);
   
-const yScale = d3.scaleLinear()
-  .domain([elevRange.min, elevRange.max])
-  .range([innerHeight, 0]);
+            const yScale = d3.scaleLinear()
+            .domain([elevRange.min, elevRange.max])
+            .range([innerHeight, 0]);
               
             // Create axes
             const xAxis = d3.axisBottom(xScale)
-  .tickFormat(d => \`\${(d/1000).toFixed(3)}\`); // Show as kilometers with 3 decimal places
+            .tickFormat(d => \`\${(d/1000).toFixed(3)}\`); // Show as kilometers with 3 decimal places
   
-const yAxis = d3.axisLeft(yScale)
-  .tickFormat(d => \`\${d.toFixed(0)}m\`);
+            const yAxis = d3.axisLeft(yScale)
+            .tickFormat(d => \`\${d.toFixed(0)}m\`);
               
             // Add axes
 g.append('g')
@@ -1412,6 +1508,7 @@ g.append('g')
       .defined(d => d.elevation !== null);
       
     // Add path
+    // debug('elevationProfile : '+elevationProfile[1].distance);
     g.append('path')
       .datum(elevationProfile.filter(p => p.elevation !== null))
       .attr('fill', 'none')
@@ -1455,9 +1552,9 @@ g.append('g')
       .x(d => xScale(d.distance))
       .y(d => yScale(d.elevation))
       .curve(d3.curveLinear); // Use linear for more accurate representation
-    debug('filteredPitPoints '+ pitProfile.length);
+    debug('filteredPitPoints : '+sortedIntersections[0].distance);
     g.append('path')
-      .datum(pitProfile)
+      .datum(sortedIntersections)
       .attr('fill', 'none')
       .attr('stroke', '#F4AE4D')  // Orange pit boundary color
       .attr('stroke-width', 3)    // Thicker solid line behind
@@ -1471,7 +1568,7 @@ g.append('g')
       .curve(d3.curveLinear);
     
     g.append('path')
-      .datum(filteredPitPoints)
+      .datum(sortedIntersections)
       .attr('fill', 'none')
       .attr('stroke', '#F4AE4D')
       .attr('stroke-width', 2.5)
