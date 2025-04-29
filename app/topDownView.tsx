@@ -327,7 +327,7 @@ export default function TopDownViewScreen() {
             sourceProjection,
             true // true untuk topElevationOnly
           );
-          console.log('resultForTopDown BLOCK: ', resultForTopDown.length)
+          console.log('resultForTopDown BLOCK: ', resultForTopDown.geoJsonData.features.length)
           // Penting: Untuk cross-section view, kita butuh SEMUA block
           const resultForCrossSection = blockModelToGeoJSON(
             blockModelData,

@@ -41,6 +41,13 @@ export default function CrossSectionViewScreen() {
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
 
+  // NEW: State for processed data counts (what's actually displayed)
+  const [displayedDataCounts, setDisplayedDataCounts] = useState({
+    displayedBlocks: 0,
+    displayedElevationPoints: 0,
+    displayedPitPoints: 0,
+  });
+
   // Get data from context
   const { fullBlockModelData, processedElevation, processedPitData } =
     useMiningData();
@@ -73,19 +80,7 @@ export default function CrossSectionViewScreen() {
           color: block.color || getRockColor(block.rock || "unknown"),
         }));
 
-        // Sample data if too large
-        // if (extractedBlocks.length > 10000) {
-          // const samplingRate = Math.ceil(extractedBlocks.length / 10000);
-          // const sampledBlocks = extractedBlocks.filter(
-            // (_, i) => i % samplingRate === 0
-          // );
-          // console.log(
-            // `Sampled ${sampledBlocks.length} blocks from ${extractedBlocks.length}`
-          // );
-          // setBlockModelData(sampledBlocks);
-        // } else {
-          setBlockModelData(extractedBlocks);
-        // }
+        setBlockModelData(extractedBlocks);
         console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
       }
 
@@ -122,6 +117,19 @@ export default function CrossSectionViewScreen() {
 
     return rockColors[rockType.toLowerCase()] || "#CCCCCC";
   };
+
+  // NEW: Handler for processed data from WebView
+  const handleDataProcessed = useCallback(
+    (data: {
+      displayedBlocks: number;
+      displayedElevationPoints: number;
+      displayedPitPoints: number;
+    }) => {
+      console.log("Received processed data counts:", data);
+      setDisplayedDataCounts(data);
+    },
+    []
+  );
 
   // Handle home button
   const handleHome = useCallback(() => {
@@ -247,7 +255,7 @@ export default function CrossSectionViewScreen() {
           <LoadingScreen message="Generating cross section..." progress={0.5} />
         ) : (
           <>
-            {/* Cross Section Info */}
+            {/* Cross Section Info - UPDATED to show displayed data counts */}
             <View style={styles.infoContainer}>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Start:</Text>
@@ -266,11 +274,11 @@ export default function CrossSectionViewScreen() {
                 <Text style={styles.infoValue}>{length.toFixed(1)} meters</Text>
               </View>
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Data:</Text>
+                <Text style={styles.infoLabel}>Displayed Data:</Text>
                 <Text style={styles.infoValue}>
-                  {blockModelData.length} blocks, {elevationData.length}{" "}
-                  elevation points,
-                  {pitData.length} pit points
+                  {displayedDataCounts.displayedBlocks} blocks,{" "}
+                  {displayedDataCounts.displayedElevationPoints} terrain points,{" "}
+                  {displayedDataCounts.displayedPitPoints} pit points
                 </Text>
               </View>
             </View>
@@ -289,6 +297,7 @@ export default function CrossSectionViewScreen() {
                   pitData={pitData}
                   lineLength={length}
                   sourceProjection={projection}
+                  onDataProcessed={handleDataProcessed} // NEW: Added callback for processed data
                 />
               </View>
 

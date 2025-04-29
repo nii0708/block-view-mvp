@@ -12,7 +12,7 @@ import { WebView } from "react-native-webview";
 
 import * as turf from "@turf/turf";
 import { convertCoordinates } from "../utils/projectionUtils";
-
+import { Feature, LineString } from "geojson";
 
 // Get window width for fixed calculations
 const windowWidth = Dimensions.get("window").width;
@@ -27,10 +27,20 @@ interface CrossSectionWebViewProps {
   pitData: any[];
   lineLength: number;
   sourceProjection: string;
+  onDataProcessed?: (data: {
+    displayedBlocks: number;
+    displayedElevationPoints: number;
+    displayedPitPoints: number;
+  }) => void;
 }
 
 //PLAY START
-function createLineGeoJSON(startLat, startLng, endLat, endLng) {
+function createLineGeoJSON(
+  startLat: number,
+  startLng: number,
+  endLat: number,
+  endLng: number
+) {
   // Create a GeoJSON LineString feature
   const lineGeoJSON = {
     type: "Feature",
@@ -39,14 +49,13 @@ function createLineGeoJSON(startLat, startLng, endLat, endLng) {
       type: "LineString",
       coordinates: [
         [startLng, startLat], // Start point (note: GeoJSON uses [longitude, latitude] order)
-        [endLng, endLat]      // End point
-      ]
-    }
+        [endLng, endLat], // End point
+      ],
+    },
   };
-  
+
   return lineGeoJSON;
 }
-
 //PLAY END
 
 const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
@@ -59,8 +68,8 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   pitData,
   lineLength,
   sourceProjection,
+  onDataProcessed,
 }) => {
-  console.log(sourceProjection)
   const [loading, setLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState(
     "Preparing cross section..."
@@ -71,11 +80,22 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   const renderedRef = useRef<boolean>(false);
   const chartWidthSetRef = useRef<boolean>(false);
 
+  function createLineGeoJSON(
+    startLat: number,
+    startLng: number,
+    endLat: number,
+    endLng: number
+  ): Feature<LineString> {
+    return turf.lineString([
+      [startLng, startLat],
+      [endLng, endLat],
+    ]);
+  }
+
   // Process data before sending to WebView
   const { processedBlockData, processedElevationData, processedPitData } =
     useMemo(() => {
       try {
-        console.log('blockModelData.length: ',blockModelData.length)
         // Format block model data for WebView consumption
         const blocks = blockModelData.map((block) => ({
           distance: 0, // Will be calculated in WebView
@@ -94,80 +114,83 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           y: parseFloat(point.y || point.original?.y || point.lat || 0),
           elevation: parseFloat(point.elevation || point.z || 0),
         }));
-        console.log('pit data: ',pitData[0].geometry.coordinates[0])
-        console.log('startLat data: ',startLat)
 
         //PLAY START-------------------------------------
-
-        //OLD
-
-        //NEW
-        // Extract line coordinates
-        const intersections = [];
-        try  {
-          const lineGeoJson= createLineGeoJSON(startLat, startLng, endLat, endLng)
-          
+        // Extract line coordinates and find intersections
+        const intersections: {
+          point: number[];
+          distance: number;
+          elevation: number;
+          type: string;
+        }[] = [];
+        try {
+          const lineGeoJson = createLineGeoJSON(
+            startLat,
+            startLng,
+            endLat,
+            endLng
+          );
           const lineCoords = lineGeoJson.geometry.coordinates;
-          console.log('line : ', lineCoords)
-
 
           // Create our pit intersections array
-          
-          // console.log('pitData : ', pitData[0])
           pitData.forEach((feature) => {
-            // Convert line and ring to Turf line features
-            const ringLine = turf.lineString(
-              feature.geometry.coordinates.map((coord) => coord.slice(0, 2))
-            );
+            if (
+              feature.geometry &&
+              feature.geometry.coordinates &&
+              feature.geometry.coordinates.length > 0
+            ) {
+              // Buat ringLine dengan benar
+              const ringCoordinates = feature.geometry.coordinates.map(
+                (coord: number[]) => coord.slice(0, 2)
+              );
 
-            const intersectionPoints = turf.lineIntersect(ringLine, lineGeoJson);
-            
-            //
-            // Process intersections
-            if (intersectionPoints.features.length > 0) {
-              intersectionPoints.features.forEach((intersectionFeature) => {
-                //change feature to intersectionFeature for clarity.
-                const intersectionCoord = intersectionFeature.geometry; // get the geometry of each feature.
-                // console.log('intersectionPoints :', intersectionPoints);
-                // console.log('intersectionCoord :', intersectionCoord);
-                // console.log('intersectionCoord coordinates:', intersectionCoord.coordinates);
-                const dist =
-                  turf.distance(intersectionCoord.coordinates, lineCoords[0], {
-                    units: "kilometers",
-                  })*1000;
-                  
-                const converted = convertCoordinates(
-                  intersectionCoord.coordinates,
-                              "EPSG:4326",
-                              sourceProjection
-                            );
-                // console.log("ori: ", intersectionCoord.coordinates);
-                console.log("dist: ", dist);
-                intersections.push({
-                  point: converted,
-                  distance: dist,
-                  elevation: feature.properties.level, // Use the pit boundary elevation
-                  type: "pit_boundary",
+              // Gunakan fungsi turf.lineString untuk membuat objek dengan tipe yang tepat
+              const ringLine = turf.lineString(ringCoordinates);
+
+              // Sekarang tipe-nya seharusnya cocok
+              const intersectionPoints = turf.lineIntersect(
+                ringLine,
+                lineGeoJson
+              );
+
+              // Process intersections
+              if (intersectionPoints.features.length > 0) {
+                intersectionPoints.features.forEach((intersectionFeature) => {
+                  const intersectionCoord = intersectionFeature.geometry;
+                  const dist =
+                    turf.distance(
+                      intersectionCoord.coordinates,
+                      lineCoords[0],
+                      {
+                        units: "kilometers",
+                      }
+                    ) * 1000;
+
+                  const converted = convertCoordinates(
+                    intersectionCoord.coordinates,
+                    "EPSG:4326",
+                    sourceProjection
+                  );
+
+                  intersections.push({
+                    point: converted,
+                    distance: dist,
+                    elevation: feature.properties.level, // Use the pit boundary elevation
+                    type: "pit_boundary",
+                  });
                 });
-              });
+              }
             }
           });
-
-          // setPitIntersections(intersections);
         } catch (error) {
           console.error("Error finding pit intersections:", error);
-          // setPitIntersections([]);
         }
-      // console.log(intersections)
         //PLAY END-------------------------------------
 
-
-        
-        // console.log(intersections,'END')
         return {
           processedBlockData: blocks,
           processedElevationData: elevation,
-          processedPitData: intersections,//pit,
+          processedPitData: intersections,
         };
       } catch (e) {
         console.error("Error preprocessing data:", e);
@@ -183,7 +206,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         };
       }
     }, [blockModelData, elevationData, pitData]);
-  console.log('blockModelData : ', blockModelData[0].rock)
+
   // Generate D3 HTML content
   const d3Html = useMemo(() => {
     return generateD3Html(
@@ -228,6 +251,16 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
               chartWidthSetRef.current = true;
               setChartWidth(message.chartWidth);
             }
+
+            // Pass processed data counts back to parent component
+            if (onDataProcessed && message.dataStats) {
+              onDataProcessed({
+                displayedBlocks: message.dataStats.displayedBlocks || 0,
+                displayedElevationPoints:
+                  message.dataStats.displayedElevationPoints || 0,
+                displayedPitPoints: message.dataStats.displayedPitPoints || 0,
+              });
+            }
           }
           break;
         case "renderError":
@@ -250,6 +283,17 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         case "progressUpdate":
           if (message.message) {
             setLoadingMessage(message.message);
+          }
+          break;
+        case "dataStats":
+          // Handle data statistics separately
+          if (onDataProcessed && message.stats) {
+            onDataProcessed({
+              displayedBlocks: message.stats.displayedBlocks || 0,
+              displayedElevationPoints:
+                message.stats.displayedElevationPoints || 0,
+              displayedPitPoints: message.stats.displayedPitPoints || 0,
+            });
           }
           break;
       }
@@ -359,6 +403,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
 };
 
 const styles = StyleSheet.create({
+  // Styles remain the same
   container: {
     flex: 1,
     backgroundColor: "#fff",
@@ -405,7 +450,7 @@ const styles = StyleSheet.create({
   },
 });
 
-// Generate D3 HTML function with simplified, more robust implementation
+// Generate D3 HTML function
 function generateD3Html(
   blockModelData: any[],
   elevationData: any[],
@@ -427,7 +472,7 @@ function generateD3Html(
     }
   };
 
-  // HTML template with D3.js
+  // HTML template with D3.js - Adding data stats messaging
   return `
     <!DOCTYPE html>
     <html>
@@ -442,6 +487,7 @@ function generateD3Html(
       <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
       
       <style>
+        /* CSS styles remain the same */
         html, body {
           margin: 0;
           padding: 0;
@@ -577,6 +623,11 @@ function generateD3Html(
         let chartWidthSent = false;
         let lastLogTime = 0;
         
+        // Data statistics tracking
+        let displayedBlocksCount = 0;
+        let displayedElevationPointsCount = 0;
+        let displayedPitPointsCount = 0;
+        
         // For logging
         function debug(message) {
           const now = Date.now();
@@ -601,6 +652,17 @@ function generateD3Html(
               ...data
             }));
           }
+        }
+        
+        // Send data statistics back to React Native
+        function sendDataStats() {
+          sendToRN('dataStats', {
+            stats: {
+              displayedBlocks: displayedBlocksCount,
+              displayedElevationPoints: displayedElevationPointsCount,
+              displayedPitPoints: displayedPitPointsCount
+            }
+          });
         }
         
         // Update progress
@@ -636,9 +698,6 @@ function generateD3Html(
         // Convert line endpoints from WGS84 to UTM coordinates
         const startPointUTM = proj4('EPSG:4326', sourceProjection, [startPoint.lng, startPoint.lat]);
         const endPointUTM = proj4('EPSG:4326', sourceProjection, [endPoint.lng, endPoint.lat]);
-
-        // debug('Start point in UTM: ' + JSON.stringify(startPointUTM));
-        // debug('End point in UTM: ' + JSON.stringify(endPointUTM));
         
         // Color mapping for rock types
         const rockColorMap = {
@@ -683,56 +742,56 @@ function generateD3Html(
               }
             }
     
-          // Use UTM coordinates for line
-          const x1 = startPointUTM[0];
-          const y1 = startPointUTM[1];
-          const x2 = endPointUTM[0];
-          const y2 = endPointUTM[1];
+            // Use UTM coordinates for line
+            const x1 = startPointUTM[0];
+            const y1 = startPointUTM[1];
+            const x2 = endPointUTM[0];
+            const y2 = endPointUTM[1];
     
-          // Vector from start to end of line
-          const lineVectorX = x2 - x1;
-          const lineVectorY = y2 - y1;
-          
-          // Vector from start of line to point
-          const pointVectorX = pointX - x1;
-          const pointVectorY = pointY - y1;
-          
-          // Length of the line segment squared
-          const lineLengthSquared = lineVectorX * lineVectorX + lineVectorY * lineVectorY;
+            // Vector from start to end of line
+            const lineVectorX = x2 - x1;
+            const lineVectorY = y2 - y1;
+            
+            // Vector from start of line to point
+            const pointVectorX = pointX - x1;
+            const pointVectorY = pointY - y1;
+            
+            // Length of the line segment squared
+            const lineLengthSquared = lineVectorX * lineVectorX + lineVectorY * lineVectorY;
     
-          // Prevent division by zero
-          if (lineLengthSquared === 0) {
+            // Prevent division by zero
+            if (lineLengthSquared === 0) {
+              return {
+                ratio: 0,
+                distanceAlongLine: 0,
+                distanceToLine: Math.sqrt(pointVectorX * pointVectorX + pointVectorY * pointVectorY)
+              };
+            }
+    
+            // Calculate dot product
+            const dotProduct = pointVectorX * lineVectorX + pointVectorY * lineVectorY;
+            
+            // Ratio along line segment
+            const ratio = Math.max(0, Math.min(1, dotProduct / lineLengthSquared));
+            
+            // Calculate projected point
+            const projectedX = x1 + ratio * lineVectorX;
+            const projectedY = y1 + ratio * lineVectorY;
+            
+            // Distance from point to projection on line
+            const dx = pointX - projectedX;
+            const dy = pointY - projectedY;
+            const distanceToLine = Math.sqrt(dx*dx + dy*dy);
+    
+            // Distance along the line
+            const distanceAlongLine = ratio * lineLength;
+            
             return {
-              ratio: 0,
-              distanceAlongLine: 0,
-              distanceToLine: Math.sqrt(pointVectorX * pointVectorX + pointVectorY * pointVectorY)
+              ratio,
+              distanceAlongLine,
+              distanceToLine,
+              projectedPoint: [projectedX, projectedY]
             };
-          }
-    
-          // Calculate dot product
-          const dotProduct = pointVectorX * lineVectorX + pointVectorY * lineVectorY;
-          
-          // Ratio along line segment
-          const ratio = Math.max(0, Math.min(1, dotProduct / lineLengthSquared));
-          
-          // Calculate projected point
-          const projectedX = x1 + ratio * lineVectorX;
-          const projectedY = y1 + ratio * lineVectorY;
-          
-          // Distance from point to projection on line
-          const dx = pointX - projectedX;
-          const dy = pointY - projectedY;
-          const distanceToLine = Math.sqrt(dx*dx + dy*dy);
-    
-          // Distance along the line
-          const distanceAlongLine = ratio * lineLength;
-          
-          return {
-            ratio,
-            distanceAlongLine,
-            distanceToLine,
-            projectedPoint: [projectedX, projectedY]
-          };
           } catch (err) {
             console.error("Error in projectPointOnLine:", err);
             return {
@@ -754,10 +813,10 @@ function generateD3Html(
             }
             
             const intersectingBlocks = [];
-
-            // cek garis dalam interseksi
+            
+            // Functions for checking if a line intersects with a polygon
             function lineIntersectsPolygon(lineStart, lineEnd, polygon) {
-              // Untuk setiap sisi polygon, cek apakah berpotongan dengan garis
+              // Check each side of the polygon for intersection with the line
               for (let i = 0; i < polygon.length - 1; i++) {
                 const polyPointA = polygon[i];
                 const polyPointB = polygon[i + 1];
@@ -772,31 +831,32 @@ function generateD3Html(
                 }
               }
 
-                // Cek juga apakah titik awal atau akhir garis berada di dalam polygon
-                if (pointInPolygon(lineStart, polygon) || pointInPolygon(lineEnd, polygon)) {
-                  return true;
-                } return false;
-              }
+              // Also check if the start or end point of the line is inside the polygon
+              if (pointInPolygon(lineStart, polygon) || pointInPolygon(lineEnd, polygon)) {
+                return true;
+              } 
+              return false;
+            }
 
-            // Fungsi untuk mengecek apakah dua segmen garis berpotongan
+            // Function to check if two line segments intersect
             function lineSegmentIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
-              // Hitung denominator
+              // Calculate denominator
               const den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
 
-              // Garis sejajar atau berimpit
+              // Lines are parallel or coincident
               if (den === 0) {
                 return false;
               }
 
-              // Hitung parameter perpotongan garis
+              // Calculate intersection parameters
               const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / den;
               const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / den;
 
-              // Cek apakah perpotongan berada dalam kedua segmen
+              // Check if intersection is within both line segments
               return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
             }
 
-            // Fungsi untuk mengecek apakah sebuah titik berada di dalam polygon
+            // Function to check if a point is inside a polygon
             function pointInPolygon(point, polygon) {
               // Ray-casting algorithm
               let inside = false;
@@ -815,23 +875,23 @@ function generateD3Html(
               return inside;
             }
             
-            // Hitung centroid
+            // Calculate polygon centroid
             const calculatePolygonCentroid = (polygon) => {
-                // Simple average of all vertices (excluding the last if it's the same as the first)
-                const points =
-                  polygon.length > 0 &&
-                  polygon[0][0] === polygon[polygon.length - 1][0] &&
-                  polygon[0][1] === polygon[polygon.length - 1][1]
-                    ? polygon.slice(0, -1)
-                    : polygon;
+              // Simple average of all vertices (excluding the last if it's the same as the first)
+              const points =
+                polygon.length > 0 &&
+                polygon[0][0] === polygon[polygon.length - 1][0] &&
+                polygon[0][1] === polygon[polygon.length - 1][1]
+                  ? polygon.slice(0, -1)
+                  : polygon;
 
-                const sumX = points.reduce((sum, point) => sum + point[0], 0);
-                const sumY = points.reduce((sum, point) => sum + point[1], 0);
+              const sumX = points.reduce((sum, point) => sum + point[0], 0);
+              const sumY = points.reduce((sum, point) => sum + point[1], 0);
 
-                return [sumX / points.length, sumY / points.length];
-              };
-                        
-            // Fungsi untuk rotasi garis
+              return [sumX / points.length, sumY / points.length];
+            };
+            
+            // Function to project a point onto a line and get the distance
             function projectPointOntoLine(point, lineStart, lineEnd) {
               const x0 = point[0];
               const y0 = point[1];
@@ -868,9 +928,9 @@ function generateD3Html(
                 projectedPoint: [projectedX, projectedY],
                 distance: distance,
               };
-            };
+            }
 
-            // Fungsi untuk melihat interseksi
+            // Function to find the intersection of two line segments
             function findLineSegmentIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
               // Calculate denominators
               const den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
@@ -893,71 +953,77 @@ function generateD3Html(
               }
 
               return null;
-            };
+            }
             
+            // Function to calculate intersection points between a line and polygon
             function calculateIntersectionPoints(lineStart, lineEnd, polygon) {
-                const intersections = [];
+              const intersections = [];
 
-                // For each edge of the polygon, check if it intersects with the line segment
-                for (let i = 0; i < polygon.length - 1; i++) {
-                  
-                  const polyPointA = polygon[i];
-                  const polyPointB = polygon[i + 1];
-                  
+              // For each edge of the polygon, check if it intersects with the line segment
+              for (let i = 0; i < polygon.length - 1; i++) {
+                const polyPointA = polygon[i];
+                const polyPointB = polygon[i + 1];
 
-                  const intersection = findLineSegmentIntersection(
-                    lineStart[0],
-                    lineStart[1],
-                    lineEnd[0],
-                    lineEnd[1],
-                    polyPointA[0],
-                    polyPointA[1],
-                    polyPointB[0],
-                    polyPointB[1]
-                  );
-                  
-                  if (intersection) {
-                    // Calculate distance from start of line to intersection point
-                    const dist = Math.sqrt(
-                      (intersection.x - lineStart[0]) ** 2 +
-                        (intersection.y - lineStart[1]) ** 2
-                    );
-
-                    intersections.push({
-                      point: [intersection.x, intersection.y],
-                      distance: dist,
-                    });
-                  }
-                }
-
-                // If we found fewer than 2 intersections, the line might start or end inside the polygon
-                if (intersections.length < 2) {
-                  // Check if either line endpoint is inside the polygon
-                  if (pointInPolygon(lineStart, polygon)) {
-                    intersections.push({
-                      point: [lineStart[0], lineStart[1]],
-                      distance: 0,
-                    });
-                  }
-
-                  if (pointInPolygon(lineEnd, polygon)) {
-                    const lineLength = calculateLineLength(lineStart, lineEnd);
-                    intersections.push({
-                      point: [lineEnd[0], lineEnd[1]],
-                      distance: lineLength,
-                    });
-                  }
-                }
+                const intersection = findLineSegmentIntersection(
+                  lineStart[0],
+                  lineStart[1],
+                  lineEnd[0],
+                  lineEnd[1],
+                  polyPointA[0],
+                  polyPointA[1],
+                  polyPointB[0],
+                  polyPointB[1]
+                );
                 
-                return intersections;
-              };
+                if (intersection) {
+                  // Calculate distance from start of line to intersection point
+                  const dist = Math.sqrt(
+                    (intersection.x - lineStart[0]) ** 2 +
+                      (intersection.y - lineStart[1]) ** 2
+                  );
 
-            // Mengurangi interval sampling untuk akurasi lebih baik
-            const processInterval = 1 
-            //blockModelData.length > 10000 ? 2 : 1;
-    
-            // Konversi block data menjadi polygon untuk perhitungan interseksi
-            for (let i = 0; i < blockModelData.length; i += processInterval) {
+                  intersections.push({
+                    point: [intersection.x, intersection.y],
+                    distance: dist,
+                  });
+                }
+              }
+
+              // If we found fewer than 2 intersections, the line might start or end inside the polygon
+              if (intersections.length < 2) {
+                // Check if either line endpoint is inside the polygon
+                if (pointInPolygon(lineStart, polygon)) {
+                  intersections.push({
+                    point: [lineStart[0], lineStart[1]],
+                    distance: 0,
+                  });
+                }
+
+                if (pointInPolygon(lineEnd, polygon)) {
+                  const lineLength = Math.sqrt(
+                    (lineEnd[0] - lineStart[0]) ** 2 + 
+                    (lineEnd[1] - lineStart[1]) ** 2
+                  );
+                  intersections.push({
+                    point: [lineEnd[0], lineEnd[1]],
+                    distance: lineLength,
+                  });
+                }
+              }
+              
+              return intersections;
+            }
+
+            // Helper function to calculate line length
+            function calculateLineLength(pointA, pointB) {
+              return Math.sqrt(
+                (pointB[0] - pointA[0]) ** 2 + 
+                (pointB[1] - pointA[1]) ** 2
+              );
+            }
+
+            // Convert block data into polygons for intersection calculation
+            for (let i = 0; i < blockModelData.length; i++) {
               const block = blockModelData[i];
               
               // Skip invalid blocks
@@ -972,94 +1038,80 @@ function generateD3Html(
               const width = parseFloat(block.dim_x || block.width || 12.5);
               const height = parseFloat(block.dim_z || block.height || 1);
               
-              // Buat polygon untuk blok
-              // Half width/height untuk membuat polygon dari titik pusat
+              // Create polygon for the block
+              // Half width/height to create polygon from center point
               const halfWidth = width / 2;
-              const halfDepth = width / 2; // Asumsi depth = width jika tidak ada
+              const halfDepth = width / 2; // Assume depth = width if not specified
               
-              // Buat polygon persegi panjang untuk blok (x,y coordinates)
+              // Create rectangular polygon for the block (x,y coordinates)
               const polygon = [
-                [x - halfWidth, y - halfDepth],  // Kiri bawah
-                [x + halfWidth, y - halfDepth],  // Kanan bawah
-                [x + halfWidth, y + halfDepth],  // Kanan atas
-                [x - halfWidth, y + halfDepth],  // Kiri atas
-                [x - halfWidth, y - halfDepth]   // Kembali ke kiri bawah untuk menutup polygon
+                [x - halfWidth, y - halfDepth],  // Bottom left
+                [x + halfWidth, y - halfDepth],  // Bottom right
+                [x + halfWidth, y + halfDepth],  // Top right
+                [x - halfWidth, y + halfDepth],  // Top left
+                [x - halfWidth, y - halfDepth]   // Back to bottom left to close polygon
               ];
               
-              // Tentukan titik awal dan akhir garis cross-section
+              // Define start and end points of cross-section line
               const lineStart = [startPointUTM[0], startPointUTM[1]];
               const lineEnd = [endPointUTM[0], endPointUTM[1]];
-      
-              // Cek apakah garis memotong polygon
+    
+              // Check if line intersects with polygon
               if (lineIntersectsPolygon(lineStart, lineEnd, polygon)) {
-                // Hitung titik-titik perpotongan
+                // Calculate intersection points
                 const intersections = calculateIntersectionPoints(lineStart, lineEnd, polygon);
                 
-                // Jika ada minimal 2 titik perpotongan (masuk dan keluar)
+                // If we have at least 2 intersection points (entry and exit)
                 if (intersections.length >= 2) {
-                  // Urutkan berdasarkan jarak dari titik awal
+                  // Sort by distance from start point
                   intersections.sort((a, b) => a.distance - b.distance);
                   
-                  // Ambil titik masuk dan keluar (yang terjauh)
+                  // Get entry and exit points (first and last)
                   const entryPoint = intersections[0];
                   const exitPoint = intersections[intersections.length - 1];
                   
-                  // Hitung lebar segmen yang benar-benar dipotong
+                  // Calculate width of the segment that is actually intersected
                   const segmentLength = exitPoint.distance - entryPoint.distance;
 
-                  // Calculate the centroid for this block
-                  //REFACTOR PLEASE FOR OPT CAN BE SUBSTITUTED WITH x,y in line with polygon = 
-                  const centroid = calculatePolygonCentroid(polygon);
-
-                  // Project the centroid onto the line
-                  const projectedDistance = projectPointOntoLine(
-                    [centroid[0], centroid[1]],
-                    startPoint,
-                    endPoint
-                  );
-                  
-                  // Tentukan jarak dari awal garis
-                  const distanceAlongLine = entryPoint.distance;
-                  
-                  // Tambahkan blok dengan dimensi yang benar
+                  // Add block with correct dimensions
                   intersectingBlocks.push({
-                    distance: entryPoint.distance, //distanceAlongLine,
-                    width: segmentLength, // Lebar sebenarnya dari perpotongan
+                    distance: entryPoint.distance,
+                    width: segmentLength,
                     height: height,
                     elevation: z,
                     rock: block.rock || "unknown",
                     color: block.color || getColorForRock(block.rock || "unknown")
                   });
                 }
-              } else {
-                // Jika tidak ada perpotongan langsung, cek apakah centroid dekat dengan garis
-                const projection = projectPointOnLine(
-                  { x: x, y: y },
-                  startPoint,
-                  endPoint
-                );
+              }
             }
-          }
     
-          // Sort blocks by distance and then elevation for proper rendering
-          intersectingBlocks.sort((a, b) => {
-            // First by distance (ascending)
-            if (a.distance !== b.distance) {
-              return a.distance - b.distance;
-            }
-            // Then by elevation (ascending)
-            return a.elevation - b.elevation;
-          });
-          
-          updateProgress(30, "Block processing complete");
-          return intersectingBlocks.length > 0 ? intersectingBlocks : generateTestBlocks();
-        } catch (err) {
-          // debug("Error processing blocks: " + err.message);
-          return generateTestBlocks();
+            // Sort blocks by distance and then elevation for proper rendering
+            intersectingBlocks.sort((a, b) => {
+              // First by distance (ascending)
+              if (a.distance !== b.distance) {
+                return a.distance - b.distance;
+              }
+              // Then by elevation (ascending)
+              return a.elevation - b.elevation;
+            });
+            
+            // Store the count of displayed blocks for reporting back to React Native
+            displayedBlocksCount = intersectingBlocks.length;
+            
+            updateProgress(30, "Block processing complete");
+            
+            // Send an early data stats update
+            sendDataStats();
+            
+            return intersectingBlocks.length > 0 ? intersectingBlocks : generateTestBlocks();
+          } catch (err) {
+            debug("Error processing blocks: " + err.message);
+            return generateTestBlocks();
+          }
         }
-      }
         
-  // Generate test blocks for fallback
+        // Generate test blocks for fallback
         function generateTestBlocks() {
           const testBlocks = [];
           for (let i = 0; i < 10; i++) {
@@ -1072,6 +1124,9 @@ function generateD3Html(
               color: i % 3 === 0 ? "#b40c0d" : (i % 3 === 1 ? "#606060" : "#045993")
             });
           }
+          
+          // Set displayed blocks count
+          displayedBlocksCount = testBlocks.length;
           return testBlocks;
         }
         
@@ -1157,7 +1212,7 @@ function generateD3Html(
                 }
               }
               
-              // Only use points that are reasonably close (within 200m)
+              // Only use points that are reasonably close (within 20m)
               if (minDistance < 20) {
                 elevationPoints.push({
                   distance: distance,
@@ -1171,47 +1226,20 @@ function generateD3Html(
               }
             }
     
-    // If not enough valid points found, use IDW interpolation to fill gaps
-    // if (elevationPoints.filter(p => p.elevation !== null).length < numPoints * 0.3) {
-    //   // Try Inverse Distance Weighting interpolation
-    //   for (let i = 0; i < elevationPoints.length; i++) {
-    //     if (elevationPoints[i].elevation === null) {
-    //       const pointX = startPointUTM[0] + (i / numPoints) * (endPointUTM[0] - startPointUTM[0]);
-    //       const pointY = startPointUTM[1] + (i / numPoints) * (endPointUTM[1] - startPointUTM[1]);
-          
-    //       // Calculate IDW
-    //       let weightSum = 0;
-    //       let valueSum = 0;
-          
-    //       for (let j = 0; j < convertedElevationData.length; j++) {
-    //         const point = convertedElevationData[j];
-    //         const dx = point.x - pointX;
-    //         const dy = point.y - pointY;
-    //         const dist = Math.sqrt(dx*dx + dy*dy);
+            // Store the count of valid elevation points
+            displayedElevationPointsCount = elevationPoints.filter(p => p.elevation !== null).length;
             
-    //         // Skip very distant points
-    //         if (dist > 500) continue;
+            updateProgress(50, "Elevation processing complete");
             
-    //         // Inverse distance squared
-    //         const weight = 1 / (dist * dist + 0.1); // Add small value to prevent division by zero
-    //         weightSum += weight;
-    //         valueSum += weight * point.elevation;
-    //       }
-          
-    //       if (weightSum > 0) {
-    //         elevationPoints[i].elevation = valueSum / weightSum;
-    //       }
-    //     }
-    //   }
-    // }
-    
-    updateProgress(50, "Elevation processing complete");
-    
-    return elevationPoints.length > 0 ? elevationPoints : generateTestElevationProfile();
-  } catch (err) {
-    return generateTestElevationProfile();
-  }
-}
+            // Send updated data stats
+            sendDataStats();
+            
+            return elevationPoints.length > 0 ? elevationPoints : generateTestElevationProfile();
+          } catch (err) {
+            debug("Error processing elevation data: " + err.message);
+            return generateTestElevationProfile();
+          }
+        }
         
         // Generate test elevation profile
         function generateTestElevationProfile() {
@@ -1224,10 +1252,13 @@ function generateD3Html(
               elevation: elevation
             });
           }
+          
+          // Set displayed elevation points count
+          displayedElevationPointsCount = testPoints.length;
           return testPoints;
         }
         
-        // Process pit data - FIXED to use the same projection as the blocks
+        // Process pit data
         function processPitData() {
           try {
             updateProgress(60, "Processing pit data...");
@@ -1237,97 +1268,33 @@ function generateD3Html(
               return [];
             }
             
-            // DEBUG: Log some sample pit data to check coordinates
-            if (pitData.length > 0) {
-              const sample = pitData[0];
-              let sampleX, sampleY, sampleZ;
-              
-              if (sample.geometry && sample.properties) {
-                // It's a GeoJSON feature
-                sampleX = sample.geometry.coordinates[0][0];
-                sampleY = sample.geometry.coordinates[0][1];
-                sampleZ = sample.properties.level || 0;
-              } else {
-                // It's a direct point
-                sampleX = parseFloat(sample.x || 0);
-                sampleY = parseFloat(sample.y || 0);
-                sampleZ = parseFloat(sample.z || sample.level || sample.elevation || 0);
-              }
-      
-      
-              // Check coordinate ranges to detect if we're dealing with lat/lon or UTM
-              let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-              for (let i = 0; i < pitData.length; i++) {
-                const point = pitData[i];
-                let x, y;
-                
-                if (point.geometry && point.properties) {
-                  x = point.geometry.coordinates[0][0];
-                  y = point.geometry.coordinates[0][1];
-                } else {
-                  x = parseFloat(point.x || 0);
-                  y = parseFloat(point.y || 0);
-                }
-                
-                if (!isNaN(x) && !isNaN(y)) {
-                  minX = Math.min(minX, x);
-                  maxX = Math.max(maxX, x);
-                  minY = Math.min(minY, y);
-                  maxY = Math.max(maxY, y);
-                }
-              }
-              
-                // Determine if this looks like WGS84 (lat/lon) or UTM
-                const isWGS84Range = minX >= -180 && maxX <= 180 && minY >= -90 && maxY <= 90;
-              }
+            const pitPoints = [];
+            
+            // Process each pit point
+            pitData.forEach(point => {
+              pitPoints.push({
+                distance: point.distance,
+                elevation: point.elevation
+              });
+            });
     
-              const pitPoints = [];
-    
-    // Process each pit point
-    for (let i = 0; i < pitData.length; i++) {
-      const point = pitData[i];
-      let x, y, elev;
-      
-      // Handle different possible data structures
-      if (point.geometry && point.properties) {
-        // It's a GeoJSON feature
-        x = point.geometry.coordinates[0][0];
-        y = point.geometry.coordinates[0][1];
-        elev = point.properties.level || 0;
-      } else {
-        // It's a direct point
-        x = parseFloat(point.x || 0);
-        y = parseFloat(point.y || 0);
-        elev = parseFloat(point.z || point.level || point.elevation || 0);
-      }
-      
-      // Project point onto line
-      const projection = projectPointOnLine(
-        { x: x, y: y },
-        startPoint,
-        endPoint
-      );
-      
-      // Only include points near the line (within 150m)
-      // if (Math.abs(projection.ratio) <= 1.2 && projection.distanceToLine < 150) {
-        pitPoints.push({
-          distance: projection.distanceAlongLine,
-          elevation: elev
-        });
-      // }
-    }
-    
-    // Sort by distance
-    pitPoints.sort((a, b) => a.distance - b.distance);
-    
-    updateProgress(70, "Pit data processing complete");
-    
-    return pitPoints;
-  } catch (err) {
-    debug("Error processing pit data: " + err.message);
-    return [];
-  }
-}
+            // Sort by distance
+            pitPoints.sort((a, b) => a.distance - b.distance);
+            
+            // Store count of displayed pit points
+            displayedPitPointsCount = pitPoints.length;
+            
+            updateProgress(70, "Pit data processing complete");
+            
+            // Send updated data stats
+            sendDataStats();
+            
+            return pitPoints;
+          } catch (err) {
+            debug("Error processing pit data: " + err.message);
+            return [];
+          }
+        }
         
         // Get elevation range for Y-axis scaling
         function getElevationRange(blocks, elevationPoints, pitPoints) {
@@ -1387,7 +1354,10 @@ function generateD3Html(
             // First, process the data
             const sectionBlocks = processCrossSectionBlocks();
             const elevationProfile = processElevationData();
-            const pitProfile = pitData //processPitData();
+            const pitProfile = processPitData();
+            
+            // Send the final data stats
+            sendDataStats();
             
             const sortedIntersections = [...pitProfile].sort(
               (a, b) => a.distance - b.distance
@@ -1424,19 +1394,19 @@ function generateD3Html(
             
             // Create scales
             const xScale = d3.scaleLinear()
-            .domain([0, lineLength])
-            .range([0, innerWidth]);
+              .domain([0, lineLength])
+              .range([0, innerWidth]);
   
             const yScale = d3.scaleLinear()
-            .domain([elevRange.min, elevRange.max])
-            .range([innerHeight, 0]);
+              .domain([elevRange.min, elevRange.max])
+              .range([innerHeight, 0]);
               
             // Create axes
             const xAxis = d3.axisBottom(xScale)
-            .tickFormat(d => \`\${(d/1000).toFixed(3)}\`); // Show as kilometers with 3 decimal places
+              .tickFormat(d => \`\${(d/1000).toFixed(3)}\`); // Show as kilometers with 3 decimal places
   
             const yAxis = d3.axisLeft(yScale)
-            .tickFormat(d => \`\${d.toFixed(0)}m\`);
+              .tickFormat(d => \`\${d.toFixed(0)}m\`);
               
             // Add axes
             g.append('g')
@@ -1480,8 +1450,6 @@ function generateD3Html(
                   .tickFormat('')
               );
                         
- 
-            
             // Collect unique rock types for legend
             const uniqueRocks = {};
             
@@ -1501,19 +1469,19 @@ function generateD3Html(
                   .enter()
                   .append('rect')
                   .attr('class', 'block')
-                  .attr('x', d => xScale(d.distance)) // .attr('x', d => xScale(d.distance - d.width/2))
+                  .attr('x', d => xScale(d.distance))
                   .attr('y', d => yScale(d.elevation + d.height/2))
-                  .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance))// .attr('width', d => Math.max(1, xScale(d.distance + d.width/2) - xScale(d.distance - d.width/2)))
+                  .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance))
                   .attr('height', d => Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2)))
                   .attr('fill', d => d.color || getColorForRock(d.rock))
                   .attr('stroke', 'black')
                   .attr('stroke-width', 0.25)
                   .on('mouseover', function(event, d) {
-                  // Highlight on hover
-                  d3.select(this)
-                  .attr('stroke-width', 2)
-                  .attr('stroke', '#333');
-                                      
+                    // Highlight on hover
+                    d3.select(this)
+                      .attr('stroke-width', 2)
+                      .attr('stroke', '#333');
+                                          
                     // Show tooltip
                     tooltip.transition()
                       .duration(200)
@@ -1543,7 +1511,8 @@ function generateD3Html(
                 debug("Error drawing blocks: " + err.message);
               }
             }
-           // Draw elevation profile
+            
+            // Draw elevation profile
             if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
               try {
                 // Create line generator
@@ -1554,21 +1523,18 @@ function generateD3Html(
                   .defined(d => d.elevation !== null);
                   
                 // Add path
-                // debug('elevationProfile : '+elevationProfile[1].distance);
                 g.append('path')
                   .datum(elevationProfile.filter(p => p.elevation !== null))
                   .attr('fill', 'none')
                   .attr('stroke', 'green')
                   .attr('stroke-width', 2)
                   .attr('d', line);
-                  
-                // Area fill telah dihapus
               } catch (err) {
                 debug("Error drawing elevation profile: " + err.message);
               }
             }
                       
-            // Draw pit boundaries - Make sure this is drawn
+            // Draw pit boundaries
             if (pitProfile && pitProfile.length > 0) {
               try {
                 // Reduced filtering - only filter very close points
@@ -1593,147 +1559,146 @@ function generateD3Html(
                   }
                 }
 
-    // 1. First, draw a thicker solid line behind the dashed line for better visibility
-    const pitLineBg = d3.line()
-      .x(d => xScale(d.distance))
-      .y(d => yScale(d.elevation))
-      .curve(d3.curveLinear); // Use linear for more accurate representation
-    debug('filteredPitPoints : '+sortedIntersections.length);
-    g.append('path')
-      .datum(sortedIntersections)
-      .attr('fill', 'none')
-      .attr('stroke', '#F4AE4D')  // Orange pit boundary color
-      .attr('stroke-width', 1)    // Thicker solid line behind
-      .attr('stroke-opacity', 0.3) // Semi-transparent
-      .attr('d', pitLineBg);
-    
-    // 2. Draw dashed line over it
-    const pitLine = d3.line()
-      .x(d => xScale(d.distance))
-      .y(d => yScale(d.elevation))
-      .curve(d3.curveLinear);
-    
-    g.append('path')
-      .datum(sortedIntersections)
-      .attr('fill', 'none')
-      .attr('stroke', '#F4AE4D')
-      .attr('stroke-width', 1.0)
-      .attr('stroke-dasharray', '5,5')
-      .attr('d', pitLine);
-    
-    // Add fewer marker points - just at key inflection points
-    if (filteredPitPoints.length > 3) {
-      g.selectAll('.pit-marker')
-        .data(filteredPitPoints.filter((_, i) => 
-          i === 0 || i === filteredPitPoints.length - 1 || i % Math.max(3, Math.ceil(filteredPitPoints.length / 15)) === 0
-        ))
-        .enter()
-        .append('circle')
-        .attr('class', 'pit-marker')
-        .attr('cx', d => xScale(d.distance))
-        .attr('cy', d => yScale(d.elevation))
-        .attr('r', 2)  // Larger markers
-        .attr('fill', '#F4AE4D')
-        .attr('stroke', '#fff')  // White border for visibility
-        .attr('stroke-width', 1);
-    }
-  } catch (err) {
-    debug("Error drawing pit boundary: " + err.message);
-  }
-} else {
-  // debug("No pit profile data to draw");
-}            
+                // 1. First, draw a thicker solid line behind the dashed line for better visibility
+                const pitLineBg = d3.line()
+                  .x(d => xScale(d.distance))
+                  .y(d => yScale(d.elevation))
+                  .curve(d3.curveLinear); // Use linear for more accurate representation
+                
+                g.append('path')
+                  .datum(sortedIntersections)
+                  .attr('fill', 'none')
+                  .attr('stroke', '#F4AE4D')  // Orange pit boundary color
+                  .attr('stroke-width', 1)    // Thicker solid line behind
+                  .attr('stroke-opacity', 0.3) // Semi-transparent
+                  .attr('d', pitLineBg);
+                
+                // 2. Draw dashed line over it
+                const pitLine = d3.line()
+                  .x(d => xScale(d.distance))
+                  .y(d => yScale(d.elevation))
+                  .curve(d3.curveLinear);
+                
+                g.append('path')
+                  .datum(sortedIntersections)
+                  .attr('fill', 'none')
+                  .attr('stroke', '#F4AE4D')
+                  .attr('stroke-width', 1.0)
+                  .attr('stroke-dasharray', '5,5')
+                  .attr('d', pitLine);
+                
+                // Add fewer marker points - just at key inflection points
+                if (filteredPitPoints.length > 3) {
+                  g.selectAll('.pit-marker')
+                    .data(filteredPitPoints.filter((_, i) => 
+                      i === 0 || i === filteredPitPoints.length - 1 || i % Math.max(3, Math.ceil(filteredPitPoints.length / 15)) === 0
+                    ))
+                    .enter()
+                    .append('circle')
+                    .attr('class', 'pit-marker')
+                    .attr('cx', d => xScale(d.distance))
+                    .attr('cy', d => yScale(d.elevation))
+                    .attr('r', 2)  // Larger markers
+                    .attr('fill', '#F4AE4D')
+                    .attr('stroke', '#fff')  // White border for visibility
+                    .attr('stroke-width', 1);
+                }
+              } catch (err) {
+                debug("Error drawing pit boundary: " + err.message);
+              }
+            }
+            
             // Create legend
-            const legendWidth = innerWidth * 0.8; // Wider for better visibility
-const legendHeight = 40; // Taller
-const legendX = margin.left + (innerWidth - legendWidth) / 2; // Center horizontally
-const legendY = margin.top + innerHeight + 45; // Position below x-axis
+            const legendWidth = innerWidth * 0.8;
+            const legendHeight = 40;
+            const legendX = margin.left + (innerWidth - legendWidth) / 2;
+            const legendY = margin.top + innerHeight + 45;
 
-// Create the legend container with a light background
-const legendBox = svg.append('g')
-  .attr('class', 'legend-container')
-  .attr('transform', \`translate(\${legendX}, \${legendY})\`);
+            // Create the legend container with a light background
+            const legendBox = svg.append('g')
+              .attr('class', 'legend-container')
+              .attr('transform', \`translate(\${legendX}, \${legendY})\`);
 
-// Add a subtle background to make legend more visible
-legendBox.append('rect')
-  .attr('width', legendWidth)
-  .attr('height', legendHeight)
-  .attr('rx', 5) // Rounded corners
-  .attr('ry', 5)
-  .attr('fill', 'white')
-  .attr('stroke', '#ddd')
-  .attr('stroke-width', 1)
-  .attr('opacity', 0.8);
+            // Add a subtle background to make legend more visible
+            legendBox.append('rect')
+              .attr('width', legendWidth)
+              .attr('height', legendHeight)
+              .attr('rx', 5) // Rounded corners
+              .attr('ry', 5)
+              .attr('fill', 'white')
+              .attr('stroke', '#ddd')
+              .attr('stroke-width', 1)
+              .attr('opacity', 0.8);
 
-// Calculate how many items we need to display
-const legendItems = [...Object.entries(uniqueRocks)];
-if (elevationProfile && elevationProfile.some(p => p.elevation !== null)) {
-  legendItems.push(['Terrain Elevation', 'green']);
-}
-if (pitProfile && pitProfile.length > 0) {
-  legendItems.push(['Pit Boundary', '#F4AE4D']);
-}
+            // Calculate how many items we need to display
+            const legendItems = [...Object.entries(uniqueRocks)];
+            if (elevationProfile && elevationProfile.some(p => p.elevation !== null)) {
+              legendItems.push(['Terrain Elevation', 'green']);
+            }
+            if (pitProfile && pitProfile.length > 0) {
+              legendItems.push(['Pit Boundary', '#F4AE4D']);
+            }
 
-// Calculate spacing
-const itemWidth = legendWidth / legendItems.length;
+            // Calculate spacing
+            const itemWidth = legendWidth / legendItems.length;
 
-// Add each legend item with equal spacing
-legendItems.forEach((item, i) => {
-  const [label, color] = item;
-  const x = i * itemWidth;
-  
-  const legendItem = legendBox.append('g')
-    .attr('transform', \`translate(\${x + 10}, 20)\`);
-  
-  if (label === 'Terrain Elevation') {
-    // Draw a line for terrain elevation
-    legendItem.append('line')
-      .attr('x1', 0)
-      .attr('y1', 0)
-      .attr('x2', 20)
-      .attr('y2', 0)
-      .attr('stroke', color)
-      .attr('stroke-width', 2.5);
-  } else if (label === 'Pit Boundary') {
-    // Draw a dashed line for pit boundary
-    // First a solid background
-    legendItem.append('line')
-      .attr('x1', 0)
-      .attr('y1', 0) 
-      .attr('x2', 20)
-      .attr('y2', 0)
-      .attr('stroke', color)
-      .attr('stroke-width', 3.5)
-      .attr('stroke-opacity', 0.3);
-      
-    // Then the dashed line
-    legendItem.append('line')
-      .attr('x1', 0)
-      .attr('y1', 0)
-      .attr('x2', 20)
-      .attr('y2', 0)
-      .attr('stroke', color)
-      .attr('stroke-width', 2.5)
-      .attr('stroke-dasharray', '3,3');
-  } else {
-    // Draw a rectangle for rock types
-    legendItem.append('rect')
-      .attr('width', 20)
-      .attr('height', 12)
-      .attr('fill', color)
-      .attr('stroke', 'black')
-      .attr('stroke-width', 0.5);
-  }
-  
-  // Add label text with better visibility
-  legendItem.append('text')
-    .attr('x', 25)
-    .attr('y', 5)
-    .attr('alignment-baseline', 'middle')
-    .attr('font-size', '12px')
-    .attr('font-weight', '500') // Slightly bold
-    .text(label);
-});
+            // Add each legend item with equal spacing
+            legendItems.forEach((item, i) => {
+              const [label, color] = item;
+              const x = i * itemWidth;
+              
+              const legendItem = legendBox.append('g')
+                .attr('transform', \`translate(\${x + 10}, 20)\`);
+              
+              if (label === 'Terrain Elevation') {
+                // Draw a line for terrain elevation
+                legendItem.append('line')
+                  .attr('x1', 0)
+                  .attr('y1', 0)
+                  .attr('x2', 20)
+                  .attr('y2', 0)
+                  .attr('stroke', color)
+                  .attr('stroke-width', 2.5);
+              } else if (label === 'Pit Boundary') {
+                // Draw a dashed line for pit boundary
+                // First a solid background
+                legendItem.append('line')
+                  .attr('x1', 0)
+                  .attr('y1', 0) 
+                  .attr('x2', 20)
+                  .attr('y2', 0)
+                  .attr('stroke', color)
+                  .attr('stroke-width', 3.5)
+                  .attr('stroke-opacity', 0.3);
+                  
+                // Then the dashed line
+                legendItem.append('line')
+                  .attr('x1', 0)
+                  .attr('y1', 0)
+                  .attr('x2', 20)
+                  .attr('y2', 0)
+                  .attr('stroke', color)
+                  .attr('stroke-width', 2.5)
+                  .attr('stroke-dasharray', '3,3');
+              } else {
+                // Draw a rectangle for rock types
+                legendItem.append('rect')
+                  .attr('width', 20)
+                  .attr('height', 12)
+                  .attr('fill', color)
+                  .attr('stroke', 'black')
+                  .attr('stroke-width', 0.5);
+              }
+              
+              // Add label text with better visibility
+              legendItem.append('text')
+                .attr('x', 25)
+                .attr('y', 5)
+                .attr('alignment-baseline', 'middle')
+                .attr('font-size', '12px')
+                .attr('font-weight', '500') // Slightly bold
+                .text(label);
+            });
             
             updateProgress(100, "Visualization complete");
             
@@ -1744,11 +1709,15 @@ legendItems.forEach((item, i) => {
             hasRendered = true;
             isRendering = false;
             
-            // Notify React Native
+            // Notify React Native with data stats
             sendToRN('renderComplete', { 
               message: 'D3 visualization complete',
-              blockCount: sectionBlocks.length,
-              chartWidth: chartWidth
+              chartWidth: chartWidth,
+              dataStats: {
+                displayedBlocks: displayedBlocksCount,
+                displayedElevationPoints: displayedElevationPointsCount,
+                displayedPitPoints: displayedPitPointsCount
+              }
             });
           } catch (error) {
             isRendering = false;
