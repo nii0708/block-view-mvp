@@ -74,18 +74,18 @@ export default function CrossSectionViewScreen() {
         }));
 
         // Sample data if too large
-        if (extractedBlocks.length > 10000) {
-          const samplingRate = Math.ceil(extractedBlocks.length / 10000);
-          const sampledBlocks = extractedBlocks.filter(
-            (_, i) => i % samplingRate === 0
-          );
-          console.log(
-            `Sampled ${sampledBlocks.length} blocks from ${extractedBlocks.length}`
-          );
-          setBlockModelData(sampledBlocks);
-        } else {
+        // if (extractedBlocks.length > 10000) {
+          // const samplingRate = Math.ceil(extractedBlocks.length / 10000);
+          // const sampledBlocks = extractedBlocks.filter(
+            // (_, i) => i % samplingRate === 0
+          // );
+          // console.log(
+            // `Sampled ${sampledBlocks.length} blocks from ${extractedBlocks.length}`
+          // );
+          // setBlockModelData(sampledBlocks);
+        // } else {
           setBlockModelData(extractedBlocks);
-        }
+        // }
         console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
       }
 

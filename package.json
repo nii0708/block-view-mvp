@@ -60,6 +60,7 @@
     "victory-native": "^41.16.2"
   },
   "devDependencies": {
+    "@react-native-community/cli": "latest",
     "@babel/core": "^7.25.2",
     "@types/jest": "^29.5.12",
     "@types/papaparse": "^5.3.15",

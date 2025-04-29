@@ -14,14 +14,14 @@ export const blockModelToGeoJSON = (
   sourceProjection = "EPSG:4326",
   topElevationOnly = false
 ): BlockModelGeoJSONResult => {
-  if (!blockModelData || blockModelData.length === 0) {
-    return {
-      geoJsonData: null,
-      mapCenter: [0, 0],
-      mapZoom: 12,
-      isExportEnabled: false,
-    };
-  }
+  // if (!blockModelData || blockModelData.length === 0) {
+  //   return {
+  //     geoJsonData: null,
+  //     mapCenter: [0, 0],
+  //     mapZoom: 12,
+  //     isExportEnabled: false,
+  //   };
+  // }
 
   try {
     console.log(

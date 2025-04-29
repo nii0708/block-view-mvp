@@ -84,7 +84,7 @@ export default function TopDownViewScreen() {
   const [pitGeoJsonData, setPitGeoJsonData] = useState<any>(null);
   const [mapCenter, setMapCenter] = useState<number[]>([0, 0]);
   const [mapZoom, setMapZoom] = useState(12);
-  const [elevationRange, setElevationRange] = useState({ min: 0, max: 1000 });
+  const [elevationRange, setElevationRange] = useState({ min: 0, max: 4000 });
 
   const {
     setProcessedBlockModel,
@@ -327,7 +327,7 @@ export default function TopDownViewScreen() {
             sourceProjection,
             true // true untuk topElevationOnly
           );
-
+          console.log('resultForTopDown BLOCK: ', resultForTopDown.length)
           // Penting: Untuk cross-section view, kita butuh SEMUA block
           const resultForCrossSection = blockModelToGeoJSON(
             blockModelData,
@@ -349,9 +349,10 @@ export default function TopDownViewScreen() {
 
           // Simpan data yang lengkap (untuk cross-section) ke context
           setProcessedBlockModel(resultForCrossSection.geoJsonData);
-
+          console.log('resultForCrossSection.geoJsonData : ',resultForCrossSection.geoJsonData.features.length)
           // Gunakan data yang sudah difilter (top elevation only) untuk tampilan top-down
           setGeoJsonData(resultForTopDown.geoJsonData);
+          console.log('resultForTopDown.geoJsonData : ',resultForTopDown.geoJsonData.features.length)
           setMapCenter(resultForTopDown.mapCenter);
           setMapZoom(resultForTopDown.mapZoom);
 
@@ -405,7 +406,7 @@ export default function TopDownViewScreen() {
           if (result) {
             setProcessedPitData(result);
           }
-
+          console.log('data top down: ',result.length)
           setPitGeoJsonData(result);
         } catch (error) {
           console.error("Error processing LiDAR data:", error);

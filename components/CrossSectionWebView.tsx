@@ -75,6 +75,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   const { processedBlockData, processedElevationData, processedPitData } =
     useMemo(() => {
       try {
+        console.log('blockModelData.length: ',blockModelData.length)
         // Format block model data for WebView consumption
         const blocks = blockModelData.map((block) => ({
           distance: 0, // Will be calculated in WebView
@@ -99,25 +100,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         //PLAY START-------------------------------------
 
         //OLD
-        // Format pit data for WebView consumption
-        const pit = pitData.map((point) => {
-          // Handle different possible data structures
-          if (point.geometry && point.properties) {
-            // It's a GeoJSON feature
-            return {
-              x: point.geometry.coordinates[0][0],
-              y: point.geometry.coordinates[0][1],
-              elevation: point.properties.level || 0,
-            };
-          } else {
-            // It's a direct point
-            return {
-              x: parseFloat(point.x || 0),
-              y: parseFloat(point.y || 0),
-              elevation: parseFloat(point.z || point.level || 0),
-            };
-          }
-        });
 
         //NEW
         // Extract line coordinates
@@ -971,7 +953,8 @@ function generateD3Html(
               };
 
             // Mengurangi interval sampling untuk akurasi lebih baik
-            const processInterval = blockModelData.length > 10000 ? 2 : 1;
+            const processInterval = 1 
+            //blockModelData.length > 10000 ? 2 : 1;
     
             // Konversi block data menjadi polygon untuk perhitungan interseksi
             for (let i = 0; i < blockModelData.length; i += processInterval) {
@@ -1456,147 +1439,48 @@ function generateD3Html(
             .tickFormat(d => \`\${d.toFixed(0)}m\`);
               
             // Add axes
-g.append('g')
-  .attr('class', 'x axis')
-  .attr('transform', \`translate(0, \${innerHeight})\`)
-  .call(xAxis);
-  
-g.append('g')
-  .attr('class', 'y axis')
-  .call(yAxis);
-  
-// Add axis labels
-g.append('text')
-  .attr('x', innerWidth / 2)
-  .attr('y', innerHeight + 40)
-  .attr('text-anchor', 'middle')
-  .text('Distance along cross-section (km)');
-  
-g.append('text')
-  .attr('transform', 'rotate(-90)')
-  .attr('x', -innerHeight / 2)
-  .attr('y', -40)
-  .attr('text-anchor', 'middle')
-  .text('Elevation (m)');
+            g.append('g')
+              .attr('class', 'x axis')
+              .attr('transform', \`translate(0, \${innerHeight})\`)
+              .call(xAxis);
+              
+            g.append('g')
+              .attr('class', 'y axis')
+              .call(yAxis);
+              
+            // Add axis labels
+            g.append('text')
+              .attr('x', innerWidth / 2)
+              .attr('y', innerHeight + 40)
+              .attr('text-anchor', 'middle')
+              .text('Distance along cross-section (km)');
+              
+            g.append('text')
+              .attr('transform', 'rotate(-90)')
+              .attr('x', -innerHeight / 2)
+              .attr('y', -40)
+              .attr('text-anchor', 'middle')
+              .text('Elevation (m)');
 
-// Add grid
-g.append('g')
-  .attr('class', 'grid')
-  .attr('transform', \`translate(0, \${innerHeight})\`)
-  .call(
-    d3.axisBottom(xScale)
-      .tickSize(-innerHeight)
-      .tickFormat('')
-  );
-  
-g.append('g')
-  .attr('class', 'grid')
-  .call(
-    d3.axisLeft(yScale)
-      .tickSize(-innerWidth)
-      .tickFormat('')
-  );
-            
-            // Draw elevation profile
-            if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
-  try {
-    // Create line generator
-    const line = d3.line()
-      .x(d => xScale(d.distance))
-      .y(d => yScale(d.elevation))
-      .curve(d3.curveLinear)
-      .defined(d => d.elevation !== null);
-      
-    // Add path
-    // debug('elevationProfile : '+elevationProfile[1].distance);
-    g.append('path')
-      .datum(elevationProfile.filter(p => p.elevation !== null))
-      .attr('fill', 'none')
-      .attr('stroke', 'green')
-      .attr('stroke-width', 2)
-      .attr('d', line);
-      
-    // Area fill telah dihapus
-  } catch (err) {
-    debug("Error drawing elevation profile: " + err.message);
-  }
-}
-            
-            // Draw pit boundaries - Make sure this is drawn
-            if (pitProfile && pitProfile.length > 0) {
-              try {
-                // Reduced filtering - only filter very close points
-                const filteredPitPoints = [];
-                if (pitProfile.length > 0) {
-                  // Add the first point
-                  filteredPitPoints.push(pitProfile[0]);
-                  
-                  // Only filter extremely close points (2m instead of 5m)
-                  const minDistance = 2; // meters
-                  for (let i = 1; i < pitProfile.length; i++) {
-                    const prevPoint = filteredPitPoints[filteredPitPoints.length - 1];
-                    const currPoint = pitProfile[i];
-                    
-                    // Calculate distance between points
-                    const distance = Math.abs(currPoint.distance - prevPoint.distance);
-                    
-                    // Only add if the point is far enough from previous point
-                    if (distance > minDistance) {
-                      filteredPitPoints.push(currPoint);
-                    }
-                  }
-                }
-
-    // 1. First, draw a thicker solid line behind the dashed line for better visibility
-    const pitLineBg = d3.line()
-      .x(d => xScale(d.distance))
-      .y(d => yScale(d.elevation))
-      .curve(d3.curveLinear); // Use linear for more accurate representation
-    debug('filteredPitPoints : '+sortedIntersections[0].distance);
-    g.append('path')
-      .datum(sortedIntersections)
-      .attr('fill', 'none')
-      .attr('stroke', '#F4AE4D')  // Orange pit boundary color
-      .attr('stroke-width', 3)    // Thicker solid line behind
-      .attr('stroke-opacity', 0.3) // Semi-transparent
-      .attr('d', pitLineBg);
-    
-    // 2. Draw dashed line over it
-    const pitLine = d3.line()
-      .x(d => xScale(d.distance))
-      .y(d => yScale(d.elevation))
-      .curve(d3.curveLinear);
-    
-    g.append('path')
-      .datum(sortedIntersections)
-      .attr('fill', 'none')
-      .attr('stroke', '#F4AE4D')
-      .attr('stroke-width', 2.5)
-      .attr('stroke-dasharray', '5,5')
-      .attr('d', pitLine);
-    
-    // Add fewer marker points - just at key inflection points
-    if (filteredPitPoints.length > 3) {
-      g.selectAll('.pit-marker')
-        .data(filteredPitPoints.filter((_, i) => 
-          i === 0 || i === filteredPitPoints.length - 1 || i % Math.max(3, Math.ceil(filteredPitPoints.length / 15)) === 0
-        ))
-        .enter()
-        .append('circle')
-        .attr('class', 'pit-marker')
-        .attr('cx', d => xScale(d.distance))
-        .attr('cy', d => yScale(d.elevation))
-        .attr('r', 4)  // Larger markers
-        .attr('fill', '#F4AE4D')
-        .attr('stroke', '#fff')  // White border for visibility
-        .attr('stroke-width', 1);
-    }
-  } catch (err) {
-    debug("Error drawing pit boundary: " + err.message);
-  }
-} else {
-  // debug("No pit profile data to draw");
-}
+            // Add grid
+            g.append('g')
+              .attr('class', 'grid')
+              .attr('transform', \`translate(0, \${innerHeight})\`)
+              .call(
+                d3.axisBottom(xScale)
+                  .tickSize(-innerHeight)
+                  .tickFormat('')
+              );
+              
+            g.append('g')
+              .attr('class', 'grid')
+              .call(
+                d3.axisLeft(yScale)
+                  .tickSize(-innerWidth)
+                  .tickFormat('')
+              );
+                        
+ 
             
             // Collect unique rock types for legend
             const uniqueRocks = {};
@@ -1659,7 +1543,106 @@ g.append('g')
                 debug("Error drawing blocks: " + err.message);
               }
             }
-            
+           // Draw elevation profile
+            if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
+              try {
+                // Create line generator
+                const line = d3.line()
+                  .x(d => xScale(d.distance))
+                  .y(d => yScale(d.elevation))
+                  .curve(d3.curveLinear)
+                  .defined(d => d.elevation !== null);
+                  
+                // Add path
+                // debug('elevationProfile : '+elevationProfile[1].distance);
+                g.append('path')
+                  .datum(elevationProfile.filter(p => p.elevation !== null))
+                  .attr('fill', 'none')
+                  .attr('stroke', 'green')
+                  .attr('stroke-width', 2)
+                  .attr('d', line);
+                  
+                // Area fill telah dihapus
+              } catch (err) {
+                debug("Error drawing elevation profile: " + err.message);
+              }
+            }
+                      
+            // Draw pit boundaries - Make sure this is drawn
+            if (pitProfile && pitProfile.length > 0) {
+              try {
+                // Reduced filtering - only filter very close points
+                const filteredPitPoints = [];
+                if (pitProfile.length > 0) {
+                  // Add the first point
+                  filteredPitPoints.push(pitProfile[0]);
+                  
+                  // Only filter extremely close points (2m instead of 5m)
+                  const minDistance = 2; // meters
+                  for (let i = 1; i < pitProfile.length; i++) {
+                    const prevPoint = filteredPitPoints[filteredPitPoints.length - 1];
+                    const currPoint = pitProfile[i];
+                    
+                    // Calculate distance between points
+                    const distance = Math.abs(currPoint.distance - prevPoint.distance);
+                    
+                    // Only add if the point is far enough from previous point
+                    if (distance > minDistance) {
+                      filteredPitPoints.push(currPoint);
+                    }
+                  }
+                }
+
+    // 1. First, draw a thicker solid line behind the dashed line for better visibility
+    const pitLineBg = d3.line()
+      .x(d => xScale(d.distance))
+      .y(d => yScale(d.elevation))
+      .curve(d3.curveLinear); // Use linear for more accurate representation
+    debug('filteredPitPoints : '+sortedIntersections.length);
+    g.append('path')
+      .datum(sortedIntersections)
+      .attr('fill', 'none')
+      .attr('stroke', '#F4AE4D')  // Orange pit boundary color
+      .attr('stroke-width', 1)    // Thicker solid line behind
+      .attr('stroke-opacity', 0.3) // Semi-transparent
+      .attr('d', pitLineBg);
+    
+    // 2. Draw dashed line over it
+    const pitLine = d3.line()
+      .x(d => xScale(d.distance))
+      .y(d => yScale(d.elevation))
+      .curve(d3.curveLinear);
+    
+    g.append('path')
+      .datum(sortedIntersections)
+      .attr('fill', 'none')
+      .attr('stroke', '#F4AE4D')
+      .attr('stroke-width', 1.0)
+      .attr('stroke-dasharray', '5,5')
+      .attr('d', pitLine);
+    
+    // Add fewer marker points - just at key inflection points
+    if (filteredPitPoints.length > 3) {
+      g.selectAll('.pit-marker')
+        .data(filteredPitPoints.filter((_, i) => 
+          i === 0 || i === filteredPitPoints.length - 1 || i % Math.max(3, Math.ceil(filteredPitPoints.length / 15)) === 0
+        ))
+        .enter()
+        .append('circle')
+        .attr('class', 'pit-marker')
+        .attr('cx', d => xScale(d.distance))
+        .attr('cy', d => yScale(d.elevation))
+        .attr('r', 2)  // Larger markers
+        .attr('fill', '#F4AE4D')
+        .attr('stroke', '#fff')  // White border for visibility
+        .attr('stroke-width', 1);
+    }
+  } catch (err) {
+    debug("Error drawing pit boundary: " + err.message);
+  }
+} else {
+  // debug("No pit profile data to draw");
+}            
             // Create legend
             const legendWidth = innerWidth * 0.8; // Wider for better visibility
 const legendHeight = 40; // Taller
