@@ -349,10 +349,10 @@ export default function TopDownViewScreen() {
 
           // Simpan data yang lengkap (untuk cross-section) ke context
           setProcessedBlockModel(resultForCrossSection.geoJsonData);
-          console.log('resultForCrossSection.geoJsonData : ',resultForCrossSection.geoJsonData.features.length)
+          console.log('resultForCrossSection.geoJsonData : ', resultForCrossSection.geoJsonData.features.length)
           // Gunakan data yang sudah difilter (top elevation only) untuk tampilan top-down
           setGeoJsonData(resultForTopDown.geoJsonData);
-          console.log('resultForTopDown.geoJsonData : ',resultForTopDown.geoJsonData.features.length)
+          console.log('resultForTopDown.geoJsonData : ', resultForTopDown.geoJsonData.features.length)
           setMapCenter(resultForTopDown.mapCenter);
           setMapZoom(resultForTopDown.mapZoom);
 
@@ -388,8 +388,8 @@ export default function TopDownViewScreen() {
           const pitDataSample =
             pitDataFormat.length > 10000
               ? pitDataFormat.filter(
-                  (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
-                )
+                (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
+              )
               : pitDataFormat;
 
           const result = processPitDataToGeoJSON(
@@ -406,7 +406,7 @@ export default function TopDownViewScreen() {
           if (result) {
             setProcessedPitData(result);
           }
-          console.log('data top down: ',result.length)
+          console.log('data top down: ', result.length)
           setPitGeoJsonData(result);
         } catch (error) {
           console.error("Error processing LiDAR data:", error);
@@ -619,8 +619,8 @@ export default function TopDownViewScreen() {
           value={
             selectedPoints.length > 0
               ? `${(coordinates.lng || 0).toFixed(6)}, ${(
-                  coordinates.lat || 0
-                ).toFixed(6)}`
+                coordinates.lat || 0
+              ).toFixed(6)}`
               : ""
           }
           editable={false}
@@ -710,6 +710,8 @@ export default function TopDownViewScreen() {
 
               {/* Crosshair indicator */}
               <View style={styles.crosshair}>
+                <View style={styles.crosshairVerticalOuter} />
+                <View style={styles.crosshairHorizontalOuter} />
                 <View style={styles.crosshairVertical} />
                 <View style={styles.crosshairHorizontal} />
               </View>
@@ -765,8 +767,8 @@ export default function TopDownViewScreen() {
                     <Text style={styles.coordinatesText}>
                       {mapReady
                         ? `x:${Math.round(
-                            coordinates?.lng || 0
-                          )}, y:${Math.round(coordinates?.lat || 0)}`
+                          coordinates?.lng || 0
+                        )}, y:${Math.round(coordinates?.lat || 0)}`
                         : "Loading..."}
                     </Text>
                   </View>
@@ -853,31 +855,50 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  // CSS Styles
   crosshair: {
     position: "absolute",
     top: "50%",
     left: "50%",
-    width: 20,
-    height: 20,
-    marginLeft: -10,
-    marginTop: -10,
+    width: 24,
+    height: 24,
+    marginLeft: -12,
+    marginTop: -12,
     zIndex: 10,
+  },
+  crosshairVerticalOuter: {
+    position: "absolute",
+    top: 0,
+    left: 10, // Centered for a 4px width
+    width: 4, // Width of outer black line
+    height: 24,
+    backgroundColor: "black",
   },
   crosshairVertical: {
     position: "absolute",
     top: 0,
-    left: 10,
-    width: 1,
-    height: 20,
+    left: 11, // Centered within black background
+    width: 2, // Inner white line
+    height: 24,
+    backgroundColor: "white",
+    zIndex: 1,
+  },
+  crosshairHorizontalOuter: {
+    position: "absolute",
+    top: 10, // Centered for a 4px height
+    left: 0,
+    width: 24,
+    height: 4, // Height of outer black line
     backgroundColor: "black",
   },
   crosshairHorizontal: {
     position: "absolute",
-    top: 10,
+    top: 11, // Centered within black background
     left: 0,
-    width: 20,
-    height: 1,
-    backgroundColor: "black",
+    width: 24,
+    height: 2, // Inner white line
+    backgroundColor: "white",
+    zIndex: 1,
   },
   createLineButtons: {
     paddingHorizontal: 20,
