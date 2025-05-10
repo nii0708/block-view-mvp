@@ -511,67 +511,85 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         // Update map with GeoJSON data
         function updateMapData(data) {
           try {
-            console.log("updateMapData called");
+            console.log("updateMapData called", data);
             
-            // Block model GeoJSON handling
-            if (data.geoJsonData && data.geoJsonData.features) {
+            // Block model GeoJSON handling with reduced opacity
+            if (data.geoJsonData && data.geoJsonData !== null) {
               if (geoJsonLayer) {
                 map.removeLayer(geoJsonLayer);
+                geoJsonLayer = null;
               }
               
-              geoJsonLayer = L.geoJSON(data.geoJsonData, {
-                style: function(feature) {
-                  return {
-                    fillColor: feature.properties.color || '#3388ff',
-                    weight: 1,
-                    opacity: 1,
-                    color: 'black',
-                    fillOpacity: 0.7
-                  };
-                },
-                onEachFeature: function(feature, layer) {
-                  if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
-                    const props = feature.properties;
-                    const popupContent = \`
-                      <div>
-                        <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
-                        <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}
-                      </div>
-                    \`;
-                    layer.bindPopup(popupContent);
+              if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
+                geoJsonLayer = L.geoJSON(data.geoJsonData, {
+                  style: function(feature) {
+                    return {
+                      fillColor: feature.properties.color || '#3388ff',
+                      weight: 1,
+                      opacity: 0.7, // Reduced from 1 to 0.7
+                      color: 'black',
+                      fillOpacity: 0.4 // Reduced from 0.7 to 0.4
+                    };
+                  },
+                  onEachFeature: function(feature, layer) {
+                    if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
+                      const props = feature.properties;
+                      const popupContent = \`
+                        <div>
+                          <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
+                          <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}
+                        </div>
+                      \`;
+                      layer.bindPopup(popupContent);
+                    }
                   }
-                }
-              }).addTo(map);
+                }).addTo(map);
+              }
+            } else if (data.geoJsonData === null) {
+              // Remove the layer if data is null
+              if (geoJsonLayer) {
+                map.removeLayer(geoJsonLayer);
+                geoJsonLayer = null;
+              }
             }
             
-            // Pit GeoJSON handling
-            if (data.pitGeoJsonData && data.pitGeoJsonData.features) {
+            // Pit GeoJSON handling with reduced opacity
+            if (data.pitGeoJsonData && data.pitGeoJsonData !== null) {
               if (pitLayer) {
                 map.removeLayer(pitLayer);
+                pitLayer = null;
               }
               
-              pitLayer = L.geoJSON(data.pitGeoJsonData, {
-                style: function(feature) {
-                  return {
-                    color: '#FF6600',
-                    weight: 4,
-                    opacity: 1.0,
-                    dashArray: '5, 5'
-                  };
-                },
-                onEachFeature: function(feature, layer) {
-                  if (feature.properties) {
-                    const props = feature.properties;
-                    const popupContent = \`
-                      <div>
-                        <strong>Type:</strong> Pit Boundary<br>
-                        <strong>Elevation:</strong> \${props.level ? props.level.toFixed(2) : 'N/A'} m
-                      </div>
-                    \`;
-                    layer.bindPopup(popupContent);
+              if (data.pitGeoJsonData.features && data.pitGeoJsonData.features.length > 0) {
+                pitLayer = L.geoJSON(data.pitGeoJsonData, {
+                  style: function(feature) {
+                    return {
+                      color: '#FF6600',
+                      weight: 3, // Reduced from 4 to 3
+                      opacity: 0.8, // Reduced from 1.0 to 0.8
+                      dashArray: '5, 5'
+                    };
+                  },
+                  onEachFeature: function(feature, layer) {
+                    if (feature.properties) {
+                      const props = feature.properties;
+                      const popupContent = \`
+                        <div>
+                          <strong>Type:</strong> Pit Boundary<br>
+                          <strong>Elevation:</strong> \${props.level ? props.level.toFixed(2) : 'N/A'} m
+                        </div>
+                      \`;
+                      layer.bindPopup(popupContent);
+                    }
                   }
-                }
-              }).addTo(map);
+                }).addTo(map);
+              }
+            } else if (data.pitGeoJsonData === null) {
+              // Remove the layer if data is null
+              if (pitLayer) {
+                map.removeLayer(pitLayer);
+                pitLayer = null;
+              }
             }
             
             // Only fit bounds once on initial load, not on updates
