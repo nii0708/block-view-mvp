@@ -257,53 +257,176 @@ export function generateD3Html(
 
         // Save to gallery function - this just sends a request to React Native to handle
         function saveToGallery() {
-          try {
-            const svgElement = document.querySelector('svg');
-            if (!svgElement) {
-              debug("No SVG element found to save to gallery");
-              return;
-            }
-            
-            const svgRect = svgElement.getBoundingClientRect();
-            const width = svgRect.width;
-            const height = svgRect.height;
-            
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, width, height);
-            
-            const svgData = new XMLSerializer().serializeToString(svgElement);
-            const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
-            const url = URL.createObjectURL(svgBlob);
-            
-            const img = new Image();
-            img.onload = function() {
-              ctx.drawImage(img, 0, 0);
-              URL.revokeObjectURL(url);
+  try {
+    const svgElement = document.querySelector('svg');
+    if (!svgElement) {
+      debug("No SVG element found to save to gallery");
+      return;
+    }
+    
+    // Update UI to show progress
+    if (document.getElementById('loading')) {
+      document.getElementById('loading').style.display = 'flex';
+      document.getElementById('message').textContent = 'Preparing HD image...';
+      document.getElementById('progress-fill').style.width = '50%';
+    }
+    
+    // Get the SVG dimensions
+    const svgRect = svgElement.getBoundingClientRect();
+    const width = svgRect.width;
+    const height = svgRect.height;
+    
+    // Use a more modest scale factor to prevent performance issues
+    // Reduce from 3x to 2x if there are performance problems
+    const scaleFactor = 2;
+    
+    // Create canvas with timeout to prevent UI freezing
+    setTimeout(() => {
+      try {
+        // Create canvas with dimensions based on scale factor
+        const canvas = document.createElement('canvas');
+        canvas.width = width * scaleFactor;
+        canvas.height = height * scaleFactor;
+        const ctx = canvas.getContext('2d');
+        
+        // Fill with white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Get SVG data
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        
+        // Create a more efficient image/SVG processing approach
+        const DOMURL = window.URL || window.webkitURL || window;
+        const img = new Image();
+        const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+        const url = DOMURL.createObjectURL(svgBlob);
+        
+        // Update progress
+        if (document.getElementById('message')) {
+          document.getElementById('message').textContent = 'Converting image...';
+          document.getElementById('progress-fill').style.width = '75%';
+        }
+        
+        img.onload = function() {
+          // Use setTimeout to prevent UI freeze
+          setTimeout(() => {
+            try {
+              // Set rendering quality
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
               
-              const pngDataUrl = canvas.toDataURL('image/png');
+              // Draw image at scaled size
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              DOMURL.revokeObjectURL(url);
+              
+              // Generate PNG at moderate quality for better performance (0.8 instead of 1.0)
+              const pngDataUrl = canvas.toDataURL('image/png', 0.9);
               
               // Notify React Native to save to gallery
               sendToRN('saveToGallery', {
                 dataUrl: pngDataUrl,
-                filename: 'cross-section.png'
+                filename: 'cross-section-hd.png'
               });
               
-              debug("Save to gallery request sent successfully");
-            };
-            img.onerror = function() {
-              debug("Error loading SVG image to save to gallery");
-              URL.revokeObjectURL(url);
-            };
-            img.src = url;
-          } catch (error) {
-            debug("Error preparing save to gallery: " + error.toString());
+              debug("HD image save request sent");
+              
+              // Hide loading indicator if visible
+              if (document.getElementById('loading')) {
+                document.getElementById('loading').style.display = 'none';
+              }
+            } catch (drawError) {
+              debug("Error drawing image: " + drawError.toString());
+              if (document.getElementById('loading')) {
+                document.getElementById('loading').style.display = 'none';
+              }
+            }
+          }, 10); // Small delay to let UI update
+        };
+        
+        img.onerror = function(e) {
+          debug("Error loading SVG image: " + e);
+          DOMURL.revokeObjectURL(url);
+          if (document.getElementById('loading')) {
+            document.getElementById('loading').style.display = 'none';
           }
+        };
+        
+        // Initiate image loading
+        img.src = url;
+        
+      } catch (canvasError) {
+        debug("Error creating canvas: " + canvasError.toString());
+        if (document.getElementById('loading')) {
+          document.getElementById('loading').style.display = 'none';
         }
+        
+        // Fallback to original resolution if HD fails
+        sendFallbackImage(svgElement);
+      }
+    }, 50); // Delay to let UI update before heavy processing
+    
+  } catch (error) {
+    debug("Error in save to gallery: " + error.toString());
+    if (document.getElementById('loading')) {
+      document.getElementById('loading').style.display = 'none';
+    }
+    
+    // Try fallback at original resolution
+    try {
+      sendFallbackImage(document.querySelector('svg'));
+    } catch (e) {
+      debug("Fallback save also failed: " + e.toString());
+    }
+  }
+}
+
+// Fallback function that sends the original resolution image if HD fails
+function sendFallbackImage(svgElement) {
+  if (!svgElement) return;
+  
+  try {
+    debug("Using fallback image save at original resolution");
+    
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+    const url = URL.createObjectURL(svgBlob);
+    
+    const img = new Image();
+    const canvas = document.createElement('canvas');
+    const svgRect = svgElement.getBoundingClientRect();
+    
+    canvas.width = svgRect.width;
+    canvas.height = svgRect.height;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    img.onload = function() {
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      
+      const pngDataUrl = canvas.toDataURL('image/png', 0.8);
+      
+      sendToRN('saveToGallery', {
+        dataUrl: pngDataUrl,
+        filename: 'cross-section.png'
+      });
+      
+      debug("Fallback image save request sent");
+    };
+    
+    img.onerror = function() {
+      debug("Fallback image loading failed");
+      URL.revokeObjectURL(url);
+    };
+    
+    img.src = url;
+  } catch (error) {
+    debug("Fallback image generation failed: " + error.toString());
+  }
+}
         
         // Send data statistics back to React Native
         function sendDataStats() {
@@ -540,7 +663,7 @@ export function generateD3Html(
           .style('opacity', 0.9);
         tooltip.html(
           \`<strong>Rock Type:</strong> \${d.rock || 'unknown'}<br>
-          <strong>Concentrate:</strong> \${d.concentrate !== undefined ? parseFloat(d.concentrate).toFixed(2) : 'N/A'}<br>
+          <strong>Concentrate:</strong> \${d.concentrate !== undefined ? parseFloat(d.concentrate) : 'N/A'}<br>
           <strong>Elevation:</strong> \${parseFloat(d.elevation).toFixed(1)}m<br>
           <strong>Distance:</strong> \${parseFloat(d.distance).toFixed(1)}m<br>
           <strong>Width:</strong> \${parseFloat(d.width).toFixed(1)}m<br>
@@ -568,9 +691,9 @@ export function generateD3Html(
   .attr('y', d => yScale(d.elevation)) // Center vertically
   .attr('text-anchor', 'middle') // Ensure text is centered
   .attr('dominant-baseline', 'middle') // Vertical alignment
-  .attr('fill', 'black') // Text color
+  .attr('fill', 'white') // Text color
   .attr('pointer-events', 'none') // Make text non-interactive
-  .text(d => d.concentrate !== undefined ? parseFloat(d.concentrate).toFixed(2) : '')
+  .text(d => d.concentrate !== undefined ? parseFloat(d.concentrate) : '')
   .attr('font-size', function(d) {
     // Calculate block dimensions in pixels
     const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
@@ -580,12 +703,16 @@ export function generateD3Html(
     // Base size on the smaller dimension (width or height)
     const minDimension = Math.min(blockWidth, blockHeight);
     
-    // Scale factor determines how much of the block the text should fill
-    // Lower values = smaller text relative to block size
-    const scaleFactor = 0.4; 
+    // More aggressive scaling factor - adjust based on total blocks
+    // This makes the text size more proportional to block size
+    const scaleFactor = 0.35; 
     
-    // Calculate font size with minimum and maximum constraints
-    const calculatedSize = Math.max(8, Math.min(minDimension * scaleFactor, 14));
+    // More dynamic min/max constraints based on block size
+    const minFontSize = 3; // Smaller minimum size
+    const maxFontSize = 20; // Smaller maximum size
+    
+    // Calculate font size with improved constraints
+    const calculatedSize = Math.max(minFontSize, Math.min(minDimension * scaleFactor, maxFontSize));
     
     return calculatedSize + 'px';
   })
@@ -594,12 +721,15 @@ export function generateD3Html(
     const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
     const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
     
-    // Only show text if block is large enough to accommodate it
-    // Now using more appropriate thresholds based on text length
-    const textLength = (d.concentrate !== undefined ? parseFloat(d.concentrate).toFixed(2) : '').length;
-    const minWidthNeeded = textLength * 6; // Rough estimate: each character needs ~6px
+    // Text length based on the actual displayed text
+    const textContent = d.concentrate !== undefined ? parseFloat(d.concentrate) : '';
+    const textLength = textContent.length;
     
-    // return (blockWidth > minWidthNeeded && blockHeight > 8) ? 'visible' : 'hidden';
+    // Estimate space needed - now more conservative
+    const minWidthNeeded = textLength * 5; // Pixels per character (reduced from 6)
+    const minHeightNeeded = 6; // Minimum height needed for text
+    
+    
   });
   } catch (err) {
     debug("Error drawing blocks: " + err.message);

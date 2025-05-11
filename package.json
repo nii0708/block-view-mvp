@@ -59,7 +59,8 @@
     "react-native-svg": "^15.11.2",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",
-    "victory-native": "^41.16.2"
+    "victory-native": "^41.16.2",
+    "expo-location": "~18.0.10"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
