@@ -11,11 +11,14 @@ import {
   Alert,
   InteractionManager,
   BackHandler,
+  Modal,
+  TouchableWithoutFeedback,
 } from "react-native";
 import {
   MaterialIcons,
   MaterialCommunityIcons,
   Feather,
+  AntDesign,
 } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as FileService from "../services/FileService";
@@ -99,15 +102,27 @@ export default function TopDownViewScreen() {
   const [lineLength, setLineLength] = useState(0);
   const [elevation, setElevation] = useState(110);
 
-  // State for interval slider
-  const [intervalValue, setIntervalValue] = useState(0);
-
   // State for coordinates
   const [coordinates, setCoordinates] = useState({
     lat: 0,
     lng: 0,
     x: 0,
     y: 0,
+  });
+
+  // State untuk toggle visibility layers
+  const [showBlockModel, setShowBlockModel] = useState(true);
+  const [showPit, setShowPit] = useState(true);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // State untuk rock type legend
+  const [rockTypeLegend, setRockTypeLegend] = useState<{
+    [key: string]: string;
+  }>({
+    ore: "#FF0000", // Red for ore
+    waste: "#808080", // Gray for waste
+    overburden: "#8B4513", // Brown for overburden
+    unknown: "#3388ff", // Blue for unknown
   });
 
   useEffect(() => {
@@ -184,9 +199,6 @@ export default function TopDownViewScreen() {
 
         // Set to show ENTIRE range initially
         setElevationRange({ min: minElev, max: maxElev });
-
-        // Start with full data visible
-        setIntervalValue(30); // Set to maximum value
       }
     }
   }, [lidarData]);
@@ -327,7 +339,10 @@ export default function TopDownViewScreen() {
             sourceProjection,
             true // true untuk topElevationOnly
           );
-          console.log('resultForTopDown BLOCK: ', resultForTopDown.geoJsonData.features.length)
+          console.log(
+            "resultForTopDown BLOCK: ",
+            resultForTopDown.geoJsonData.features.length
+          );
           // Penting: Untuk cross-section view, kita butuh SEMUA block
           const resultForCrossSection = blockModelToGeoJSON(
             blockModelData,
@@ -349,12 +364,21 @@ export default function TopDownViewScreen() {
 
           // Simpan data yang lengkap (untuk cross-section) ke context
           setProcessedBlockModel(resultForCrossSection.geoJsonData);
-          console.log('resultForCrossSection.geoJsonData : ', resultForCrossSection.geoJsonData.features.length)
+          console.log(
+            "resultForCrossSection.geoJsonData : ",
+            resultForCrossSection.geoJsonData.features.length
+          );
           // Gunakan data yang sudah difilter (top elevation only) untuk tampilan top-down
           setGeoJsonData(resultForTopDown.geoJsonData);
-          console.log('resultForTopDown.geoJsonData : ', resultForTopDown.geoJsonData.features.length)
+          console.log(
+            "resultForTopDown.geoJsonData : ",
+            resultForTopDown.geoJsonData.features.length
+          );
           setMapCenter(resultForTopDown.mapCenter);
           setMapZoom(resultForTopDown.mapZoom);
+
+          // Update legenda berdasarkan data yang ada
+          updateRockTypeLegend(resultForTopDown.geoJsonData);
 
           setLoadingProgress(0.6);
         } catch (error) {
@@ -365,6 +389,32 @@ export default function TopDownViewScreen() {
     } catch (error) {
       console.error("Error scheduling block model processing:", error);
     }
+  };
+
+  // Update rock type legend based on actual data
+  const updateRockTypeLegend = (geoJsonData: any) => {
+    if (!geoJsonData || !geoJsonData.features) return;
+
+    const rockTypes = new Set<string>();
+    const colors: { [key: string]: string } = {};
+
+    geoJsonData.features.forEach((feature: any) => {
+      if (feature.properties && feature.properties.rock) {
+        rockTypes.add(feature.properties.rock);
+        if (feature.properties.color) {
+          colors[feature.properties.rock] = feature.properties.color;
+        }
+      }
+    });
+
+    // Update legend with actual rock types and colors
+    const newLegend: { [key: string]: string } = {};
+    rockTypes.forEach((rockType) => {
+      newLegend[rockType] =
+        colors[rockType] || rockTypeLegend[rockType] || "#3388ff";
+    });
+
+    setRockTypeLegend(newLegend);
   };
 
   // Process pit/lidar data to GeoJSON
@@ -388,8 +438,8 @@ export default function TopDownViewScreen() {
           const pitDataSample =
             pitDataFormat.length > 10000
               ? pitDataFormat.filter(
-                (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
-              )
+                  (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
+                )
               : pitDataFormat;
 
           const result = processPitDataToGeoJSON(
@@ -406,7 +456,7 @@ export default function TopDownViewScreen() {
           if (result) {
             setProcessedPitData(result);
           }
-          console.log('data top down: ', result.length)
+          console.log("data top down: ", result.length);
           setPitGeoJsonData(result);
         } catch (error) {
           console.error("Error processing LiDAR data:", error);
@@ -541,31 +591,19 @@ export default function TopDownViewScreen() {
     processedMessagesRef.current.clear();
   }, []);
 
-  const handleSliderChange = useCallback(
-    (value: number) => {
-      setIntervalValue(Math.min(30, Math.max(0, value)));
+  // Toggle dropdown visibility
+  const toggleDropdown = useCallback(() => {
+    setShowDropdown((prev) => !prev);
+  }, []);
 
-      if (lidarData.length > 0) {
-        const elevations = lidarData.map((point) =>
-          parseFloat(String(point.z))
-        );
-        const validElevations = elevations.filter((e) => !isNaN(e));
+  // Handle layer toggle
+  const toggleBlockModel = useCallback(() => {
+    setShowBlockModel((prev) => !prev);
+  }, []);
 
-        if (validElevations.length > 0) {
-          const minElev = Math.min(...validElevations);
-          const maxElev = Math.max(...validElevations);
-          const range = maxElev - minElev;
-
-          // Calculate new max based on slider
-          const intervalPercent = value / 30;
-          const newMax = minElev + range * intervalPercent;
-
-          setElevationRange({ min: minElev, max: newMax });
-        }
-      }
-    },
-    [lidarData]
-  );
+  const togglePit = useCallback(() => {
+    setShowPit((prev) => !prev);
+  }, []);
 
   // Handle map ready
   const handleMapReady = useCallback(() => {
@@ -588,6 +626,23 @@ export default function TopDownViewScreen() {
       </View>
     );
   };
+
+  // Render rock type legend
+  const renderRockTypeLegend = () => (
+    <View style={styles.legendContainer}>
+      <Text style={styles.legendTitle}>Rock Types:</Text>
+      <View style={styles.legendItems}>
+        {Object.entries(rockTypeLegend).map(([rockType, color]) => (
+          <View key={rockType} style={styles.legendItem}>
+            <View style={[styles.legendColor, { backgroundColor: color }]} />
+            <Text style={styles.legendText}>
+              {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 
   // Render create line inputs
   const renderCreateLineInputs = () => (
@@ -619,8 +674,8 @@ export default function TopDownViewScreen() {
           value={
             selectedPoints.length > 0
               ? `${(coordinates.lng || 0).toFixed(6)}, ${(
-                coordinates.lat || 0
-              ).toFixed(6)}`
+                  coordinates.lat || 0
+                ).toFixed(6)}`
               : ""
           }
           editable={false}
@@ -666,6 +721,38 @@ export default function TopDownViewScreen() {
     </View>
   );
 
+  // Render dropdown menu
+  const renderDropdown = () => (
+    <Modal
+      transparent={true}
+      visible={showDropdown}
+      animationType="fade"
+      onRequestClose={() => setShowDropdown(false)}
+    >
+      <TouchableWithoutFeedback onPress={() => setShowDropdown(false)}>
+        <View style={styles.dropdownBackdrop}>
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View style={styles.dropdownContainer}>
+              <TouchableOpacity
+                style={styles.dropdownItem}
+                onPress={toggleBlockModel}
+              >
+                <Text style={styles.dropdownText}>
+                  {showBlockModel ? "✓" : " "} Block Model
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.dropdownItem} onPress={togglePit}>
+                <Text style={styles.dropdownText}>
+                  {showPit ? "✓" : " "} Pit Boundary
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -696,8 +783,8 @@ export default function TopDownViewScreen() {
                 onCoordinateChange={handleCoordinateChange}
                 onAddPointFromCrosshair={handleAddPointCallback}
                 style={styles.map}
-                geoJsonData={geoJsonData}
-                pitGeoJsonData={pitGeoJsonData}
+                geoJsonData={showBlockModel ? geoJsonData : null}
+                pitGeoJsonData={showPit ? pitGeoJsonData : null}
                 mapCenter={mapCenter}
                 mapZoom={mapZoom}
                 selectedPoints={selectedPoints}
@@ -717,36 +804,14 @@ export default function TopDownViewScreen() {
               </View>
             </View>
 
+            {/* Legend */}
+            {!isCreateLineMode && renderRockTypeLegend()}
+
             {/* Bottom Controls */}
             {isCreateLineMode ? (
               renderCreateLineButtons()
             ) : (
               <View style={styles.controlsContainer}>
-                {/* Interval Controls */}
-                <View style={styles.intervalContainer}>
-                  <Text style={styles.intervalLabel}>Interval</Text>
-                  <View style={styles.sliderContainer}>
-                    <View style={styles.sliderTrack}>
-                      <View
-                        style={[
-                          styles.sliderFill,
-                          { width: `${(intervalValue / 30) * 100}%` },
-                        ]}
-                      />
-                    </View>
-                    <View
-                      style={[
-                        styles.sliderThumb,
-                        { left: `${(intervalValue / 30) * 100}%` },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.intervalValue}>
-                    0-{Math.round(intervalValue)} lvl
-                  </Text>
-                  <Text style={styles.intervalLabel}>Interval elevasi</Text>
-                </View>
-
                 {/* Coordinates and Tools */}
                 <View style={styles.coordinatesContainer}>
                   <TouchableOpacity
@@ -767,14 +832,17 @@ export default function TopDownViewScreen() {
                     <Text style={styles.coordinatesText}>
                       {mapReady
                         ? `x:${Math.round(
-                          coordinates?.lng || 0
-                        )}, y:${Math.round(coordinates?.lat || 0)}`
+                            coordinates?.lng || 0
+                          )}, y:${Math.round(coordinates?.lat || 0)}`
                         : "Loading..."}
                     </Text>
                   </View>
 
-                  <TouchableOpacity style={styles.droneButton}>
-                    <Feather name="camera" size={24} color="black" />
+                  <TouchableOpacity
+                    style={styles.layersButton}
+                    onPress={toggleDropdown}
+                  >
+                    <AntDesign name="appstore-o" size={24} color="black" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -782,6 +850,9 @@ export default function TopDownViewScreen() {
           </>
         )}
       </View>
+
+      {/* Dropdown Menu */}
+      {renderDropdown()}
     </SafeAreaView>
   );
 }
@@ -855,7 +926,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  // CSS Styles
   crosshair: {
     position: "absolute",
     top: "50%",
@@ -869,34 +939,34 @@ const styles = StyleSheet.create({
   crosshairVerticalOuter: {
     position: "absolute",
     top: 0,
-    left: 10, // Centered for a 4px width
-    width: 4, // Width of outer black line
+    left: 10,
+    width: 4,
     height: 24,
     backgroundColor: "black",
   },
   crosshairVertical: {
     position: "absolute",
     top: 0,
-    left: 11, // Centered within black background
-    width: 2, // Inner white line
+    left: 11,
+    width: 2,
     height: 24,
     backgroundColor: "white",
     zIndex: 1,
   },
   crosshairHorizontalOuter: {
     position: "absolute",
-    top: 10, // Centered for a 4px height
+    top: 10,
     left: 0,
     width: 24,
-    height: 4, // Height of outer black line
+    height: 4,
     backgroundColor: "black",
   },
   crosshairHorizontal: {
     position: "absolute",
-    top: 11, // Centered within black background
+    top: 11,
     left: 0,
     width: 24,
-    height: 2, // Inner white line
+    height: 2,
     backgroundColor: "white",
     zIndex: 1,
   },
@@ -927,7 +997,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   createSectionButton: {
-    backgroundColor: "#CFE625", // Warna kuning
+    backgroundColor: "#CFE625",
     paddingVertical: 15,
     borderRadius: 20,
     alignItems: "center",
@@ -935,7 +1005,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   disabledSectionButton: {
-    backgroundColor: "#f0f0f0", // Warna abu-abu
+    backgroundColor: "#f0f0f0",
   },
   createSectionButtonText: {
     color: "#333",
@@ -945,44 +1015,6 @@ const styles = StyleSheet.create({
   controlsContainer: {
     paddingHorizontal: 20,
     marginTop: 10,
-  },
-  intervalContainer: {
-    marginTop: 20,
-  },
-  intervalLabel: {
-    fontSize: 14,
-    color: "#333",
-    marginBottom: 5,
-  },
-  sliderContainer: {
-    height: 30,
-    justifyContent: "center",
-    position: "relative",
-  },
-  sliderTrack: {
-    height: 4,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 2,
-  },
-  sliderFill: {
-    height: 4,
-    backgroundColor: "#0066CC",
-    borderRadius: 2,
-  },
-  sliderThumb: {
-    position: "absolute",
-    width: 20,
-    height: 20,
-    backgroundColor: "#0066CC",
-    borderRadius: 10,
-    top: 5,
-    marginLeft: -10,
-  },
-  intervalValue: {
-    fontSize: 14,
-    color: "#333",
-    alignSelf: "flex-end",
-    marginTop: 5,
   },
   coordinatesContainer: {
     flexDirection: "row",
@@ -999,7 +1031,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  droneButton: {
+  layersButton: {
     width: 40,
     height: 40,
     backgroundColor: "#f0f0f0",
@@ -1020,5 +1052,75 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#333",
     fontFamily: "Montserrat_400Regular",
+  },
+  legendContainer: {
+    backgroundColor: "#f9f9f9",
+    marginHorizontal: 20,
+    marginVertical: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  legendTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 5,
+    color: "#333",
+  },
+  legendItems: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 15,
+    marginBottom: 5,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 2,
+    marginRight: 5,
+  },
+  legendText: {
+    fontSize: 13,
+    color: "#333",
+  },
+  dropdownBackdrop: {
+    flex: 1,
+    backgroundColor: "transparent",
+    justifyContent: "flex-end",
+  },
+  dropdownContainer: {
+    backgroundColor: "white",
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    position: "absolute",
+    bottom: 120,
+    right: 20,
+    width: "auto",
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    flexDirection: "row",
+    alignItems: "center",
+    width: "auto",
+  },
+  dropdownText: {
+    fontSize: 15,
+    color: "#333",
+    marginLeft: 5,
   },
 });
