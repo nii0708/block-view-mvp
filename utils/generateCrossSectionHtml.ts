@@ -1,508 +1,1011 @@
-export const generateD3Html = (
+import { processCrossSectionBlocks } from "./processCrossSectionBlocks";
+import { processElevationData } from "./processElevationData";
+import { processPitData } from "./processPitDataCrossSection";
+import { getElevationRange } from "./getElevationRange";
+
+export function generateD3Html(
   blockModelData: any[],
   elevationData: any[],
   pitData: any[],
-  startPoint: { lat: number; lng: number },
-  endPoint: { lat: number; lng: number },
+  startLat: number,
+  startLng: number,
+  endLat: number,
+  endLng: number,
   lineLength: number,
   sourceProjection: string
-) => {
-  // Convert the data to JSON strings for embedding in HTML
-  const blockDataJSON = JSON.stringify(blockModelData);
-  const elevationDataJSON = JSON.stringify(elevationData);
-  const pitDataJSON = JSON.stringify(pitData);
+): string {
+  const intersectingBlocks: any = processCrossSectionBlocks(
+    blockModelData,
+    sourceProjection,
+    startLat,
+    startLng,
+    endLat,
+    endLng
+  );
 
+  const blockCount = intersectingBlocks.length;
+
+  let elevationPoints = processElevationData(
+    elevationData,
+    sourceProjection,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    lineLength
+  );
+
+  const pitPoints = processPitData(pitData);
+
+  const elevationRange = getElevationRange(
+    intersectingBlocks,
+    elevationPoints,
+    pitPoints
+  );
+
+  const safeStringify = (data: any) => {
+    try {
+      return JSON.stringify(data || []);
+    } catch (e) {
+      console.error("Error stringifying data:", e);
+      return "[]";
+    }
+  };
+
+  // HTML template with D3.js - Adding data stats messaging
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
       <title>Cross Section View</title>
       
       <!-- Include D3.js -->
       <script src="https://d3js.org/d3.v7.min.js"></script>
+      <!-- Include Proj4.js for coordinate conversion - CRITICAL! -->
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
       
       <style>
-        body {
+        /* CSS styles dengan perbaikan untuk tooltip */
+        html, body {
           margin: 0;
+          padding: 0;
           font-family: Arial, sans-serif;
+          background-color: white;
+          height: auto;
           overflow: hidden;
+        }
+
+        #chart-container {
+          margin-top: 10px;
+          width: 100%;
+          overflow: hidden;
+          background-color: white;
+          position: relative; // Important for legend positioning
+          border-radius: 8px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         }
         #chart {
           width: 100%;
-          height: 100vh;
+          background-color: white;
         }
         .block {
           stroke: #000;
           stroke-width: 0.5;
         }
-        .axis-label {
-          font-size: 12px;
-          text-anchor: middle;
+        .block:hover {
+          stroke-width: 1.5;
+          stroke: #333;
         }
-        .legend {
+        .axis path,
+        .axis line {
+          stroke: #ccc;
+        }
+        .axis text {
           font-size: 12px;
+          fill: #666;
+        }
+          .x.axis text {
+          text-anchor: middle;
+          dominant-baseline: hanging;
+          font-size: 10px;
+          white-space: pre;
+        }
+        .grid line {
+          stroke: #f0f0f0; 
+          stroke-opacity: 0.5; 
+        }
+        .grid path {
+          stroke-width: 0;
+        }
+        .tooltip {
+          position: fixed;
+          background: #FFFFFF;
+          border: 1px solid #DEE2E6;
+          border-radius: 8px;
+          padding: 12px 16px;
+          font-size: 14px;
+          pointer-events: none;
+          opacity: 0;
+          transition: opacity 0.2s ease-in-out;
+          z-index: 100;
+          max-width: 280px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          color: #495057;
+          line-height: 1.5;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+        .legend-container {
+          /* Removed since we're back to SVG legend */
+        }
+        .loading {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(255,255,255,0.9);
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          z-index: 1000;
+        }
+        .spinner {
+          border: 5px solid #f3f3f3;
+          border-top: 5px solid #0066CC;
+          border-radius: 50%;
+          width: 50px;
+          height: 50px;
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .message {
+          margin-top: 10px;
+          font-size: 14px;
+          color: #333;
+        }
+        .progress-bar {
+          width: 200px;
+          height: 6px;
+          background-color: #f3f3f3;
+          border-radius: 3px;
+          margin-top: 10px;
+          overflow: hidden;
+        }
+        .progress-fill {
+          height: 100%;
+          background-color: #0066CC;
+          width: 0%;
+          transition: width 0.2s;
         }
       </style>
     </head>
     <body>
-      <div id="chart"></div>
+      <div id="chart-container">
+        <div id="chart"></div>
+      </div>
+      
+      <div id="tooltip" class="tooltip"></div>
+      
+      <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <div id="message" class="message">Rendering cross-section...</div>
+        <div class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+      </div>
       
       <script>
-        // Data passed from React Native
-        const blockModelData = ${blockDataJSON};
-        const elevationData = ${elevationDataJSON};
-        const pitData = ${pitDataJSON};
-        const startPoint = ${JSON.stringify(startPoint)};
-        const endPoint = ${JSON.stringify(endPoint)};
+        // State variables
+        let isRendering = false;
+        let hasRendered = false;
+        let chartWidthSent = false;
+        let lastLogTime = 0;
+        
+        // Data statistics tracking
+        let displayedBlocksCount = 0;
+        let displayedElevationPointsCount = 0;
+        let displayedPitPointsCount = 0;
+        
+        // For logging
+        function debug(message) {
+          const now = Date.now();
+          if (now - lastLogTime > 500) {
+            lastLogTime = now;
+            console.log(message);
+            
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'debug',
+                message: message
+              }));
+            }
+          }
+        }
+        
+        // Helper to send messages to React Native
+        function sendToRN(type, data) {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: type,
+              ...data
+            }));
+          }
+        }
+
+        // Save to gallery function - this just sends a request to React Native to handle
+        function saveToGallery() {
+  try {
+    const svgElement = document.querySelector('svg');
+    if (!svgElement) {
+      debug("No SVG element found to save to gallery");
+      return;
+    }
+    
+    // Update UI to show progress
+    if (document.getElementById('loading')) {
+      document.getElementById('loading').style.display = 'flex';
+      document.getElementById('message').textContent = 'Preparing HD image...';
+      document.getElementById('progress-fill').style.width = '50%';
+    }
+    
+    // Get the SVG dimensions
+    const svgRect = svgElement.getBoundingClientRect();
+    const width = svgRect.width;
+    const height = svgRect.height;
+    
+    // Use a more modest scale factor to prevent performance issues
+    // Reduce from 3x to 2x if there are performance problems
+    const scaleFactor = 2;
+    
+    // Create canvas with timeout to prevent UI freezing
+    setTimeout(() => {
+      try {
+        // Create canvas with dimensions based on scale factor
+        const canvas = document.createElement('canvas');
+        canvas.width = width * scaleFactor;
+        canvas.height = height * scaleFactor;
+        const ctx = canvas.getContext('2d');
+        
+        // Fill with white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Get SVG data
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        
+        // Create a more efficient image/SVG processing approach
+        const DOMURL = window.URL || window.webkitURL || window;
+        const img = new Image();
+        const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+        const url = DOMURL.createObjectURL(svgBlob);
+        
+        // Update progress
+        if (document.getElementById('message')) {
+          document.getElementById('message').textContent = 'Converting image...';
+          document.getElementById('progress-fill').style.width = '75%';
+        }
+        
+        img.onload = function() {
+          // Use setTimeout to prevent UI freeze
+          setTimeout(() => {
+            try {
+              // Set rendering quality
+              ctx.imageSmoothingEnabled = true;
+              ctx.imageSmoothingQuality = 'high';
+              
+              // Draw image at scaled size
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              DOMURL.revokeObjectURL(url);
+              
+              // Generate PNG at moderate quality for better performance (0.8 instead of 1.0)
+              const pngDataUrl = canvas.toDataURL('image/png', 0.9);
+              
+              // Notify React Native to save to gallery
+              sendToRN('saveToGallery', {
+                dataUrl: pngDataUrl,
+                filename: 'cross-section-hd.png'
+              });
+              
+              debug("HD image save request sent");
+              
+              // Hide loading indicator if visible
+              if (document.getElementById('loading')) {
+                document.getElementById('loading').style.display = 'none';
+              }
+            } catch (drawError) {
+              debug("Error drawing image: " + drawError.toString());
+              if (document.getElementById('loading')) {
+                document.getElementById('loading').style.display = 'none';
+              }
+            }
+          }, 10); // Small delay to let UI update
+        };
+        
+        img.onerror = function(e) {
+          debug("Error loading SVG image: " + e);
+          DOMURL.revokeObjectURL(url);
+          if (document.getElementById('loading')) {
+            document.getElementById('loading').style.display = 'none';
+          }
+        };
+        
+        // Initiate image loading
+        img.src = url;
+        
+      } catch (canvasError) {
+        debug("Error creating canvas: " + canvasError.toString());
+        if (document.getElementById('loading')) {
+          document.getElementById('loading').style.display = 'none';
+        }
+        
+        // Fallback to original resolution if HD fails
+        sendFallbackImage(svgElement);
+      }
+    }, 50); // Delay to let UI update before heavy processing
+    
+  } catch (error) {
+    debug("Error in save to gallery: " + error.toString());
+    if (document.getElementById('loading')) {
+      document.getElementById('loading').style.display = 'none';
+    }
+    
+    // Try fallback at original resolution
+    try {
+      sendFallbackImage(document.querySelector('svg'));
+    } catch (e) {
+      debug("Fallback save also failed: " + e.toString());
+    }
+  }
+}
+
+// Fallback function that sends the original resolution image if HD fails
+function sendFallbackImage(svgElement) {
+  if (!svgElement) return;
+  
+  try {
+    debug("Using fallback image save at original resolution");
+    
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+    const url = URL.createObjectURL(svgBlob);
+    
+    const img = new Image();
+    const canvas = document.createElement('canvas');
+    const svgRect = svgElement.getBoundingClientRect();
+    
+    canvas.width = svgRect.width;
+    canvas.height = svgRect.height;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    img.onload = function() {
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      
+      const pngDataUrl = canvas.toDataURL('image/png', 0.8);
+      
+      sendToRN('saveToGallery', {
+        dataUrl: pngDataUrl,
+        filename: 'cross-section.png'
+      });
+      
+      debug("Fallback image save request sent");
+    };
+    
+    img.onerror = function() {
+      debug("Fallback image loading failed");
+      URL.revokeObjectURL(url);
+    };
+    
+    img.src = url;
+  } catch (error) {
+    debug("Fallback image generation failed: " + error.toString());
+  }
+}
+        
+        // Send data statistics back to React Native
+        function sendDataStats() {
+          sendToRN('dataStats', {
+            stats: {
+              displayedBlocks: displayedBlocksCount,
+              displayedElevationPoints: displayedElevationPointsCount,
+              displayedPitPoints: displayedPitPointsCount
+            }
+          });
+        }
+        
+        // Update progress
+        function updateProgress(percent, message) {
+          const progressFill = document.getElementById('progress-fill');
+          if (progressFill) {
+            progressFill.style.width = \`\${percent}%\`;
+          }
+          
+          const messageEl = document.getElementById('message');
+          if (messageEl && message) {
+            messageEl.textContent = message;
+          }
+          
+          sendToRN('progressUpdate', { percent, message });
+        }
+                
+        // Start and end points
         const lineLength = ${lineLength};
         const sourceProjection = "${sourceProjection}";
+        const startLat = ${startLat};
+        const startLng = ${startLng};
+        const endLat = ${endLat};
+        const endLng = ${endLng};
         
-        // Line GeoJSON
-        const lineGeoJson = {
-          type: "Feature",
-          geometry: {
-            type: "LineString",
-            coordinates: [
-              [startPoint.lng, startPoint.lat],
-              [endPoint.lng, endPoint.lat]
-            ]
-          }
-        };
-        
-        // Setup dimensions
-        const dimensions = {
-          width: window.innerWidth,
-          height: window.innerHeight * 0.8,
-          margin: { top: 40, right: 40, bottom: 60, left: 60 }
-        };
-        
-        // Calculate the distance between two points
-        const calculateDistance = (startPoint, endPoint) => {
-          return Math.sqrt(
-            Math.pow(endPoint[0] - startPoint[0], 2) + 
-            Math.pow(endPoint[1] - startPoint[1], 2)
-          );
-        };
-        
-        // Find the exact intersection point between two line segments
-        const findLineSegmentIntersection = (x1, y1, x2, y2, x3, y3, x4, y4) => {
-          // Calculate denominators
-          const den = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
-
-          // Lines are parallel or coincident
-          if (den === 0) {
-            return null;
-          }
-
-          // Calculate the line intersection parameters
-          const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / den;
-          const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / den;
-
-          // Check if the intersection is within both line segments
-          if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
-            return {
-              x: x1 + ua * (x2 - x1),
-              y: y1 + ua * (y2 - y1)
-            };
-          }
-
-          return null;
-        };
-
-        // Check if a point is inside a polygon
-        const pointInPolygon = (point, polygon) => {
-          // Ray-casting algorithm
-          let inside = false;
-          const x = point[0];
-          const y = point[1];
-
-          for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i][0], yi = polygon[i][1];
-            const xj = polygon[j][0], yj = polygon[j][1];
-
-            const intersect = ((yi > y) !== (yj > y)) &&
-              (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
-            if (intersect) inside = !inside;
-          }
-
-          return inside;
-        };
-
-        // Function to render the cross-section
-        function renderCrossSection(svg, crossSectionData, dims, elevationProfile, pitIntersections = []) {
-          // Clear previous content
-          svg.selectAll("*").remove();
-
-          const { width, height, margin } = dims;
-          const innerWidth = width - margin.left - margin.right;
-          const innerHeight = height - margin.top - margin.bottom;
-
-          // Create a group element for the visualization
-          const g = svg.append("g")
-            .attr("transform", \`translate(\${margin.left}, \${margin.top})\`);
-
-          // Find min and max elevation values for scaling
-          const blocks = crossSectionData.blocks || [];
-
-          // Check if we have any data to display
-          if (blocks.length === 0 &&
-            (!elevationProfile || elevationProfile.length === 0) &&
-            (!pitIntersections || pitIntersections.length === 0)) {
-            // No data to render
-            g.append("text")
-              .attr("x", innerWidth / 2)
-              .attr("y", innerHeight / 2)
-              .attr("text-anchor", "middle")
-              .text("No data intersects with the current line.");
-            return;
-          }
-
-          // Collect all elevation values from blocks, elevation profile, and pit intersections
-          let allElevations = blocks.map(b => b.elevation);
-
-          if (elevationProfile && elevationProfile.length > 0) {
-            allElevations = [...allElevations, ...elevationProfile.map(p => p.elevation)];
-          }
-
-          if (pitIntersections && pitIntersections.length > 0) {
-            allElevations = [...allElevations, ...pitIntersections.map(p => p.elevation)];
-          }
-
-          // Filter out any null or undefined values
-          allElevations = allElevations.filter(e => e !== null && e !== undefined && !isNaN(e));
-
-          // If we still have no valid elevations, set default min/max
-          const minElevation = allElevations.length > 0 ? Math.min(...allElevations) - 10 : 0;
-          const maxElevation = allElevations.length > 0 ? Math.max(...allElevations) + 10 : 100;
-
-          // Create scales
-          const xScale = d3.scaleLinear()
-            .domain([0, crossSectionData.lineLength])
-            .range([0, innerWidth]);
-
-          const yScale = d3.scaleLinear()
-            .domain([minElevation, maxElevation])
-            .range([innerHeight, 0]);
-
-          // Create axes
-          const xAxis = d3.axisBottom(xScale);
-          const yAxis = d3.axisLeft(yScale);
-
-          // Add axes to the visualization
-          g.append("g")
-            .attr("class", "x-axis")
-            .attr("transform", \`translate(0, \${innerHeight})\`)
-            .call(xAxis);
-
-          g.append("g")
-            .attr("class", "y-axis")
-            .call(yAxis);
-
-          // Add axis labels
-          g.append("text")
-            .attr("class", "x-axis-label")
-            .attr("x", innerWidth / 2)
-            .attr("y", innerHeight + 40)
-            .attr("text-anchor", "middle")
-            .text("Distance along cross-section (m)");
-
-          g.append("text")
-            .attr("class", "y-axis-label")
-            .attr("transform", "rotate(-90)")
-            .attr("x", -innerHeight / 2)
-            .attr("y", -40)
-            .attr("text-anchor", "middle")
-            .text("Elevation (m)");
+        // Function to convert distance to coordinates
+        const processCoordinatesToXaxis = (distance) => {
+          // Calculate the ratio of the given distance to the total distance
+          const ratio = distance / lineLength;
           
-          // Draw blocks
-          if (blocks.length > 0) {
-            g.selectAll(".block")
-              .data(blocks)
-              .enter()
-              .append("rect")
-              .attr("class", "block")
-              .attr("x", d => xScale(d.distance))
-              .attr("y", d => yScale(d.elevation + d.dimensions[2] / 2))
-              .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance)) 
-              .attr("height", d => Math.abs(yScale(d.elevation - d.dimensions[2] / 2) - yScale(d.elevation + d.dimensions[2] / 2)))
-              .attr("fill", d => d.properties.color || "#999")
-              .attr("stroke", "black")
-              .attr("stroke-width", 0.5);
-          }
+          // Calculate the interpolated coordinates
+          const lat = startLat + ratio * (endLat - startLat);
+          const lng = startLng + ratio * (endLng - startLng);
           
-          // Draw elevation profile if available
-          if (elevationProfile && elevationProfile.length > 0) {
-            // Create a line generator
-            const line = d3.line()
-              .x(d => xScale(d.distance))
-              .y(d => yScale(d.elevation))
-              .curve(d3.curveBasis);
-              
-            g.append("path")
-              .datum(elevationProfile.filter(p => p.elevation !== null))
-              .attr("fill", "none")
-              .attr("stroke", "green")
-              .attr("stroke-width", 2)
-              .attr("d", line);
-              
-            // Add fill below line
-            const areaGenerator = d3.area()
-              .x(d => xScale(d.distance))
-              .y0(innerHeight)
-              .y1(d => yScale(d.elevation))
-              .curve(d3.curveBasis);
-              
-            g.append("path")
-              .datum(elevationProfile.filter(p => p.elevation !== null))
-              .attr("fill", "rgba(0, 128, 0, 0.1)")
-              .attr("d", areaGenerator);
-          }
-          
-          // Draw pit boundary intersections
-          if (pitIntersections && pitIntersections.length > 0) {
-            const pitLine = d3.line()
-              .x(d => xScale(d.distance))
-              .y(d => yScale(d.elevation))
-              .curve(d3.curveLinear);
-              
-            g.append("path")
-              .datum(pitIntersections)
-              .attr("fill", "none")
-              .attr("stroke", "#F4AE4D")
-              .attr("stroke-width", 2)
-              .attr("d", pitLine);
-          }
-          
-          // Add legend
-          const legendItems = [];
-          
-          // Add rock types to legend
-          const uniqueRocks = Array.from(new Set(blocks.map(b => b.properties.rock)));
-          uniqueRocks.forEach(rock => {
-            const color = blocks.find(b => b.properties.rock === rock)?.properties.color || "#999";
-            legendItems.push({
-              label: rock,
-              color: color,
-              type: 'rect'
-            });
-          });
-          
-          // Add elevation profile to legend
-          if (elevationProfile && elevationProfile.length > 0) {
-            legendItems.push({
-              label: 'Terrain Elevation',
-              color: 'green',
-              type: 'line'
-            });
-          }
-          
-          // Add pit boundary to legend
-          if (pitIntersections && pitIntersections.length > 0) {
-            legendItems.push({
-              label: 'Pit Boundary',
-              color: '#F4AE4D',
-              type: 'line'
-            });
-          }
-          
-          // Draw the legend
-          const legend = g.append("g")
-            .attr("class", "legend")
-            .attr("transform", \`translate(\${innerWidth - 150}, 20)\`);
-            
-          legendItems.forEach((item, i) => {
-            if (item.type === 'rect') {
-              legend.append("rect")
-                .attr("x", 0)
-                .attr("y", i * 20)
-                .attr("width", 15)
-                .attr("height", 15)
-                .attr("fill", item.color);
-            } else if (item.type === 'line') {
-              legend.append("line")
-                .attr("x1", 0)
-                .attr("y1", i * 20 + 7.5)
-                .attr("x2", 15)
-                .attr("y2", i * 20 + 7.5)
-                .attr("stroke", item.color)
-                .attr("stroke-width", 2);
-            }
-            
-            legend.append("text")
-              .attr("x", 20)
-              .attr("y", i * 20 + 12)
-              .text(item.label);
-          });
-        }
-        
-        // Simplified handler to calculate cross-section (for demonstration)
-        function calculateCrossSection(geoJsonData, lineCoords) {
-          if (!geoJsonData || !geoJsonData.features || geoJsonData.features.length === 0) return { blocks: [], lineLength: 0 };
-          
-          const startPoint = lineCoords[0]; // [lng, lat]
-          const endPoint = lineCoords[1]; // [lng, lat]
-          const lineLength = calculateDistance(startPoint, endPoint);
-          
-          const intersectingBlocks = [];
-          
-          // Process blocks and find intersections with the line
-          geoJsonData.features.forEach(feature => {
-            // Simple intersection check for demo
-            const polygon = feature.geometry.coordinates[0];
-            let intersects = false;
-            
-            // Check if any point of the polygon is near the line
-            for (let i = 0; i < polygon.length - 1; i++) {
-              const intersection = findLineSegmentIntersection(
-                startPoint[0], startPoint[1],
-                endPoint[0], endPoint[1],
-                polygon[i][0], polygon[i][1],
-                polygon[i+1][0], polygon[i+1][1]
-              );
-              
-              if (intersection) {
-                intersects = true;
-                break;
-              }
-            }
-            
-            // Also check if the line start or end is inside the polygon
-            if (!intersects) {
-              if (pointInPolygon(startPoint, polygon) || pointInPolygon(endPoint, polygon)) {
-                intersects = true;
-              }
-            }
-            
-            if (intersects) {
-              // Calculate approximate distance along the line
-              const centroid = [
-                feature.properties.centroid_x,
-                feature.properties.centroid_y
-              ];
-              
-              // Project centroid onto line
-              const dx = endPoint[0] - startPoint[0];
-              const dy = endPoint[1] - startPoint[1];
-              const t = ((centroid[0] - startPoint[0]) * dx + (centroid[1] - startPoint[1]) * dy) / (dx * dx + dy * dy);
-              const projectedDistance = Math.max(0, Math.min(1, t)) * lineLength;
-              
-              // Add block to results
-              intersectingBlocks.push({
-                centroid: [
-                  centroid[0],
-                  centroid[1],
-                  feature.properties.centroid_z || 0
-                ],
-                dimensions: [
-                  feature.properties.dim_x || 10,
-                  feature.properties.dim_y || 10,
-                  feature.properties.dim_z || 10
-                ],
-                properties: {
-                  rock: feature.properties.rock || 'unknown',
-                  color: feature.properties.color || '#CCCCCC'
-                },
-                distance: projectedDistance - (feature.properties.dim_x / 2 || 5),
-                width: feature.properties.dim_x || 10,
-                elevation: feature.properties.centroid_z || 0
-              });
-            }
-          });
-          
-          // Sort blocks by distance
-          intersectingBlocks.sort((a, b) => a.distance - b.distance);
+          // Format coordinates for display
+          const formattedLat = lat.toFixed(6) + (lat >= 0 ? '°N' : '°S');
+          const formattedLng = lng.toFixed(6) + (lng >= 0 ? '°E' : '°W');
           
           return {
-            blocks: intersectingBlocks,
-            lineLength: lineLength,
-            startPoint,
-            endPoint
+            x: distance,
+            lat: lat,
+            lng: lng,
+            formattedLat: formattedLat,
+            formattedLng: formattedLng,
+            label: \`\${formattedLat}, \${formattedLng}\`
           };
-        }
+        };
         
-        // Main execution
-        document.addEventListener('DOMContentLoaded', function() {
+        // Set up Proj4 projections for coordinate conversion
+        proj4.defs('EPSG:4326', "+proj=longlat +datum=WGS84 +no_defs");
+        proj4.defs(sourceProjection, "+proj=utm +zone=52 +datum=WGS84 +units=m +no_defs");
+
+        elevationPoints = ${safeStringify(elevationPoints)};
+        
+        // Main rendering function
+        function renderVisualization() {
+          if (isRendering || hasRendered) return;
+          
+          isRendering = true;
+          
           try {
-            // Convert raw block model data to GeoJSON format
-            // In a real implementation, you would process the raw data properly
-            const processedGeoJSON = {
-              type: "FeatureCollection",
-              features: blockModelData.map((block, index) => ({
-                type: "Feature",
-                properties: {
-                  centroid_x: parseFloat(block.centroid_x || block.x || 0),
-                  centroid_y: parseFloat(block.centroid_y || block.y || 0),
-                  centroid_z: parseFloat(block.centroid_z || block.z || 0),
-                  dim_x: parseFloat(block.dim_x || block.width || 10),
-                  dim_y: parseFloat(block.dim_y || block.length || 10),
-                  dim_z: parseFloat(block.dim_z || block.height || 10),
-                  rock: block.rock || 'unknown',
-                  color: block.color || '#CCCCCC'
-                },
-                geometry: {
-                  type: "Polygon",
-                  coordinates: [[
-                    [block.centroid_x - block.dim_x/2, block.centroid_y - block.dim_y/2],
-                    [block.centroid_x + block.dim_x/2, block.centroid_y - block.dim_y/2],
-                    [block.centroid_x + block.dim_x/2, block.centroid_y + block.dim_y/2],
-                    [block.centroid_x - block.dim_x/2, block.centroid_y + block.dim_y/2],
-                    [block.centroid_x - block.dim_x/2, block.centroid_y - block.dim_y/2]
-                  ]]
-                }
-              }))
-            };
+            updateProgress(80, "Rendering visualization...");
             
-            // Process elevation data
-            const elevationProfile = elevationData.map((point, index) => ({
-              distance: (index / (elevationData.length - 1)) * lineLength,
-              elevation: parseFloat(point.z || point.elevation || 0),
-              x: parseFloat(point.x || point.lon || 0),
-              y: parseFloat(point.y || point.lat || 0)
-            }));
+            // First, process the data
+            // For Block Model
+            const sectionBlocks = ${safeStringify(intersectingBlocks)};
+            displayedBlocksCount = ${safeStringify(blockCount)};
+            updateProgress(30, "Block model processing complete");
+
+            // For Elevation
+            const elevationProfile = ${safeStringify(elevationPoints)};
+            displayedElevationPointsCount = elevationPoints.filter(p => p.elevation !== null).length;
+
+            const pitProfile = ${safeStringify(pitPoints)};
+            displayedPitPointsCount = pitProfile.length;
             
-            // Process pit data (simplified)
-            const pitIntersections = pitData.slice(0, 20).map((point, index) => ({
-              distance: (index / 19) * lineLength,
-              elevation: parseFloat(point.z || 0),
-              point: [parseFloat(point.x || 0), parseFloat(point.y || 0)]
-            }));
+            // Send the final data stats
+            sendDataStats();
             
-            // Calculate cross section
-            const crossSectionData = calculateCrossSection(
-              processedGeoJSON, 
-              [[startPoint.lng, startPoint.lat], [endPoint.lng, endPoint.lat]]
+            const sortedIntersections = [...pitProfile].sort(
+              (a, b) => a.distance - b.distance
             );
             
+            // Get elevation range
+            const elevRange = ${safeStringify(elevationRange)}
+            
+            // Calculate proper dimensions
+            const margin = { top: 40, right: 30, bottom: 200, left: 80 }; // Further increase bottom margin 
+
+            // Use full width for mobile
+            const chartWidth = window.innerWidth;
+            
+            // Calculate height based on viewport but ensure it's not too small
+            const minHeight = 400;
+            const maxHeight = 800;
+            const baseHeight = Math.min(Math.max(window.innerHeight * 0.7, minHeight), maxHeight);
+            
+            const innerWidth = chartWidth - margin.left - margin.right;
+            const innerHeight = baseHeight - margin.top - margin.bottom;
+            
+            // Calculate total SVG height including margins and legend spacing
+            const legendSpacing = 100; // More space for legend after rotated labels
+            const totalHeight = baseHeight + legendSpacing;
+            
+            // Set the container height to match content
+            document.getElementById('chart-container').style.height = totalHeight + 'px';
+            
             // Create SVG
-            const svg = d3.select("#chart")
-              .append("svg")
-              .attr("width", dimensions.width)
-              .attr("height", dimensions.height);
+            const svg = d3.select('#chart')
+            .append('svg')
+            .attr('width', chartWidth)
+            .attr('height', totalHeight)
+            .attr('viewBox', \`0 0 \${chartWidth} \${totalHeight}\`);
             
-            // Render the cross-section
-            renderCrossSection(svg, crossSectionData, dimensions, elevationProfile, pitIntersections);
+            // Create tooltip
+            const tooltip = d3.select('#tooltip');
+              
+            // Create main group
+            const g = svg.append('g')
+              .attr('transform', \`translate(\${margin.left}, \${margin.top})\`);
             
-            // Send completion message to React Native
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'renderComplete',
-                blockCount: crossSectionData.blocks.length
-              }));
+            // Create scales
+            const xScale = d3.scaleLinear()
+              .domain([0, lineLength])
+              .range([0, innerWidth]);
+
+            const yScale = d3.scaleLinear()
+              .domain([elevRange.min, elevRange.max])
+              .range([innerHeight, 0]);
+              
+            // Create zoom behavior for pinch-to-zoom
+            const zoom = d3.zoom()
+              .scaleExtent([0.5, 10]) // Allow zoom from 0.5x to 10x
+              .translateExtent([[-chartWidth, -totalHeight], [chartWidth * 2, totalHeight * 2]]) // Allow more free panning
+              .on('zoom', function(event) {
+                g.attr('transform', \`translate(\${margin.left + event.transform.x}, \${margin.top + event.transform.y}) scale(\${event.transform.k})\`);
+                
+                // Hide tooltip during zoom
+                tooltip.transition()
+                  .duration(0)
+                  .style('opacity', 0);
+              });
+            
+            // Apply zoom to SVG
+            svg.call(zoom);
+          
+            // Generate tick values at reasonable intervals
+            const tickCount = 15;
+            const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => i * (lineLength / tickCount));
+            
+            // Create axes with coordinate labels
+            const xAxis = d3.axisBottom(xScale)
+              .tickValues(tickValues)
+              .tickFormat(d => {
+                // Convert distance to coordinates
+                const coordInfo = processCoordinatesToXaxis(d);
+                return coordInfo.label;
+              });
+
+            const yAxis = d3.axisLeft(yScale)
+              .tickFormat(d => \`\${d.toFixed(0)}mdpl\`);
+              
+            // Add axes with rotated labels for better readability
+            g.append('g')
+              .attr('class', 'x axis')
+              .attr('transform', \`translate(0, \${innerHeight})\`)
+              .call(xAxis)
+              .selectAll("text")  
+              .style("text-anchor", "end")
+              .attr("dx", "-.8em")
+              .attr("dy", ".15em")
+              .attr("transform", "rotate(-90)");
+              
+            g.append('g')
+              .attr('class', 'y axis')
+              .call(yAxis);
+              
+            // Add axis labels
+            g.append('text')
+              .attr('x', innerWidth / 2)
+              .attr('y', innerHeight + 150) // Moved further down to clear rotated coordinates
+              .attr('text-anchor', 'middle')
+              .text('Cross-section coordinates');
+              
+            g.append('text')
+              .attr('transform', 'rotate(-90)')
+              .attr('x', -innerHeight / 2)
+              .attr('y', -60)
+              .attr('text-anchor', 'middle')
+              .text('Elevation (mdpl)');
+
+            // Add grid
+            g.append('g')
+              .attr('class', 'grid')
+              .attr('transform', \`translate(0, \${innerHeight})\`)
+              .call(
+                d3.axisBottom(xScale)
+                  .tickSize(-innerHeight)
+                  .tickFormat('')
+              );
+              
+            g.append('g')
+              .attr('class', 'grid')
+              .call(
+                d3.axisLeft(yScale)
+                  .tickSize(-innerWidth)
+                  .tickFormat('')
+              );
+                        
+            // Collect unique rock types for legend
+            const uniqueRocks = {};
+            
+            if (sectionBlocks && sectionBlocks.length > 0) {
+  try {
+    // Gather unique rock types
+    sectionBlocks.forEach(block => {
+      const rockType = block.rock || 'unknown';
+      const color = block.color 
+      uniqueRocks[rockType] = color;
+    });
+    
+    // Create a group for each block that will contain both the rectangle and the text
+    const blockGroups = g.selectAll('.block-group')
+      .data(sectionBlocks)
+      .enter()
+      .append('g')
+      .attr('class', 'block-group');
+    
+    // Add rectangles to each group
+    blockGroups.append('rect')
+      .attr('class', 'block')
+      .attr('x', d => xScale(d.distance))
+      .attr('y', d => yScale(d.elevation + d.height/2))
+      .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance))
+      .attr('height', d => Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2)))
+      .attr('fill', d => d.color)
+      .attr('stroke', 'black')
+      .attr('stroke-width', 0.25)
+      .on('mouseover', function(event, d) {
+        // Highlight on hover
+        d3.select(this)
+          .attr('stroke-width', 2)
+          .attr('stroke', '#333');
+                              
+        // Show tooltip
+        tooltip.transition()
+          .duration(200)
+          .style('opacity', 1);
+        
+        // Calculate tooltip position
+        let left = event.pageX + 10;
+        let top = event.pageY - 28;
+        
+        // Ensure tooltip doesn't go off screen
+        const tooltipWidth = 200;
+        const tooltipHeight = 150;
+        
+        if (left + tooltipWidth > window.innerWidth) {
+          left = event.pageX - tooltipWidth - 10;
+        }
+        
+        if (top < 0) {
+          top = event.pageY + 20;
+        }
+        
+        tooltip.html(
+          \`<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Rock Type:</strong> <span style="color: #495057;">\${d.rock || 'unknown'}</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Concentrate:</strong> <span style="color: #495057;">\${d.concentrate !== undefined ? parseFloat(d.concentrate) : 'N/A'}</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Elevation:</strong> <span style="color: #495057;">\${parseFloat(d.elevation).toFixed(1)}mdpl</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Distance:</strong> <span style="color: #495057;">\${parseFloat(d.distance).toFixed(1)}m</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Width:</strong> <span style="color: #495057;">\${parseFloat(d.width).toFixed(1)}m</span></div>
+            <div><strong style="color: #212529; font-weight: 600;">Height:</strong> <span style="color: #495057;">\${parseFloat(d.height).toFixed(1)}m</span></div>
+          </div>\`
+        )
+        .style('left', left + 'px')
+        .style('top', top + 'px');
+      })
+      .on('mouseout', function() {
+        // Reset on mouseout
+        d3.select(this)
+          .attr('stroke-width', 0.5)
+          .attr('stroke', 'black');
+          
+        // Hide tooltip
+        tooltip.transition()
+          .duration(500)
+          .style('opacity', 0);
+      });
+    
+    // Add text displaying the concentrate value in the middle of each block
+    blockGroups.append('text')
+  .attr('class', 'block-concentrate')
+  .attr('x', d => xScale(d.distance + d.width/2)) // Center horizontally
+  .attr('y', d => yScale(d.elevation)) // Center vertically
+  .attr('text-anchor', 'middle') // Ensure text is centered
+  .attr('dominant-baseline', 'middle') // Vertical alignment
+  .attr('fill', 'white') // Text color
+  .attr('pointer-events', 'none') // Make text non-interactive
+  .text(d => d.concentrate !== undefined ? parseFloat(d.concentrate) : '')
+  .attr('font-size', function(d) {
+    // Calculate block dimensions in pixels
+    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
+    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
+    
+    // Calculate a font size proportional to the block size
+    // Base size on the smaller dimension (width or height)
+    const minDimension = Math.min(blockWidth, blockHeight);
+    
+    // More aggressive scaling factor - adjust based on total blocks
+    // This makes the text size more proportional to block size
+    const scaleFactor = 0.35; 
+    
+    // More dynamic min/max constraints based on block size
+    const minFontSize = 3; // Smaller minimum size
+    const maxFontSize = 20; // Smaller maximum size
+    
+    // Calculate font size with improved constraints
+    const calculatedSize = Math.max(minFontSize, Math.min(minDimension * scaleFactor, maxFontSize));
+    
+    return calculatedSize + 'px';
+  })
+  .attr('visibility', function(d) {
+    // Calculate block dimensions in pixels
+    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
+    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
+    
+    // Text length based on the actual displayed text
+    const textContent = d.concentrate !== undefined ? parseFloat(d.concentrate) : '';
+    const textLength = textContent.length;
+    
+    // Estimate space needed - now more conservative
+    const minWidthNeeded = textLength * 5; // Pixels per character (reduced from 6)
+    const minHeightNeeded = 6; // Minimum height needed for text
+    
+    
+  });
+  } catch (err) {
+    debug("Error drawing blocks: " + err.message);
+  }
+}
+            
+            // Draw elevation profile
+            if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
+              try {
+                // Create line generator
+                const line = d3.line()
+                  .x(d => xScale(d.distance))
+                  .y(d => yScale(d.elevation))
+                  .curve(d3.curveLinear)
+                  .defined(d => d.elevation !== null);
+                  
+                // Add path
+                g.append('path')
+                  .datum(elevationProfile.filter(p => p.elevation !== null))
+                  .attr('fill', 'none')
+                  .attr('stroke', 'green')
+                  .attr('stroke-width', 2)
+                  .attr('d', line);
+              } catch (err) {
+                debug("Error drawing elevation profile: " + err.message);
+              }
             }
+                      
+            // Draw pit boundaries
+            if (pitProfile && pitProfile.length > 0) {
+              try {
+                // Reduced filtering - only filter very close points
+                const filteredPitPoints = [];
+                if (pitProfile.length > 0) {
+                  // Add the first point
+                  filteredPitPoints.push(pitProfile[0]);
+                  
+                  // Only filter extremely close points (2m instead of 5m)
+                  const minDistance = 2; // meters
+                  for (let i = 1; i < pitProfile.length; i++) {
+                    const prevPoint = filteredPitPoints[filteredPitPoints.length - 1];
+                    const currPoint = pitProfile[i];
+                    
+                    // Calculate distance between points
+                    const distance = Math.abs(currPoint.distance - prevPoint.distance);
+                    
+                    // Only add if the point is far enough from previous point
+                    if (distance > minDistance) {
+                      filteredPitPoints.push(currPoint);
+                    }
+                  }
+                }
+
+                // 1. First, draw a thicker solid line behind the dashed line for better visibility
+                const pitLineBg = d3.line()
+                  .x(d => xScale(d.distance))
+                  .y(d => yScale(d.elevation))
+                  .curve(d3.curveLinear); // Use linear for more accurate representation
+                
+                g.append('path')
+                  .datum(sortedIntersections)
+                  .attr('fill', 'none')
+                  .attr('stroke', '#F4AE4D')  // Orange pit boundary color
+                  .attr('stroke-width', 1)    // Thicker solid line behind
+                  .attr('stroke-opacity', 0.3) // Semi-transparent
+                  .attr('d', pitLineBg);
+                
+                // 2. Draw dashed line over it
+                const pitLine = d3.line()
+                  .x(d => xScale(d.distance))
+                  .y(d => yScale(d.elevation))
+                  .curve(d3.curveLinear);
+                
+                g.append('path')
+                  .datum(sortedIntersections)
+                  .attr('fill', 'none')
+                  .attr('stroke', '#F4AE4D')
+                  .attr('stroke-width', 1.0)
+                  .attr('stroke-dasharray', '5,5')
+                  .attr('d', pitLine);
+                
+                // Add fewer marker points - just at key inflection points
+                if (filteredPitPoints.length > 3) {
+                  g.selectAll('.pit-marker')
+                    .data(filteredPitPoints.filter((_, i) => 
+                      i === 0 || i === filteredPitPoints.length - 1 || i % Math.max(3, Math.ceil(filteredPitPoints.length / 15)) === 0
+                    ))
+                    .enter()
+                    .append('circle')
+                    .attr('class', 'pit-marker')
+                    .attr('cx', d => xScale(d.distance))
+                    .attr('cy', d => yScale(d.elevation))
+                    .attr('r', 2)  // Larger markers
+                    .attr('fill', '#F4AE4D')
+                    .attr('stroke', '#fff')  // White border for visibility
+                    .attr('stroke-width', 1);
+                }
+              } catch (err) {
+                debug("Error drawing pit boundary: " + err.message);
+              }
+            }
+            
+            // Create legend OUTSIDE the zoomed group but INSIDE SVG
+            const legendWidth = innerWidth * 0.8;
+            const legendHeight = 40;
+            const legendX = (innerWidth - legendWidth) / 2;
+            const legendY = baseHeight - 40; // Position legend just below chart
+
+            // Create the legend container directly on SVG (not in the zoomed group)
+            const legendBox = svg.append('g')
+              .attr('class', 'legend-container')
+              .attr('transform', \`translate(\${margin.left + legendX}, \${legendY})\`);
+
+            // Add a subtle background to make legend more visible
+            legendBox.append('rect')
+              .attr('width', legendWidth)
+              .attr('height', legendHeight)
+              .attr('rx', 5)
+              .attr('ry', 5)
+              .attr('fill', 'white')
+              .attr('stroke', '#999')
+              .attr('stroke-width', 1.5)
+              .attr('opacity', 0.95);
+
+            // Calculate how many items we need to display
+            const legendItems = [...Object.entries(uniqueRocks)];
+            if (elevationProfile && elevationProfile.some(p => p.elevation !== null)) {
+              legendItems.push(['Terrain Elevation', 'green']);
+            }
+            if (pitProfile && pitProfile.length > 0) {
+              legendItems.push(['Pit Boundary', '#F4AE4D']);
+            }
+
+            // Calculate spacing
+            const itemWidth = legendWidth / legendItems.length;
+
+            // Add each legend item with equal spacing
+            legendItems.forEach((item, i) => {
+              const [label, color] = item;
+              const x = i * itemWidth;
+              
+              const legendItem = legendBox.append('g')
+                .attr('transform', \`translate(\${x + 10}, 20)\`);
+              
+              if (label === 'Terrain Elevation') {
+                // Draw a line for terrain elevation
+                legendItem.append('line')
+                  .attr('x1', 0)
+                  .attr('y1', 0)
+                  .attr('x2', 20)
+                  .attr('y2', 0)
+                  .attr('stroke', color)
+                  .attr('stroke-width', 2.5);
+              } else if (label === 'Pit Boundary') {
+                // Draw a dashed line for pit boundary
+                // First a solid background
+                legendItem.append('line')
+                  .attr('x1', 0)
+                  .attr('y1', 0) 
+                  .attr('x2', 20)
+                  .attr('y2', 0)
+                  .attr('stroke', color)
+                  .attr('stroke-width', 3.5)
+                  .attr('stroke-opacity', 0.3);
+                  
+                // Then the dashed line
+                legendItem.append('line')
+                  .attr('x1', 0)
+                  .attr('y1', 0)
+                  .attr('x2', 20)
+                  .attr('y2', 0)
+                  .attr('stroke', color)
+                  .attr('stroke-width', 2.5)
+                  .attr('stroke-dasharray', '3,3');
+              } else {
+                // Draw a rectangle for rock types
+                legendItem.append('rect')
+                  .attr('width', 20)
+                  .attr('height', 12)
+                  .attr('fill', color)
+                  .attr('stroke', 'black')
+                  .attr('stroke-width', 0.5);
+              }
+              
+              // Add label text with better visibility
+              legendItem.append('text')
+                .attr('x', 25)
+                .attr('y', 5)
+                .attr('alignment-baseline', 'middle')
+                .attr('font-size', '12px')
+                .attr('font-weight', '500')
+                .text(label);
+            });
+            
+            updateProgress(100, "Visualization complete");
+            
+            // Hide loading indicator
+            document.getElementById('loading').style.display = 'none';
+            
+            // Mark as rendered
+            hasRendered = true;
+            isRendering = false;
+            
+            // Notify React Native with data stats
+            sendToRN('renderComplete', { 
+              message: 'D3 visualization complete',
+              chartWidth: chartWidth,
+              dataStats: {
+                displayedBlocks: displayedBlocksCount,
+                displayedElevationPoints: displayedElevationPointsCount,
+                displayedPitPoints: displayedPitPointsCount
+              }
+            });
           } catch (error) {
-            console.error("Error rendering cross section:", error);
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'renderError',
-                error: error.toString()
-              }));
+            isRendering = false;
+            debug('Error rendering visualization: ' + error.toString());
+            document.getElementById('message').textContent = 'Error: ' + error.toString();
+            sendToRN('renderError', { error: error.toString() });
+          }
+        }
+
+        // Main entry point
+        document.addEventListener('DOMContentLoaded', function() {
+          try {
+            // Check if D3 is loaded
+            if (!window.d3) {
+              document.getElementById('message').textContent = 'Error: D3.js not loaded';
+              sendToRN('renderError', { error: 'D3.js not loaded' });
+              return;
             }
+            
+            // Check if Proj4 is loaded
+            if (!window.proj4) {
+              document.getElementById('message').textContent = 'Error: Proj4.js not loaded';
+              sendToRN('renderError', { error: 'Proj4.js not loaded' });
+              return;
+            }
+            
+            // Add a short delay to let WebView stabilize
+            setTimeout(() => {
+              renderVisualization();
+            }, 200);
+          } catch (error) {
+            debug('Error in main processing: ' + error.toString());
+            document.getElementById('message').textContent = 'Error: ' + error.toString();
+            sendToRN('renderError', { error: error.toString() });
           }
         });
       </script>
     </body>
     </html>
   `;
-};
+}

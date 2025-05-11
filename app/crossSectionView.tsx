@@ -41,6 +41,13 @@ export default function CrossSectionViewScreen() {
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
 
+  // NEW: State for processed data counts (what's actually displayed)
+  const [displayedDataCounts, setDisplayedDataCounts] = useState({
+    displayedBlocks: 0,
+    displayedElevationPoints: 0,
+    displayedPitPoints: 0,
+  });
+
   // Get data from context
   const { fullBlockModelData, processedElevation, processedPitData } =
     useMiningData();
@@ -57,10 +64,6 @@ export default function CrossSectionViewScreen() {
 
       // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
-        console.log(
-          `Preparing ${fullBlockModelData.length} blocks for cross-section`
-        );
-
         // Direct mapping without filtering (WebView will handle filtering)
         const extractedBlocks = fullBlockModelData.map((block) => ({
           centroid_x: parseFloat(block.centroid_x || block.x || 0),
@@ -71,22 +74,13 @@ export default function CrossSectionViewScreen() {
           dim_z: parseFloat(block.dim_z || block.height || 10),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
+          concentrate:
+            parseFloat(block.ni_ok) === -99
+              ? parseFloat(block.ni_ok)
+              : parseFloat(block.ni_ok || 0).toFixed(2),
         }));
 
-        // Sample data if too large
-        if (extractedBlocks.length > 10000) {
-          const samplingRate = Math.ceil(extractedBlocks.length / 10000);
-          const sampledBlocks = extractedBlocks.filter(
-            (_, i) => i % samplingRate === 0
-          );
-          console.log(
-            `Sampled ${sampledBlocks.length} blocks from ${extractedBlocks.length}`
-          );
-          setBlockModelData(sampledBlocks);
-        } else {
-          setBlockModelData(extractedBlocks);
-        }
-        console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
+        setBlockModelData(extractedBlocks);
       }
 
       // Process elevation data if available
@@ -123,6 +117,18 @@ export default function CrossSectionViewScreen() {
     return rockColors[rockType.toLowerCase()] || "#CCCCCC";
   };
 
+  // NEW: Handler for processed data from WebView
+  const handleDataProcessed = useCallback(
+    (data: {
+      displayedBlocks: number;
+      displayedElevationPoints: number;
+      displayedPitPoints: number;
+    }) => {
+      setDisplayedDataCounts(data);
+    },
+    []
+  );
+
   // Handle home button
   const handleHome = useCallback(() => {
     router.push("/");
@@ -138,70 +144,24 @@ export default function CrossSectionViewScreen() {
     setExportDialogVisible(false);
   }, []);
 
-  // Handle export data
+  // Handle export data - now accepts multiple selections
   const handleExport = useCallback(
-    async (dataType: string) => {
+    async (dataTypes: string[]) => {
       try {
         setIsExporting(true);
 
-        // Prepare the data to export based on the selection
-        let dataToExport: any;
-        let fileName: string;
-
-        switch (dataType) {
-          case "blockModel":
-            dataToExport = blockModelData;
-            fileName = `cross_section_blocks_${new Date().getTime()}.json`;
-            break;
-          case "elevation":
-            dataToExport = elevationData;
-            fileName = `cross_section_elevation_${new Date().getTime()}.json`;
-            break;
-          case "pit":
-            dataToExport = pitData;
-            fileName = `cross_section_pit_${new Date().getTime()}.json`;
-            break;
-          case "all":
-            dataToExport = {
-              metadata: {
-                startPoint: { lat: startLat, lng: startLng },
-                endPoint: { lat: endLat, lng: endLng },
-                length: length,
-                projection: projection,
-                exportDate: new Date().toISOString(),
-              },
-              blockModelData: blockModelData,
-              elevationData: elevationData,
-              pitData: pitData,
-            };
-            fileName = `cross_section_all_${new Date().getTime()}.json`;
-            break;
-          default:
-            throw new Error("Invalid data type selected");
-        }
-
-        // Convert data to JSON string
-        const jsonString = JSON.stringify(dataToExport, null, 2);
-
-        // Create a file in the temporary directory
-        const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
-        await FileSystem.writeAsStringAsync(fileUri, jsonString);
-
-        // Share the file
-        if (Platform.OS === "ios") {
-          await Share.share({
-            url: fileUri,
-            title: "Export Cross Section Data",
-          });
-        } else {
-          // For Android
-          if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(fileUri, {
-              mimeType: "application/json",
-              dialogTitle: "Export Cross Section Data",
-            });
+        // Process each selected export type
+        for (const dataType of dataTypes) {
+          if (dataType === "screenshot") {
+            // Handle screenshot - send request to WebView
+            // We'll create a ref for this - for now let's alert
+            Alert.alert(
+              "Screenshot",
+              "Screenshot feature will be implemented soon"
+            );
           } else {
-            Alert.alert("Error", "Sharing is not available on this device");
+            // Handle data exports
+            await exportDataType(dataType);
           }
         }
 
@@ -229,11 +189,111 @@ export default function CrossSectionViewScreen() {
     ]
   );
 
+  // Helper function to export a specific data type
+  const exportDataType = async (dataType: string) => {
+    let dataToExport: any;
+    let fileName: string;
+
+    switch (dataType) {
+      case "blockModel":
+        dataToExport = blockModelData;
+        fileName = `cross_section_blocks_${new Date().getTime()}.json`;
+        break;
+      case "elevation":
+        dataToExport = elevationData;
+        fileName = `cross_section_elevation_${new Date().getTime()}.json`;
+        break;
+      case "pit":
+        dataToExport = pitData;
+        fileName = `cross_section_pit_${new Date().getTime()}.json`;
+        break;
+      default:
+        throw new Error("Invalid data type selected");
+    }
+
+    // Convert data to JSON string
+    const jsonString = JSON.stringify(dataToExport, null, 2);
+
+    // Create a file in the temporary directory
+    const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.writeAsStringAsync(fileUri, jsonString);
+
+    // Share the file
+    if (Platform.OS === "ios") {
+      await Share.share({
+        url: fileUri,
+        title: "Export Cross Section Data",
+      });
+    } else {
+      // For Android
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: "application/json",
+          dialogTitle: "Export Cross Section Data",
+        });
+      } else {
+        Alert.alert("Error", "Sharing is not available on this device");
+      }
+    }
+  };
+
+  // Reference for WebView to handle screenshot
+  const webViewRef = React.useRef<any>(null);
+
+  // Function to trigger screenshot from WebView
+  const triggerScreenshot = useCallback(() => {
+    if (webViewRef.current) {
+      webViewRef.current.triggerScreenshot();
+    }
+  }, []);
+
+  // Update handleExport to actually trigger screenshot
+  const handleExportUpdated = useCallback(
+    async (dataTypes: string[]) => {
+      try {
+        setIsExporting(true);
+
+        // Process each selected export type
+        for (const dataType of dataTypes) {
+          if (dataType === "screenshot") {
+            // Trigger screenshot from WebView
+            triggerScreenshot();
+          } else {
+            // Handle data exports
+            await exportDataType(dataType);
+          }
+        }
+
+        setIsExporting(false);
+        setExportDialogVisible(false);
+      } catch (error) {
+        console.error("Error exporting data:", error);
+        Alert.alert(
+          "Export Error",
+          "Failed to export the data. Please try again."
+        );
+        setIsExporting(false);
+      }
+    },
+    [
+      blockModelData,
+      elevationData,
+      pitData,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      length,
+      projection,
+      triggerScreenshot,
+    ]
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header - Updated to match coordinateSelection.tsx */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Cross Section View</Text>
         <TouchableOpacity style={styles.homeButton} onPress={handleHome}>
@@ -266,20 +326,21 @@ export default function CrossSectionViewScreen() {
                 <Text style={styles.infoValue}>{length.toFixed(1)} meters</Text>
               </View>
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Data:</Text>
+                <Text style={styles.infoLabel}>Displayed Data:</Text>
                 <Text style={styles.infoValue}>
-                  {blockModelData.length} blocks, {elevationData.length}{" "}
-                  elevation points,
-                  {pitData.length} pit points
+                  {displayedDataCounts.displayedBlocks} blocks,{" "}
+                  {displayedDataCounts.displayedElevationPoints} terrain points,{" "}
+                  {displayedDataCounts.displayedPitPoints} pit points
                 </Text>
               </View>
             </View>
 
             {/* Graph container with absolute positioned export button */}
             <View style={styles.graphWithExportContainer}>
-              {/* Cross Section WebView - Now takes all available space */}
+              {/* Cross Section WebView */}
               <View style={styles.graphContainer}>
                 <CrossSectionWebView
+                  ref={webViewRef}
                   startLat={startLat}
                   startLng={startLng}
                   endLat={endLat}
@@ -289,10 +350,11 @@ export default function CrossSectionViewScreen() {
                   pitData={pitData}
                   lineLength={length}
                   sourceProjection={projection}
+                  onDataProcessed={handleDataProcessed}
                 />
               </View>
 
-              {/* Export Button - Now floats at the bottom */}
+              {/* Export Button */}
               <View style={styles.exportButtonContainer}>
                 <TouchableOpacity
                   style={styles.exportButton}
@@ -315,7 +377,7 @@ export default function CrossSectionViewScreen() {
       <ExportDialog
         visible={exportDialogVisible}
         onCancel={handleExportCancel}
-        onExport={handleExport}
+        onExport={handleExportUpdated}
         isProcessing={isExporting}
       />
     </SafeAreaView>
@@ -373,7 +435,7 @@ const styles = StyleSheet.create({
   },
   graphWithExportContainer: {
     flex: 1,
-    position: "relative", // For absolute positioning of the export button
+    position: "relative",
   },
   graphContainer: {
     flex: 1,

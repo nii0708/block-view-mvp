@@ -18,6 +18,12 @@ interface LeafletMapProps {
   hideInternalCoordinates?: boolean;
   useCrosshairForDrawing?: boolean;
   lineColor?: string;
+  pdfOverlayData?: {
+    imageBase64: string | null;
+    bounds: [[number, number], [number, number]];
+    center: [number, number];
+    zoom: number;
+  } | null;
 }
 
 interface GeoJSONFeature {
@@ -48,6 +54,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   hideInternalCoordinates = true,
   useCrosshairForDrawing = true,
   lineColor = "#CFE625",
+  pdfOverlayData = null,
 }) => {
   const [loading, setLoading] = useState(true);
   const webViewRef = useRef<WebView>(null);
@@ -85,7 +92,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   };
 
-  // Update GeoJSON data only when changed
+  // Update GeoJSON data and PDF overlay when changed
   useEffect(() => {
     if (mapIsReady && webViewRef.current) {
       // Jangan batasi jumlah fitur kecuali SANGAT besar
@@ -110,7 +117,8 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
               pitGeoJsonData: ${JSON.stringify(filteredPitData)},
               mapCenter: ${JSON.stringify(mapCenter)},
               mapZoom: ${mapZoom},
-              skipFitBounds: true // Prevent auto-zooming
+              skipFitBounds: true, // Prevent auto-zooming
+              pdfOverlayData: ${JSON.stringify(pdfOverlayData)}
             });
             return true;
           }
@@ -127,6 +135,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     mapZoom,
     mapIsReady,
     elevationRange,
+    pdfOverlayData,
   ]);
 
   // Update drawing mode and line points only when they change
@@ -177,7 +186,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     }
   }, [onAddPointFromCrosshair, addPointFromCrosshair, mapIsReady]);
 
-  // HTML content with improved Leaflet map
+  // HTML content with improved Leaflet map and PDF overlay support
   const htmlContent = `
     <!DOCTYPE html>
     <html>
@@ -203,7 +212,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           background-color: #f5f5f5;
         }
         .leaflet-popup-content {
-          max-width: 200px;
+          max-width: 250px;
           overflow: auto;
         }
         #loading {
@@ -267,6 +276,15 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           border: 2px solid #fff;
           box-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
+        
+        /* PDF overlay styles */
+        .pdf-overlay {
+          pointer-events: auto;
+          opacity: 0.7;
+        }
+        .pdf-popup {
+          max-width: 250px;
+        }
       </style>
     </head>
     <body>
@@ -289,6 +307,9 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         let firstPoint = null;
         let useCrosshairForDrawing = ${useCrosshairForDrawing};
         let lineColor = "${lineColor}";
+        
+        // PDF layer reference
+        let pdfLayer = null;
         
         // Prevent multiple updates by tracking state
         let lastUpdateState = "";
@@ -508,95 +529,224 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           }
         }
         
-        // Update map with GeoJSON data
-        function updateMapData(data) {
-          try {
-            console.log("updateMapData called");
-            
-            // Block model GeoJSON handling
-            if (data.geoJsonData && data.geoJsonData.features) {
-              if (geoJsonLayer) {
-                map.removeLayer(geoJsonLayer);
-              }
-              
-              geoJsonLayer = L.geoJSON(data.geoJsonData, {
-                style: function(feature) {
-                  return {
-                    fillColor: feature.properties.color || '#3388ff',
-                    weight: 1,
-                    opacity: 1,
-                    color: 'black',
-                    fillOpacity: 0.7
-                  };
-                },
-                onEachFeature: function(feature, layer) {
-                  if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
-                    const props = feature.properties;
-                    const popupContent = \`
-                      <div>
-                        <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
-                        <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}
-                      </div>
-                    \`;
-                    layer.bindPopup(popupContent);
-                  }
-                }
-              }).addTo(map);
+        // Update map with GeoJSON data and PDF overlay (SIMPLIFIED)
+        async function updateMapData(data) {
+  try {
+    console.log("updateMapData called", data);
+    
+    // PERUBAHAN: Proses block model terlebih dahulu
+    // Block model GeoJSON handling - prioritaskan
+    if (data.geoJsonData && data.geoJsonData !== null) {
+      if (geoJsonLayer) {
+        map.removeLayer(geoJsonLayer);
+        geoJsonLayer = null;
+      }
+      
+      if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
+        geoJsonLayer = L.geoJSON(data.geoJsonData, {
+          style: function(feature) {
+            return {
+              fillColor: feature.properties.color || '#3388ff',
+              weight: 1,
+              opacity: 0.9, // Meningkatkan opacity dari 0.7 ke 0.9
+              color: 'black',
+              fillOpacity: 0.7 // Meningkatkan opacity dari 0.4 ke 0.7
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
+              const props = feature.properties;
+              const popupContent = \`
+                <div>
+                  <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
+                  <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}
+                </div>
+              \`;
+              layer.bindPopup(popupContent);
             }
-            
-            // Pit GeoJSON handling
-            if (data.pitGeoJsonData && data.pitGeoJsonData.features) {
-              if (pitLayer) {
-                map.removeLayer(pitLayer);
-              }
-              
-              pitLayer = L.geoJSON(data.pitGeoJsonData, {
-                style: function(feature) {
-                  return {
-                    color: '#FF6600',
-                    weight: 4,
-                    opacity: 1.0,
-                    dashArray: '5, 5'
-                  };
-                },
-                onEachFeature: function(feature, layer) {
-                  if (feature.properties) {
-                    const props = feature.properties;
-                    const popupContent = \`
-                      <div>
-                        <strong>Type:</strong> Pit Boundary<br>
-                        <strong>Elevation:</strong> \${props.level ? props.level.toFixed(2) : 'N/A'} m
-                      </div>
-                    \`;
-                    layer.bindPopup(popupContent);
-                  }
-                }
-              }).addTo(map);
+          }
+        }).addTo(map);
+      }
+    } else if (data.geoJsonData === null) {
+      // Remove the layer if data is null
+      if (geoJsonLayer) {
+        map.removeLayer(geoJsonLayer);
+        geoJsonLayer = null;
+      }
+    }
+    
+    // Pit GeoJSON handling dengan opacity lebih rendah
+    if (data.pitGeoJsonData && data.pitGeoJsonData !== null) {
+      if (pitLayer) {
+        map.removeLayer(pitLayer);
+        pitLayer = null;
+      }
+      
+      if (data.pitGeoJsonData.features && data.pitGeoJsonData.features.length > 0) {
+        pitLayer = L.geoJSON(data.pitGeoJsonData, {
+          style: function(feature) {
+            return {
+              color: '#FF6600',
+              weight: 2, // Mengurangi lebar garis dari 3 ke 2
+              opacity: 0.7, // Mengurangi opacity dari 0.8 ke 0.7
+              dashArray: '5, 5'
+            };
+          },
+          onEachFeature: function(feature, layer) {
+            if (feature.properties) {
+              const props = feature.properties;
+              const popupContent = \`
+                <div>
+                  <strong>Type:</strong> Pit Boundary<br>
+                  <strong>Elevation:</strong> \${props.level ? props.level.toFixed(2) : 'N/A'} m
+                </div>
+              \`;
+              layer.bindPopup(popupContent);
             }
+          }
+        }).addTo(map);
+      }
+    } else if (data.pitGeoJsonData === null) {
+      // Remove the layer if data is null
+      if (pitLayer) {
+        map.removeLayer(pitLayer);
+        pitLayer = null;
+      }
+    }
+    
+    // PERUBAHAN: Kurangi opacity PDF agar block model lebih menonjol
+    // Handle PDF overlay dengan opacity lebih rendah
+    if (data.pdfOverlayData) {
+      if (pdfLayer) {
+        map.removeLayer(pdfLayer);
+        pdfLayer = null;
+      }
+      
+      if (data.pdfOverlayData.bounds) {
+        if (data.pdfOverlayData.imageBase64) {
+          console.log('Adding PDF as image overlay...');
+          
+          // Gunakan format image yang benar
+          const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
+          
+          // SOLUSI: Buat bounds dengan format yang benar untuk Leaflet
+          // Leaflet mengharapkan: [[southLat, westLng], [northLat, eastLng]]
+          const swapBounds = [
+            [data.pdfOverlayData.bounds[0][0], data.pdfOverlayData.bounds[0][1]],
+            [data.pdfOverlayData.bounds[1][0], data.pdfOverlayData.bounds[1][1]]
+          ];
+          
+          // Log bounds untuk debugging
+          console.log('Original bounds:', data.pdfOverlayData.bounds);
+          console.log('Using bounds:', swapBounds);
+          
+          // PERUBAHAN: Kurangi opacity PDF dari 0.7 ke 0.4
+          pdfLayer = L.imageOverlay(imageUrl, swapBounds, {
+            opacity: 0.4, // Kurangi opacity agar block model lebih terlihat
+            interactive: true,
+            className: 'pdf-overlay',
+            attribution: 'PDF Map',
+            crs: L.CRS.EPSG4326
+          }).addTo(map);
+          
+          pdfLayer.bindPopup(
+            '<div class="pdf-popup">' +
+            '<strong>PDF Map</strong><br>' +
+            'Geospatial PDF Overlay<br>' +
+            '<small>Click to see full extent</small>' +
+            '</div>'
+          );
+          
+          console.log('PDF image overlay created successfully');
+          
+          // PERUBAHAN: Hilangkan auto-fit bounds untuk PDF
+          // Komentari atau hapus kode berikut:
+          // if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
+          //   console.log('Fitting PDF bounds...');
+          //   const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+          //   map.fitBounds(pdfBounds, { 
+          //     padding: [20, 20],
+          //     maxZoom: data.pdfOverlayData.zoom || 14
+          //   });
+          // }
+        } else {
+          // Belum ada image, tampilkan sebagai marker sementara
+          console.log('Adding PDF as marker (processing)...');
+          
+          const pdfCenter = [
+            (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
+            (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
+          ];
+          
+          const pdfMarker = L.marker(pdfCenter, {
+            icon: L.divIcon({
+              className: 'pdf-processing-marker',
+              html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
+              iconSize: [120, 30],
+              iconAnchor: [60, 15]
+            })
+          }).addTo(map)
+          .bindPopup(
+            '<div class="pdf-popup">' +
+            '<strong>PDF Location</strong><br>' +
+            'Converting to image...<br>' +
+            '<small>Please wait</small>' +
+            '</div>'
+          );
+          
+          pdfLayer = pdfMarker;
+          console.log('PDF processing marker created at:', pdfCenter);
+          
+          // PERUBAHAN: Hilangkan center map pada PDF location
+          // Komentari atau hapus kode berikut:
+          // if (!data.skipFitBounds) {
+          //   map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
+          // }
+        }
+      }
+    }
+        }
             
             // Only fit bounds once on initial load, not on updates
             if (!data.skipFitBounds) {
-              let finalBounds = null;
-              
-              if (geoJsonLayer && geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
-                finalBounds = geoJsonLayer.getBounds();
-                
-                if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
-                  finalBounds.extend(pitLayer.getBounds());
-                }
-              } else if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
-                finalBounds = pitLayer.getBounds();
-              }
-              
-              if (finalBounds && finalBounds.isValid()) {
-                map.fitBounds(finalBounds, { 
-                  padding: [30, 30],
-                  maxZoom: 14
-                });
-              } else if (data.mapCenter && data.mapCenter.length === 2) {
-                map.setView(data.mapCenter, data.mapZoom || 12);
-              }
-            }
+  let finalBounds = null;
+  
+  // PERUBAHAN: Prioritaskan block model (geoJsonLayer)
+  if (geoJsonLayer && geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
+    finalBounds = geoJsonLayer.getBounds();
+    
+    if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
+      finalBounds.extend(pitLayer.getBounds());
+    }
+    
+    // PDF bounds ditambahkan hanya jika block model sudah ada
+    if (data.pdfOverlayData && data.pdfOverlayData.bounds) {
+      const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+      finalBounds.extend(pdfBounds);
+    }
+  } else if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
+    finalBounds = pitLayer.getBounds();
+    
+    // PDF bounds ditambahkan jika tidak ada block model tapi ada pit
+    if (data.pdfOverlayData && data.pdfOverlayData.bounds) {
+      const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+      finalBounds.extend(pdfBounds);
+    }
+  } 
+  // Prioritas terakhir adalah PDF jika tidak ada block model atau pit
+  else if (data.pdfOverlayData && data.pdfOverlayData.bounds) {
+    finalBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+  }
+  
+  if (finalBounds && finalBounds.isValid()) {
+    map.fitBounds(finalBounds, { 
+      padding: [30, 30],
+      maxZoom: 14
+    });
+  } else if (data.mapCenter && data.mapCenter.length === 2) {
+    map.setView(data.mapCenter, data.mapZoom || 12);
+  }
+}
             
             console.log('Map data update complete');
           } catch (error) {

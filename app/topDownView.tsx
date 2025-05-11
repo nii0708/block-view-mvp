@@ -11,11 +11,14 @@ import {
   Alert,
   InteractionManager,
   BackHandler,
+  Modal,
+  TouchableWithoutFeedback,
 } from "react-native";
 import {
   MaterialIcons,
   MaterialCommunityIcons,
   Feather,
+  AntDesign,
 } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as FileService from "../services/FileService";
@@ -33,6 +36,9 @@ import {
   createBoundingBoxFromBlockModel,
 } from "../utils/elevationUtils";
 import { useMiningData } from "../context/MiningDataContext";
+import { processPDFForMapOverlay } from "../utils/pdfToImageOverlay";
+import WebView from "react-native-webview";
+import PDFToImageConverter from "@/components/PDFToImageConverter";
 
 // Get screen dimensions
 const windowWidth = Dimensions.get("window").width;
@@ -49,6 +55,11 @@ export default function TopDownViewScreen() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Loading data...");
+  const [hasPDFCoordinates, setHasPDFCoordinates] = useState(false);
+  const [showPdfConverter, setShowPdfConverter] = useState(false);
+  const [pdfUriForConversion, setPdfUriForConversion] = useState<string | null>(
+    null
+  );
 
   // State for create line mode
   const [isCreateLineMode, setIsCreateLineMode] = useState(false);
@@ -84,7 +95,20 @@ export default function TopDownViewScreen() {
   const [pitGeoJsonData, setPitGeoJsonData] = useState<any>(null);
   const [mapCenter, setMapCenter] = useState<number[]>([0, 0]);
   const [mapZoom, setMapZoom] = useState(12);
-  const [elevationRange, setElevationRange] = useState({ min: 0, max: 1000 });
+  const [elevationRange, setElevationRange] = useState({ min: 0, max: 4000 });
+
+  // State untuk PDF data
+  const [pdfData, setPdfData] = useState<{
+    fileUri: string;
+    coordinates: FileService.PDFCoordinates;
+  } | null>(null);
+  const [showPDF, setShowPDF] = useState(true);
+  const [pdfOverlayData, setPdfOverlayData] = useState<{
+    imageBase64: string | null;
+    bounds: [[number, number], [number, number]];
+    center: [number, number];
+    zoom: number;
+  } | null>(null);
 
   const {
     setProcessedBlockModel,
@@ -94,13 +118,15 @@ export default function TopDownViewScreen() {
     clearData,
   } = useMiningData();
 
+  // Toggle functions
+  const togglePDF = useCallback(() => {
+    setShowPDF((prev) => !prev);
+  }, []);
+
   // State for selected points
   const [selectedPoints, setSelectedPoints] = useState<any[]>([]);
   const [lineLength, setLineLength] = useState(0);
   const [elevation, setElevation] = useState(110);
-
-  // State for interval slider
-  const [intervalValue, setIntervalValue] = useState(0);
 
   // State for coordinates
   const [coordinates, setCoordinates] = useState({
@@ -108,6 +134,21 @@ export default function TopDownViewScreen() {
     lng: 0,
     x: 0,
     y: 0,
+  });
+
+  // State untuk toggle visibility layers
+  const [showBlockModel, setShowBlockModel] = useState(true);
+  const [showPit, setShowPit] = useState(true);
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  // State untuk rock type legend
+  const [rockTypeLegend, setRockTypeLegend] = useState<{
+    [key: string]: string;
+  }>({
+    ore: "#FF0000", // Red for ore
+    waste: "#808080", // Gray for waste
+    overburden: "#8B4513", // Brown for overburden
+    unknown: "#3388ff", // Blue for unknown
   });
 
   useEffect(() => {
@@ -132,6 +173,14 @@ export default function TopDownViewScreen() {
     // Cleanup: remove event listener saat komponen unmount
     return () => backHandler.remove();
   }, [isCreateLineMode]);
+
+  const webViewRef = useRef<any>(null);
+
+  useEffect(() => {
+    console.log("State changed - showPdfConverter:", showPdfConverter);
+    console.log("State changed - pdfUriForConversion:", pdfUriForConversion);
+    console.log("State changed - pdfOverlayData:", pdfOverlayData);
+  }, [showPdfConverter, pdfUriForConversion, pdfOverlayData]);
 
   // Load file data on mount
   useEffect(() => {
@@ -184,9 +233,6 @@ export default function TopDownViewScreen() {
 
         // Set to show ENTIRE range initially
         setElevationRange({ min: minElev, max: maxElev });
-
-        // Start with full data visible
-        setIntervalValue(30); // Set to maximum value
       }
     }
   }, [lidarData]);
@@ -220,7 +266,111 @@ export default function TopDownViewScreen() {
       setFileData(file);
       setLoadingProgress(0.2);
 
-      // Variables to store raw data before processing with explicit type annotations
+      // Track if we have PDF data and its center
+      let pdfCenter: [number, number] | null = null;
+      let pdfZoom: number | null = null;
+
+      // Process PDF if available - PRIORITY HANDLING
+      if (file.files.orthophoto) {
+        setLoadingMessage("Processing PDF...");
+        setLoadingProgress(0.15);
+
+        try {
+          let coordinates = file.files.pdfCoordinates;
+
+          // If no coordinates, extract them using native method
+          if (!coordinates) {
+            console.log("Extracting PDF coordinates natively...");
+
+            // Use native extraction method
+            const nativeResult = await FileService.extractPDFCoordinatesNative(
+              file.files.orthophoto.uri
+            );
+
+            coordinates = nativeResult.coordinates;
+
+            // Save extracted coordinates for future use
+            if (coordinates) {
+              file.files.pdfCoordinates = coordinates;
+              // Update saved file with new coordinates
+              const files = await FileService.getFileInfo();
+              const updatedFiles = files.map((f) =>
+                f.name === file.name ? file : f
+              );
+              await FileService.saveFileInfo(updatedFiles);
+            }
+          }
+
+          // Create PDF overlay if we have coordinates
+          if (coordinates) {
+            setHasPDFCoordinates(true);
+            setLoadingMessage("Creating PDF overlay...");
+            setLoadingProgress(0.2);
+
+            // Calculate center dari PDF coordinates
+            pdfCenter = [
+              (coordinates.topLeft.lat + coordinates.bottomLeft.lat) / 2,
+              (coordinates.topLeft.lng + coordinates.topRight.lng) / 2,
+            ];
+
+            // Log for debugging
+            console.log("PDF coordinates:", coordinates);
+            console.log("PDF center calculated:", pdfCenter);
+
+            // PERUBAHAN: Hapus setting map center ke PDF location
+            // Kita akan membiarkan block model menentukan center
+
+            // Use the processPDFForMapOverlay function with conversion flag
+            const pdfResult = await processPDFForMapOverlay(
+              file.files.orthophoto.uri,
+              coordinates,
+              true // Enable conversion
+            );
+
+            if (!pdfResult.error && pdfResult.bounds) {
+              // Set PDF center and zoom from result
+              pdfCenter = pdfResult.center;
+              pdfZoom = pdfResult.zoom;
+
+              if (pdfResult.needsConversion) {
+                console.log("PDF needs conversion, setting up converter...");
+                setPdfUriForConversion(file.files.orthophoto.uri);
+                setShowPdfConverter(true);
+                console.log("showPdfConverter set to true");
+
+                // Set with null image but proper center
+                setPdfOverlayData({
+                  imageBase64: null,
+                  bounds: pdfResult.bounds,
+                  center: pdfResult.center,
+                  zoom: pdfResult.zoom,
+                });
+              } else {
+                // Already has image or doesn't need conversion
+                setPdfOverlayData({
+                  imageBase64: pdfResult.imageBase64,
+                  bounds: pdfResult.bounds,
+                  center: pdfResult.center,
+                  zoom: pdfResult.zoom,
+                });
+              }
+              console.log("PDF overlay data prepared");
+            } else {
+              console.error("Error processing PDF:", pdfResult.error);
+              Alert.alert("Warning", "Failed to process PDF for display");
+            }
+          } else {
+            console.log("No coordinates found in PDF");
+            Alert.alert("Info", "No geospatial coordinates found in PDF");
+          }
+        } catch (error) {
+          console.error("Error processing PDF:", error);
+          Alert.alert("Warning", "Failed to process PDF. Error: " + error);
+          // Continue without PDF, don't block the rest of the loading
+        }
+      }
+
+      // Variables to store raw data before processing
       let rawBlockModelData: any[] = [];
       let rawElevationData: any[] = [];
       let rawPitData: any[] = [];
@@ -250,18 +400,18 @@ export default function TopDownViewScreen() {
       );
 
       // Start processing block model data right away
-      processBlockModelData();
+      if (rawBlockModelData.length > 0) {
+        processBlockModelData(); // Pass flag to indicate if PDF center exists
+      }
 
       // Load and parse elevation data if available
       if (file.files.elevation) {
         setLoadingMessage("Loading elevation data...");
         try {
-          // Load raw elevation data with pre-sampling to limit initial data size
-          const elevationStartTime = Date.now();
           rawElevationData = await FileService.parseLiDARFile(
             file.files.elevation.uri,
             {
-              maxPoints: 30000, // Further reduced point limit
+              maxPoints: 30000, // Limit point count
             }
           );
 
@@ -298,6 +448,14 @@ export default function TopDownViewScreen() {
         }
       }
 
+      // Final map center and zoom setting
+      // PDF center has priority, fallback to block model center
+      // if (pdfCenter) {
+      //   console.log("Setting map center to PDF center:", pdfCenter);
+      //   setMapCenter(pdfCenter);
+      //   setMapZoom(pdfZoom || 14);
+      // }
+
       setLoadingProgress(1.0);
 
       // Wait a moment to show 100% progress
@@ -310,6 +468,33 @@ export default function TopDownViewScreen() {
       setLoading(false);
     }
   };
+
+  const handlePdfImageReady = useCallback(
+    (imageBase64: string) => {
+      console.log("PDF converted successfully");
+      if (pdfOverlayData) {
+        setPdfOverlayData((prev) =>
+          prev
+            ? {
+                ...prev,
+                imageBase64: imageBase64,
+              }
+            : null
+        );
+      }
+      setShowPdfConverter(false);
+    },
+    [pdfOverlayData]
+  );
+
+  const handlePdfConversionError = useCallback((error: string) => {
+    console.error("PDF conversion error:", error);
+    setShowPdfConverter(false);
+    Alert.alert(
+      "Warning",
+      "Failed to convert PDF to image. PDF will be shown as marker only."
+    );
+  }, []);
 
   // Process block model data to GeoJSON
   const processBlockModelData = () => {
@@ -327,7 +512,10 @@ export default function TopDownViewScreen() {
             sourceProjection,
             true // true untuk topElevationOnly
           );
-
+          console.log(
+            "resultForTopDown BLOCK: ",
+            resultForTopDown.geoJsonData.features.length
+          );
           // Penting: Untuk cross-section view, kita butuh SEMUA block
           const resultForCrossSection = blockModelToGeoJSON(
             blockModelData,
@@ -349,11 +537,27 @@ export default function TopDownViewScreen() {
 
           // Simpan data yang lengkap (untuk cross-section) ke context
           setProcessedBlockModel(resultForCrossSection.geoJsonData);
-
+          console.log(
+            "resultForCrossSection.geoJsonData : ",
+            resultForCrossSection.geoJsonData.features.length
+          );
           // Gunakan data yang sudah difilter (top elevation only) untuk tampilan top-down
           setGeoJsonData(resultForTopDown.geoJsonData);
+          console.log(
+            "resultForTopDown.geoJsonData : ",
+            resultForTopDown.geoJsonData.features.length
+          );
+
+          // PERUBAHAN: Selalu gunakan block model center, hapus kondisional
+          console.log(
+            "Setting map center to block model center:",
+            resultForTopDown.mapCenter
+          );
           setMapCenter(resultForTopDown.mapCenter);
           setMapZoom(resultForTopDown.mapZoom);
+
+          // Update legenda berdasarkan data yang ada
+          updateRockTypeLegend(resultForTopDown.geoJsonData);
 
           setLoadingProgress(0.6);
         } catch (error) {
@@ -364,6 +568,32 @@ export default function TopDownViewScreen() {
     } catch (error) {
       console.error("Error scheduling block model processing:", error);
     }
+  };
+
+  // Update rock type legend based on actual data
+  const updateRockTypeLegend = (geoJsonData: any) => {
+    if (!geoJsonData || !geoJsonData.features) return;
+
+    const rockTypes = new Set<string>();
+    const colors: { [key: string]: string } = {};
+
+    geoJsonData.features.forEach((feature: any) => {
+      if (feature.properties && feature.properties.rock) {
+        rockTypes.add(feature.properties.rock);
+        if (feature.properties.color) {
+          colors[feature.properties.rock] = feature.properties.color;
+        }
+      }
+    });
+
+    // Update legend with actual rock types and colors
+    const newLegend: { [key: string]: string } = {};
+    rockTypes.forEach((rockType) => {
+      newLegend[rockType] =
+        colors[rockType] || rockTypeLegend[rockType] || "#3388ff";
+    });
+
+    setRockTypeLegend(newLegend);
   };
 
   // Process pit/lidar data to GeoJSON
@@ -405,7 +635,7 @@ export default function TopDownViewScreen() {
           if (result) {
             setProcessedPitData(result);
           }
-
+          console.log("data top down: ", result.length);
           setPitGeoJsonData(result);
         } catch (error) {
           console.error("Error processing LiDAR data:", error);
@@ -540,31 +770,19 @@ export default function TopDownViewScreen() {
     processedMessagesRef.current.clear();
   }, []);
 
-  const handleSliderChange = useCallback(
-    (value: number) => {
-      setIntervalValue(Math.min(30, Math.max(0, value)));
+  // Toggle dropdown visibility
+  const toggleDropdown = useCallback(() => {
+    setShowDropdown((prev) => !prev);
+  }, []);
 
-      if (lidarData.length > 0) {
-        const elevations = lidarData.map((point) =>
-          parseFloat(String(point.z))
-        );
-        const validElevations = elevations.filter((e) => !isNaN(e));
+  // Handle layer toggle
+  const toggleBlockModel = useCallback(() => {
+    setShowBlockModel((prev) => !prev);
+  }, []);
 
-        if (validElevations.length > 0) {
-          const minElev = Math.min(...validElevations);
-          const maxElev = Math.max(...validElevations);
-          const range = maxElev - minElev;
-
-          // Calculate new max based on slider
-          const intervalPercent = value / 30;
-          const newMax = minElev + range * intervalPercent;
-
-          setElevationRange({ min: minElev, max: newMax });
-        }
-      }
-    },
-    [lidarData]
-  );
+  const togglePit = useCallback(() => {
+    setShowPit((prev) => !prev);
+  }, []);
 
   // Handle map ready
   const handleMapReady = useCallback(() => {
@@ -587,6 +805,23 @@ export default function TopDownViewScreen() {
       </View>
     );
   };
+
+  // Render rock type legend
+  const renderRockTypeLegend = () => (
+    <View style={styles.legendContainer}>
+      <Text style={styles.legendTitle}>Rock Types:</Text>
+      <View style={styles.legendItems}>
+        {Object.entries(rockTypeLegend).map(([rockType, color]) => (
+          <View key={rockType} style={styles.legendItem}>
+            <View style={[styles.legendColor, { backgroundColor: color }]} />
+            <Text style={styles.legendText}>
+              {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 
   // Render create line inputs
   const renderCreateLineInputs = () => (
@@ -665,6 +900,48 @@ export default function TopDownViewScreen() {
     </View>
   );
 
+  // Render dropdown menu
+  const renderDropdown = () => (
+    <Modal
+      transparent={true}
+      visible={showDropdown}
+      animationType="fade"
+      onRequestClose={() => setShowDropdown(false)}
+    >
+      <TouchableWithoutFeedback onPress={() => setShowDropdown(false)}>
+        <View style={styles.dropdownBackdrop}>
+          <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+            <View style={styles.dropdownContainer}>
+              <TouchableOpacity
+                style={styles.dropdownItem}
+                onPress={toggleBlockModel}
+              >
+                <Text style={styles.dropdownText}>
+                  {showBlockModel ? "✓" : " "} Block Model
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.dropdownItem} onPress={togglePit}>
+                <Text style={styles.dropdownText}>
+                  {showPit ? "✓" : " "} Pit Boundary
+                </Text>
+              </TouchableOpacity>
+              {pdfOverlayData && (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={togglePDF}
+                >
+                  <Text style={styles.dropdownText}>
+                    {showPDF ? "✓" : " "} PDF Map
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -695,8 +972,8 @@ export default function TopDownViewScreen() {
                 onCoordinateChange={handleCoordinateChange}
                 onAddPointFromCrosshair={handleAddPointCallback}
                 style={styles.map}
-                geoJsonData={geoJsonData}
-                pitGeoJsonData={pitGeoJsonData}
+                geoJsonData={showBlockModel ? geoJsonData : null}
+                pitGeoJsonData={showPit ? pitGeoJsonData : null}
                 mapCenter={mapCenter}
                 mapZoom={mapZoom}
                 selectedPoints={selectedPoints}
@@ -705,45 +982,26 @@ export default function TopDownViewScreen() {
                 hideInternalCoordinates={true}
                 useCrosshairForDrawing={true}
                 lineColor="#CFE625"
+                pdfOverlayData={showPDF ? pdfOverlayData : null}
               />
 
               {/* Crosshair indicator */}
               <View style={styles.crosshair}>
+                <View style={styles.crosshairVerticalOuter} />
+                <View style={styles.crosshairHorizontalOuter} />
                 <View style={styles.crosshairVertical} />
                 <View style={styles.crosshairHorizontal} />
               </View>
             </View>
+
+            {/* Legend */}
+            {!isCreateLineMode && renderRockTypeLegend()}
 
             {/* Bottom Controls */}
             {isCreateLineMode ? (
               renderCreateLineButtons()
             ) : (
               <View style={styles.controlsContainer}>
-                {/* Interval Controls */}
-                <View style={styles.intervalContainer}>
-                  <Text style={styles.intervalLabel}>Interval</Text>
-                  <View style={styles.sliderContainer}>
-                    <View style={styles.sliderTrack}>
-                      <View
-                        style={[
-                          styles.sliderFill,
-                          { width: `${(intervalValue / 30) * 100}%` },
-                        ]}
-                      />
-                    </View>
-                    <View
-                      style={[
-                        styles.sliderThumb,
-                        { left: `${(intervalValue / 30) * 100}%` },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.intervalValue}>
-                    0-{Math.round(intervalValue)} lvl
-                  </Text>
-                  <Text style={styles.intervalLabel}>Interval elevasi</Text>
-                </View>
-
                 {/* Coordinates and Tools */}
                 <View style={styles.coordinatesContainer}>
                   <TouchableOpacity
@@ -759,7 +1017,6 @@ export default function TopDownViewScreen() {
                       color="black"
                     />
                   </TouchableOpacity>
-
                   <View style={styles.coordinatesDisplay}>
                     <Text style={styles.coordinatesText}>
                       {mapReady
@@ -770,8 +1027,11 @@ export default function TopDownViewScreen() {
                     </Text>
                   </View>
 
-                  <TouchableOpacity style={styles.droneButton}>
-                    <Feather name="camera" size={24} color="black" />
+                  <TouchableOpacity
+                    style={styles.layersButton}
+                    onPress={toggleDropdown}
+                  >
+                    <AntDesign name="appstore-o" size={24} color="black" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -779,6 +1039,16 @@ export default function TopDownViewScreen() {
           </>
         )}
       </View>
+
+      {showPdfConverter && pdfUriForConversion && (
+        <PDFToImageConverter
+          pdfUri={pdfUriForConversion}
+          onImageReady={handlePdfImageReady}
+          onError={handlePdfConversionError}
+        />
+      )}
+      {/* Dropdown Menu */}
+      {renderDropdown()}
     </SafeAreaView>
   );
 }
@@ -856,27 +1126,45 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: "50%",
     left: "50%",
-    width: 20,
-    height: 20,
-    marginLeft: -10,
-    marginTop: -10,
+    width: 24,
+    height: 24,
+    marginLeft: -12,
+    marginTop: -12,
     zIndex: 10,
+  },
+  crosshairVerticalOuter: {
+    position: "absolute",
+    top: 0,
+    left: 10,
+    width: 4,
+    height: 24,
+    backgroundColor: "black",
   },
   crosshairVertical: {
     position: "absolute",
     top: 0,
-    left: 10,
-    width: 1,
-    height: 20,
+    left: 11,
+    width: 2,
+    height: 24,
+    backgroundColor: "white",
+    zIndex: 1,
+  },
+  crosshairHorizontalOuter: {
+    position: "absolute",
+    top: 10,
+    left: 0,
+    width: 24,
+    height: 4,
     backgroundColor: "black",
   },
   crosshairHorizontal: {
     position: "absolute",
-    top: 10,
+    top: 11,
     left: 0,
-    width: 20,
-    height: 1,
-    backgroundColor: "black",
+    width: 24,
+    height: 2,
+    backgroundColor: "white",
+    zIndex: 1,
   },
   createLineButtons: {
     paddingHorizontal: 20,
@@ -905,7 +1193,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   createSectionButton: {
-    backgroundColor: "#CFE625", // Warna kuning
+    backgroundColor: "#CFE625",
     paddingVertical: 15,
     borderRadius: 20,
     alignItems: "center",
@@ -913,7 +1201,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   disabledSectionButton: {
-    backgroundColor: "#f0f0f0", // Warna abu-abu
+    backgroundColor: "#f0f0f0",
   },
   createSectionButtonText: {
     color: "#333",
@@ -923,44 +1211,6 @@ const styles = StyleSheet.create({
   controlsContainer: {
     paddingHorizontal: 20,
     marginTop: 10,
-  },
-  intervalContainer: {
-    marginTop: 20,
-  },
-  intervalLabel: {
-    fontSize: 14,
-    color: "#333",
-    marginBottom: 5,
-  },
-  sliderContainer: {
-    height: 30,
-    justifyContent: "center",
-    position: "relative",
-  },
-  sliderTrack: {
-    height: 4,
-    backgroundColor: "#e0e0e0",
-    borderRadius: 2,
-  },
-  sliderFill: {
-    height: 4,
-    backgroundColor: "#0066CC",
-    borderRadius: 2,
-  },
-  sliderThumb: {
-    position: "absolute",
-    width: 20,
-    height: 20,
-    backgroundColor: "#0066CC",
-    borderRadius: 10,
-    top: 5,
-    marginLeft: -10,
-  },
-  intervalValue: {
-    fontSize: 14,
-    color: "#333",
-    alignSelf: "flex-end",
-    marginTop: 5,
   },
   coordinatesContainer: {
     flexDirection: "row",
@@ -977,7 +1227,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  droneButton: {
+  layersButton: {
     width: 40,
     height: 40,
     backgroundColor: "#f0f0f0",
@@ -998,5 +1248,75 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#333",
     fontFamily: "Montserrat_400Regular",
+  },
+  legendContainer: {
+    backgroundColor: "#f9f9f9",
+    marginHorizontal: 20,
+    marginVertical: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+  },
+  legendTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 5,
+    color: "#333",
+  },
+  legendItems: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 15,
+    marginBottom: 5,
+  },
+  legendColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 2,
+    marginRight: 5,
+  },
+  legendText: {
+    fontSize: 13,
+    color: "#333",
+  },
+  dropdownBackdrop: {
+    flex: 1,
+    backgroundColor: "transparent",
+    justifyContent: "flex-end",
+  },
+  dropdownContainer: {
+    backgroundColor: "white",
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    position: "absolute",
+    bottom: 120,
+    right: 20,
+    width: "auto",
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    flexDirection: "row",
+    alignItems: "center",
+    width: "auto",
+  },
+  dropdownText: {
+    fontSize: 15,
+    color: "#333",
+    marginLeft: 5,
   },
 });
