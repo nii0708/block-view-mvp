@@ -18,6 +18,12 @@ interface LeafletMapProps {
   hideInternalCoordinates?: boolean;
   useCrosshairForDrawing?: boolean;
   lineColor?: string;
+  pdfOverlayData?: {
+    imageBase64: string | null;
+    bounds: [[number, number], [number, number]];
+    center: [number, number];
+    zoom: number;
+  } | null;
 }
 
 interface GeoJSONFeature {
@@ -48,6 +54,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   hideInternalCoordinates = true,
   useCrosshairForDrawing = true,
   lineColor = "#CFE625",
+  pdfOverlayData = null,
 }) => {
   const [loading, setLoading] = useState(true);
   const webViewRef = useRef<WebView>(null);
@@ -85,7 +92,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   };
 
-  // Update GeoJSON data only when changed
+  // Update GeoJSON data and PDF overlay when changed
   useEffect(() => {
     if (mapIsReady && webViewRef.current) {
       // Jangan batasi jumlah fitur kecuali SANGAT besar
@@ -110,7 +117,8 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
               pitGeoJsonData: ${JSON.stringify(filteredPitData)},
               mapCenter: ${JSON.stringify(mapCenter)},
               mapZoom: ${mapZoom},
-              skipFitBounds: true // Prevent auto-zooming
+              skipFitBounds: true, // Prevent auto-zooming
+              pdfOverlayData: ${JSON.stringify(pdfOverlayData)}
             });
             return true;
           }
@@ -127,6 +135,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     mapZoom,
     mapIsReady,
     elevationRange,
+    pdfOverlayData,
   ]);
 
   // Update drawing mode and line points only when they change
@@ -177,7 +186,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     }
   }, [onAddPointFromCrosshair, addPointFromCrosshair, mapIsReady]);
 
-  // HTML content with improved Leaflet map
+  // HTML content with improved Leaflet map and PDF overlay support
   const htmlContent = `
     <!DOCTYPE html>
     <html>
@@ -203,7 +212,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           background-color: #f5f5f5;
         }
         .leaflet-popup-content {
-          max-width: 200px;
+          max-width: 250px;
           overflow: auto;
         }
         #loading {
@@ -267,6 +276,15 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           border: 2px solid #fff;
           box-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
+        
+        /* PDF overlay styles */
+        .pdf-overlay {
+          pointer-events: auto;
+          opacity: 0.7;
+        }
+        .pdf-popup {
+          max-width: 250px;
+        }
       </style>
     </head>
     <body>
@@ -289,6 +307,9 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         let firstPoint = null;
         let useCrosshairForDrawing = ${useCrosshairForDrawing};
         let lineColor = "${lineColor}";
+        
+        // PDF layer reference
+        let pdfLayer = null;
         
         // Prevent multiple updates by tracking state
         let lastUpdateState = "";
@@ -508,12 +529,12 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           }
         }
         
-        // Update map with GeoJSON data
-        function updateMapData(data) {
+        // Update map with GeoJSON data and PDF overlay (SIMPLIFIED)
+        async function updateMapData(data) {
           try {
             console.log("updateMapData called", data);
             
-            // Block model GeoJSON handling with reduced opacity
+            // Block model GeoJSON handling
             if (data.geoJsonData && data.geoJsonData !== null) {
               if (geoJsonLayer) {
                 map.removeLayer(geoJsonLayer);
@@ -592,6 +613,83 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
               }
             }
             
+            // Handle PDF overlay - SIMPLIFIED VERSION
+            if (data.pdfOverlayData) {
+          if (pdfLayer) {
+            map.removeLayer(pdfLayer);
+            pdfLayer = null;
+          }
+          
+          if (data.pdfOverlayData.bounds) {
+            if (data.pdfOverlayData.imageBase64) {
+              // Ada image base64, tampilkan sebagai image overlay dengan opacity penuh
+              console.log('Adding PDF as image overlay with full opacity...');
+              
+              // Gunakan format image yang benar
+              const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
+              
+              pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
+                opacity: 1.0, // Full opacity, no transparency
+                interactive: true,
+                className: 'pdf-overlay',
+                attribution: 'PDF Map'
+              }).addTo(map);
+              
+              pdfLayer.bindPopup(
+                '<div class="pdf-popup">' +
+                '<strong>PDF Map</strong><br>' +
+                'Geospatial PDF Overlay<br>' +
+                '<small>Click to see full extent</small>' +
+                '</div>'
+              );
+              
+              console.log('PDF image overlay created successfully with full opacity');
+              
+              // Auto-fit bounds for PDF if it's the primary data
+              if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
+                console.log('Fitting PDF bounds...');
+                const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+                map.fitBounds(pdfBounds, { 
+                  padding: [20, 20],
+                  maxZoom: data.pdfOverlayData.zoom || 14
+                });
+              }
+            } else {
+              // Belum ada image, tampilkan sebagai marker sementara
+              console.log('Adding PDF as marker (processing)...');
+              
+              const pdfCenter = [
+                (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
+                (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
+              ];
+              
+              const pdfMarker = L.marker(pdfCenter, {
+                icon: L.divIcon({
+                  className: 'pdf-processing-marker',
+                  html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
+                  iconSize: [120, 30],
+                  iconAnchor: [60, 15]
+                })
+              }).addTo(map)
+              .bindPopup(
+                '<div class="pdf-popup">' +
+                '<strong>PDF Location</strong><br>' +
+                'Converting to image...<br>' +
+                '<small>Please wait</small>' +
+                '</div>'
+              );
+              
+              pdfLayer = pdfMarker;
+              console.log('PDF processing marker created at:', pdfCenter);
+              
+              // Center map on PDF location if no other data
+              if (!data.skipFitBounds) {
+                map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
+              }
+            }
+          }
+        }
+            
             // Only fit bounds once on initial load, not on updates
             if (!data.skipFitBounds) {
               let finalBounds = null;
@@ -604,6 +702,17 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                 }
               } else if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
                 finalBounds = pitLayer.getBounds();
+              }
+              
+              // Include PDF bounds if available
+              if (data.pdfOverlayData && data.pdfOverlayData.bounds) {
+                const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+                
+                if (finalBounds) {
+                  finalBounds.extend(pdfBounds);
+                } else {
+                  finalBounds = pdfBounds;
+                }
               }
               
               if (finalBounds && finalBounds.isValid()) {

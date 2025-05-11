@@ -36,6 +36,9 @@ import {
   createBoundingBoxFromBlockModel,
 } from "../utils/elevationUtils";
 import { useMiningData } from "../context/MiningDataContext";
+import { processPDFForMapOverlay } from "../utils/pdfToImageOverlay";
+import WebView from "react-native-webview";
+import PDFToImageConverter from "@/components/PDFToImageConverter";
 
 // Get screen dimensions
 const windowWidth = Dimensions.get("window").width;
@@ -52,6 +55,11 @@ export default function TopDownViewScreen() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Loading data...");
+  const [hasPDFCoordinates, setHasPDFCoordinates] = useState(false);
+  const [showPdfConverter, setShowPdfConverter] = useState(false);
+  const [pdfUriForConversion, setPdfUriForConversion] = useState<string | null>(
+    null
+  );
 
   // State for create line mode
   const [isCreateLineMode, setIsCreateLineMode] = useState(false);
@@ -89,6 +97,19 @@ export default function TopDownViewScreen() {
   const [mapZoom, setMapZoom] = useState(12);
   const [elevationRange, setElevationRange] = useState({ min: 0, max: 4000 });
 
+  // State untuk PDF data
+  const [pdfData, setPdfData] = useState<{
+    fileUri: string;
+    coordinates: FileService.PDFCoordinates;
+  } | null>(null);
+  const [showPDF, setShowPDF] = useState(true);
+  const [pdfOverlayData, setPdfOverlayData] = useState<{
+    imageBase64: string | null;
+    bounds: [[number, number], [number, number]];
+    center: [number, number];
+    zoom: number;
+  } | null>(null);
+
   const {
     setProcessedBlockModel,
     setProcessedElevation,
@@ -96,6 +117,11 @@ export default function TopDownViewScreen() {
     setFullBlockModelData,
     clearData,
   } = useMiningData();
+
+  // Toggle functions
+  const togglePDF = useCallback(() => {
+    setShowPDF((prev) => !prev);
+  }, []);
 
   // State for selected points
   const [selectedPoints, setSelectedPoints] = useState<any[]>([]);
@@ -147,6 +173,14 @@ export default function TopDownViewScreen() {
     // Cleanup: remove event listener saat komponen unmount
     return () => backHandler.remove();
   }, [isCreateLineMode]);
+
+  const webViewRef = useRef<any>(null);
+
+  useEffect(() => {
+    console.log("State changed - showPdfConverter:", showPdfConverter);
+    console.log("State changed - pdfUriForConversion:", pdfUriForConversion);
+    console.log("State changed - pdfOverlayData:", pdfOverlayData);
+  }, [showPdfConverter, pdfUriForConversion, pdfOverlayData]);
 
   // Load file data on mount
   useEffect(() => {
@@ -232,7 +266,112 @@ export default function TopDownViewScreen() {
       setFileData(file);
       setLoadingProgress(0.2);
 
-      // Variables to store raw data before processing with explicit type annotations
+      // Track if we have PDF data and its center
+      let pdfCenter: [number, number] | null = null;
+      let pdfZoom: number | null = null;
+
+      // Process PDF if available - PRIORITY HANDLING
+      if (file.files.orthophoto) {
+        setLoadingMessage("Processing PDF...");
+        setLoadingProgress(0.15);
+
+        try {
+          let coordinates = file.files.pdfCoordinates;
+
+          // If no coordinates, extract them using native method
+          if (!coordinates) {
+            console.log("Extracting PDF coordinates natively...");
+
+            // Use native extraction method
+            const nativeResult = await FileService.extractPDFCoordinatesNative(
+              file.files.orthophoto.uri
+            );
+
+            coordinates = nativeResult.coordinates;
+
+            // Save extracted coordinates for future use
+            if (coordinates) {
+              file.files.pdfCoordinates = coordinates;
+              // Update saved file with new coordinates
+              const files = await FileService.getFileInfo();
+              const updatedFiles = files.map((f) =>
+                f.name === file.name ? file : f
+              );
+              await FileService.saveFileInfo(updatedFiles);
+            }
+          }
+
+          // Create PDF overlay if we have coordinates
+          if (coordinates) {
+            setHasPDFCoordinates(true);
+            setLoadingMessage("Creating PDF overlay...");
+            setLoadingProgress(0.2);
+
+            // Calculate center dari PDF coordinates
+            pdfCenter = [
+              (coordinates.topLeft.lat + coordinates.bottomLeft.lat) / 2,
+              (coordinates.topLeft.lng + coordinates.topRight.lng) / 2,
+            ];
+
+            // Log for debugging
+            console.log("PDF coordinates:", coordinates);
+            console.log("PDF center calculated:", pdfCenter);
+
+            // Update map center to PDF location immediately
+            setMapCenter(pdfCenter);
+            setMapZoom(14);
+
+            // Use the processPDFForMapOverlay function with conversion flag
+            const pdfResult = await processPDFForMapOverlay(
+              file.files.orthophoto.uri,
+              coordinates,
+              true // Enable conversion
+            );
+
+            if (!pdfResult.error && pdfResult.bounds) {
+              // Set PDF center and zoom from result
+              pdfCenter = pdfResult.center;
+              pdfZoom = pdfResult.zoom;
+
+              if (pdfResult.needsConversion) {
+                console.log("PDF needs conversion, setting up converter...");
+                setPdfUriForConversion(file.files.orthophoto.uri);
+                setShowPdfConverter(true);
+                console.log("showPdfConverter set to true");
+
+                // Set with null image but proper center
+                setPdfOverlayData({
+                  imageBase64: null,
+                  bounds: pdfResult.bounds,
+                  center: pdfResult.center,
+                  zoom: pdfResult.zoom,
+                });
+              } else {
+                // Already has image or doesn't need conversion
+                setPdfOverlayData({
+                  imageBase64: pdfResult.imageBase64,
+                  bounds: pdfResult.bounds,
+                  center: pdfResult.center,
+                  zoom: pdfResult.zoom,
+                });
+              }
+              console.log("PDF overlay data prepared");
+            } else {
+              console.error("Error processing PDF:", pdfResult.error);
+              Alert.alert("Warning", "Failed to process PDF for display");
+            }
+          } else {
+            console.log("No coordinates found in PDF");
+            Alert.alert("Info", "No geospatial coordinates found in PDF");
+          }
+        } catch (error) {
+          console.error("Error processing PDF:", error);
+          Alert.alert("Warning", "Failed to process PDF. Error: " + error);
+          // Continue without PDF, don't block the rest of the loading
+        }
+      }
+
+      // Variables to store raw data before processing
       let rawBlockModelData: any[] = [];
       let rawElevationData: any[] = [];
       let rawPitData: any[] = [];
@@ -262,18 +401,18 @@ export default function TopDownViewScreen() {
       );
 
       // Start processing block model data right away
-      processBlockModelData();
+      if (rawBlockModelData.length > 0) {
+        processBlockModelData(pdfCenter !== null); // Pass flag to indicate if PDF center exists
+      }
 
       // Load and parse elevation data if available
       if (file.files.elevation) {
         setLoadingMessage("Loading elevation data...");
         try {
-          // Load raw elevation data with pre-sampling to limit initial data size
-          const elevationStartTime = Date.now();
           rawElevationData = await FileService.parseLiDARFile(
             file.files.elevation.uri,
             {
-              maxPoints: 30000, // Further reduced point limit
+              maxPoints: 30000, // Limit point count
             }
           );
 
@@ -310,6 +449,14 @@ export default function TopDownViewScreen() {
         }
       }
 
+      // Final map center and zoom setting
+      // PDF center has priority, fallback to block model center
+      if (pdfCenter) {
+        console.log("Setting map center to PDF center:", pdfCenter);
+        setMapCenter(pdfCenter);
+        setMapZoom(pdfZoom || 14);
+      }
+
       setLoadingProgress(1.0);
 
       // Wait a moment to show 100% progress
@@ -323,8 +470,35 @@ export default function TopDownViewScreen() {
     }
   };
 
+  const handlePdfImageReady = useCallback(
+    (imageBase64: string) => {
+      console.log("PDF converted successfully");
+      if (pdfOverlayData) {
+        setPdfOverlayData((prev) =>
+          prev
+            ? {
+                ...prev,
+                imageBase64: imageBase64,
+              }
+            : null
+        );
+      }
+      setShowPdfConverter(false);
+    },
+    [pdfOverlayData]
+  );
+
+  const handlePdfConversionError = useCallback((error: string) => {
+    console.error("PDF conversion error:", error);
+    setShowPdfConverter(false);
+    Alert.alert(
+      "Warning",
+      "Failed to convert PDF to image. PDF will be shown as marker only."
+    );
+  }, []);
+
   // Process block model data to GeoJSON
-  const processBlockModelData = () => {
+  const processBlockModelData = (hasPDFCenter: boolean = false) => {
     try {
       setLoadingMessage("Converting block model data to GeoJSON...");
       setLoadingProgress(0.4);
@@ -374,8 +548,20 @@ export default function TopDownViewScreen() {
             "resultForTopDown.geoJsonData : ",
             resultForTopDown.geoJsonData.features.length
           );
-          setMapCenter(resultForTopDown.mapCenter);
-          setMapZoom(resultForTopDown.mapZoom);
+
+          // Only set block model center if NO PDF center exists
+          if (!hasPDFCenter && !hasPDFCoordinates) {
+            console.log(
+              "Setting map center to block model center:",
+              resultForTopDown.mapCenter
+            );
+            setMapCenter(resultForTopDown.mapCenter);
+            setMapZoom(resultForTopDown.mapZoom);
+          } else {
+            console.log(
+              "Keeping existing map center (PDF center has priority)"
+            );
+          }
 
           // Update legenda berdasarkan data yang ada
           updateRockTypeLegend(resultForTopDown.geoJsonData);
@@ -746,6 +932,16 @@ export default function TopDownViewScreen() {
                   {showPit ? "✓" : " "} Pit Boundary
                 </Text>
               </TouchableOpacity>
+              {pdfOverlayData && (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={togglePDF}
+                >
+                  <Text style={styles.dropdownText}>
+                    {showPDF ? "✓" : " "} PDF Map
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -793,6 +989,7 @@ export default function TopDownViewScreen() {
                 hideInternalCoordinates={true}
                 useCrosshairForDrawing={true}
                 lineColor="#CFE625"
+                pdfOverlayData={showPDF ? pdfOverlayData : null}
               />
 
               {/* Crosshair indicator */}
@@ -827,7 +1024,6 @@ export default function TopDownViewScreen() {
                       color="black"
                     />
                   </TouchableOpacity>
-
                   <View style={styles.coordinatesDisplay}>
                     <Text style={styles.coordinatesText}>
                       {mapReady
@@ -851,6 +1047,13 @@ export default function TopDownViewScreen() {
         )}
       </View>
 
+      {showPdfConverter && pdfUriForConversion && (
+        <PDFToImageConverter
+          pdfUri={pdfUriForConversion}
+          onImageReady={handlePdfImageReady}
+          onError={handlePdfConversionError}
+        />
+      )}
       {/* Dropdown Menu */}
       {renderDropdown()}
     </SafeAreaView>

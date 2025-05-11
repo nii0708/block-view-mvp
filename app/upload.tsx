@@ -8,7 +8,7 @@ import {
   Platform,
   StatusBar,
   Alert,
-  ActivityIndicator,
+  Keyboard,
 } from "react-native";
 import {
   MaterialIcons,
@@ -35,7 +35,7 @@ export default function UploadScreen() {
 
   // State untuk dialog nama file dan loading
   const [dialogVisible, setDialogVisible] = useState(false);
-  const [isProcessingInDialog, setIsProcessingInDialog] = useState(false); // Tambahkan state ini
+  const [isProcessingInDialog, setIsProcessingInDialog] = useState(false);
 
   const tooltipMessage =
     "Please ensure your CSV file meets the mandatory requirements: it must contain at least four columns with valid numeric data and LIDAR data is in a valid .str format with polygon-based surface details and a recognized structure. Any deviation from these specifications could cause processing errors or rejection.";
@@ -112,27 +112,32 @@ export default function UploadScreen() {
     }
   };
 
-  const handleOrthophotoUpload = async () => {
+  const handleGeospatialMapUpload = async () => {
     try {
-      const file = await FileService.pickSVG();
-      if (file) {
-        console.log("Selected SVG file:", file);
+      const pdfData = await FileService.pickPDF();
+      if (pdfData) {
+        console.log("Selected PDF file:", pdfData.fileName);
 
         // Validasi file sebelum diterima
-        const fileExtension = file.name.split(".").pop()?.toLowerCase();
-        if (fileExtension !== "svg") {
-          Alert.alert("Invalid File", "Please select a valid SVG file");
+        const fileExtension = pdfData.fileName.split(".").pop()?.toLowerCase();
+        if (fileExtension !== "pdf") {
+          Alert.alert("Invalid File", "Please select a valid PDF file");
           return;
         }
 
-        setOrthophotoFile(file);
+        // Convert PDFData back to FileInfo format for consistent handling
+        const fileInfo: FileService.FileInfo = {
+          name: pdfData.fileName,
+          uri: pdfData.fileUri,
+          type: "application/pdf",
+          mimeType: "application/pdf",
+        };
+
+        setOrthophotoFile(fileInfo);
       }
     } catch (error) {
-      console.error("Error picking orthophoto file:", error);
-      Alert.alert(
-        "Error",
-        "Failed to select orthophoto file. Please try again."
-      );
+      console.error("Error picking PDF file:", error);
+      Alert.alert("Error", "Failed to select PDF file. Please try again.");
     }
   };
 
@@ -158,6 +163,9 @@ export default function UploadScreen() {
   };
 
   const handleDialogSubmit = async (fileName: string) => {
+    // Hilangkan keyboard terlebih dahulu
+    Keyboard.dismiss();
+
     // Aktifkan state processing di dalam dialog
     setIsProcessingInDialog(true);
 
@@ -171,7 +179,6 @@ export default function UploadScreen() {
 
       // Attempt to parse/verify the CSV file
       try {
-        // Kita bisa tambahkan validasi tambahan di sini jika diperlukan
         await FileService.parseCSVFile(blockModelFile.uri);
       } catch (error) {
         console.error("Error parsing block model file:", error);
@@ -185,7 +192,6 @@ export default function UploadScreen() {
 
       // Attempt to parse/verify the LiDAR file
       try {
-        // Kita bisa tambahkan validasi tambahan di sini jika diperlukan
         await FileService.parseLiDARFile(lidarFile.uri);
       } catch (error) {
         console.error("Error parsing LiDAR file:", error);
@@ -198,14 +204,16 @@ export default function UploadScreen() {
       }
 
       // Kumpulkan informasi file yang akan disimpan
+      // PDF coordinates akan diproses nanti di topDownView
       const fileData: FileService.MiningDataFile = {
         name: fileName,
         date: new Date().toISOString(),
         files: {
           blockModel: blockModelFile,
-          elevation: lidarFile, 
-          pit: elevationFile, 
+          elevation: lidarFile,
+          pit: elevationFile,
           orthophoto: orthophotoFile,
+          pdfCoordinates: null, // Simpan null, akan diproses di topDownView
         },
       };
 
@@ -297,17 +305,13 @@ export default function UploadScreen() {
           )}
         </View>
 
-        {/* Tombol upload optional di luar container */}
+        {/* Tombol upload untuk PDF */}
         <UploadButton
-          title="Upload Orthophoto Data .svg"
+          title="Upload Geospatial Map .pdf"
           icon={
-            <MaterialCommunityIcons
-              name="image-outline"
-              size={24}
-              color="#555"
-            />
+            <MaterialCommunityIcons name="map-outline" size={24} color="#555" />
           }
-          onPress={handleOrthophotoUpload}
+          onPress={handleGeospatialMapUpload}
           style={{ marginTop: 20 }}
         />
         {orthophotoFile && (
