@@ -13,7 +13,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 interface ExportDialogProps {
   visible: boolean;
   onCancel: () => void;
-  onExport: (dataType: string) => void;
+  onExport: (dataTypes: string[]) => void;
   isProcessing: boolean;
 }
 
@@ -23,17 +23,28 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
   onExport,
   isProcessing,
 }) => {
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
 
-  const handleSelect = (option: string) => {
-    setSelectedOption(option);
+  const handleToggleOption = (option: string) => {
+    if (selectedOptions.includes(option)) {
+      setSelectedOptions(selectedOptions.filter((item) => item !== option));
+    } else {
+      setSelectedOptions([...selectedOptions, option]);
+    }
   };
 
   const handleExport = () => {
-    if (selectedOption) {
-      onExport(selectedOption);
+    if (selectedOptions.length > 0) {
+      onExport(selectedOptions);
     }
   };
+
+  // Reset selections when dialog closes
+  React.useEffect(() => {
+    if (!visible) {
+      setSelectedOptions([]);
+    }
+  }, [visible]);
 
   return (
     <Modal
@@ -48,30 +59,31 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             <Text style={styles.title}>Export Data</Text>
             {!isProcessing && (
               <TouchableOpacity onPress={onCancel} style={styles.closeButton}>
-                <MaterialIcons name="close" size={24} color="#000" />
+                <MaterialIcons name="close" size={24} color="#666" />
               </TouchableOpacity>
             )}
           </View>
 
-          <Text style={styles.description}>Select data to export:</Text>
-
-          <ScrollView style={styles.optionsContainer}>
+          <ScrollView
+            style={styles.optionsContainer}
+            showsVerticalScrollIndicator={false}
+          >
             <TouchableOpacity
               style={[
                 styles.option,
-                selectedOption === "blockModel" && styles.selectedOption,
+                selectedOptions.includes("blockModel") && styles.selectedOption,
               ]}
-              onPress={() => handleSelect("blockModel")}
+              onPress={() => handleToggleOption("blockModel")}
               disabled={isProcessing}
             >
               <MaterialIcons
                 name={
-                  selectedOption === "blockModel"
-                    ? "radio-button-checked"
-                    : "radio-button-unchecked"
+                  selectedOptions.includes("blockModel")
+                    ? "check-box"
+                    : "check-box-outline-blank"
                 }
                 size={24}
-                color="#333"
+                color="#198754"
               />
               <Text style={styles.optionText}>Block Model Data</Text>
             </TouchableOpacity>
@@ -79,19 +91,19 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             <TouchableOpacity
               style={[
                 styles.option,
-                selectedOption === "elevation" && styles.selectedOption,
+                selectedOptions.includes("elevation") && styles.selectedOption,
               ]}
-              onPress={() => handleSelect("elevation")}
+              onPress={() => handleToggleOption("elevation")}
               disabled={isProcessing}
             >
               <MaterialIcons
                 name={
-                  selectedOption === "elevation"
-                    ? "radio-button-checked"
-                    : "radio-button-unchecked"
+                  selectedOptions.includes("elevation")
+                    ? "check-box"
+                    : "check-box-outline-blank"
                 }
                 size={24}
-                color="#333"
+                color="#198754"
               />
               <Text style={styles.optionText}>Elevation Data</Text>
             </TouchableOpacity>
@@ -99,19 +111,19 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             <TouchableOpacity
               style={[
                 styles.option,
-                selectedOption === "pit" && styles.selectedOption,
+                selectedOptions.includes("pit") && styles.selectedOption,
               ]}
-              onPress={() => handleSelect("pit")}
+              onPress={() => handleToggleOption("pit")}
               disabled={isProcessing}
             >
               <MaterialIcons
                 name={
-                  selectedOption === "pit"
-                    ? "radio-button-checked"
-                    : "radio-button-unchecked"
+                  selectedOptions.includes("pit")
+                    ? "check-box"
+                    : "check-box-outline-blank"
                 }
                 size={24}
-                color="#333"
+                color="#198754"
               />
               <Text style={styles.optionText}>Pit Boundary Data</Text>
             </TouchableOpacity>
@@ -119,38 +131,38 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
             <TouchableOpacity
               style={[
                 styles.option,
-                selectedOption === "all" && styles.selectedOption,
+                selectedOptions.includes("screenshot") && styles.selectedOption,
               ]}
-              onPress={() => handleSelect("all")}
+              onPress={() => handleToggleOption("screenshot")}
               disabled={isProcessing}
             >
               <MaterialIcons
                 name={
-                  selectedOption === "all"
-                    ? "radio-button-checked"
-                    : "radio-button-unchecked"
+                  selectedOptions.includes("screenshot")
+                    ? "check-box"
+                    : "check-box-outline-blank"
                 }
                 size={24}
-                color="#333"
+                color="#198754"
               />
-              <Text style={styles.optionText}>All Data</Text>
+              <Text style={styles.optionText}>Save Screenshot to Gallery</Text>
             </TouchableOpacity>
           </ScrollView>
 
           <View style={styles.buttonContainer}>
             {isProcessing ? (
               <View style={styles.processingContainer}>
-                <ActivityIndicator size="small" color="#000" />
-                <Text style={styles.processingText}>Exporting...</Text>
+                <ActivityIndicator size="small" color="#198754" />
+                <Text style={styles.processingText}>Processing...</Text>
               </View>
             ) : (
               <TouchableOpacity
                 style={[
                   styles.exportButton,
-                  !selectedOption && styles.disabledButton,
+                  selectedOptions.length === 0 && styles.disabledButton,
                 ]}
                 onPress={handleExport}
-                disabled={!selectedOption}
+                disabled={selectedOptions.length === 0}
               >
                 <Text style={styles.exportButtonText}>Export</Text>
               </TouchableOpacity>
@@ -167,90 +179,119 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
   modalView: {
-    width: "80%",
+    width: "85%",
     backgroundColor: "white",
-    borderRadius: 15,
-    padding: 20,
+    borderRadius: 20,
+    padding: 24,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
     shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowRadius: 8,
+    elevation: 8,
+    maxHeight: "75%",
   },
   header: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 15,
+    marginBottom: 24,
     position: "relative",
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
   },
   title: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#000",
+    fontSize: 20,
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#212529",
     textAlign: "center",
   },
   closeButton: {
     position: "absolute",
     right: 0,
+    top: 0,
+    padding: 4,
   },
   description: {
     fontSize: 16,
-    marginBottom: 15,
-    color: "#333",
+    marginBottom: 16,
+    color: "#495057",
+    fontFamily: "Montserrat_400Regular",
+    lineHeight: 22,
   },
   optionsContainer: {
-    maxHeight: 200,
+    maxHeight: 260,
+    marginBottom: 12,
   },
   option: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
   selectedOption: {
-    backgroundColor: "rgba(207, 230, 37, 0.1)",
+    backgroundColor: "rgba(25, 135, 84, 0.08)",
+    borderColor: "rgba(25, 135, 84, 0.2)",
   },
   optionText: {
-    marginLeft: 10,
+    marginLeft: 12,
     fontSize: 16,
-    color: "#333",
+    color: "#495057",
+    fontFamily: "Montserrat_400Regular",
+    flexShrink: 1,
   },
   buttonContainer: {
     marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E9ECEF",
   },
   exportButton: {
     backgroundColor: "#CFE625",
-    height: 45,
-    borderRadius: 8,
+    height: 50,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   disabledButton: {
-    opacity: 0.7,
+    opacity: 0.5,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   exportButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 17,
+    fontFamily: "Montserrat_600SemiBold",
     color: "#000",
   },
   processingContainer: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    height: 45,
+    height: 50,
   },
   processingText: {
-    marginLeft: 10,
+    marginLeft: 12,
     fontSize: 16,
-    color: "#333",
+    color: "#495057",
+    fontFamily: "Montserrat_400Regular",
   },
 });
 

@@ -1,6 +1,6 @@
-import { processCrossSectionBlocks } from "./processCrossSectionBlocks"
-import { processElevationData } from "./processElevationData"
-import {  processPitData } from "./processPitDataCrossSection"
+import { processCrossSectionBlocks } from "./processCrossSectionBlocks";
+import { processElevationData } from "./processElevationData";
+import { processPitData } from "./processPitDataCrossSection";
 import { getElevationRange } from "./getElevationRange";
 
 export function generateD3Html(
@@ -14,18 +14,36 @@ export function generateD3Html(
   lineLength: number,
   sourceProjection: string
 ): string {
-
-  const intersectingBlocks: any = processCrossSectionBlocks(blockModelData, sourceProjection, startLat, startLng, endLat, endLng);
+  const intersectingBlocks: any = processCrossSectionBlocks(
+    blockModelData,
+    sourceProjection,
+    startLat,
+    startLng,
+    endLat,
+    endLng
+  );
 
   const blockCount = intersectingBlocks.length;
 
-  let elevationPoints = processElevationData(elevationData, sourceProjection, startLat, startLng, endLat, endLng, lineLength);
+  let elevationPoints = processElevationData(
+    elevationData,
+    sourceProjection,
+    startLat,
+    startLng,
+    endLat,
+    endLng,
+    lineLength
+  );
 
   const pitPoints = processPitData(pitData);
 
-  const elevationRange = getElevationRange(intersectingBlocks, elevationPoints, pitPoints)
+  const elevationRange = getElevationRange(
+    intersectingBlocks,
+    elevationPoints,
+    pitPoints
+  );
 
- const safeStringify = (data: any) => {
+  const safeStringify = (data: any) => {
     try {
       return JSON.stringify(data || []);
     } catch (e) {
@@ -40,7 +58,7 @@ export function generateD3Html(
     <html>
     <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
       <title>Cross Section View</title>
       
       <!-- Include D3.js -->
@@ -49,32 +67,27 @@ export function generateD3Html(
       <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
       
       <style>
-        /* CSS styles remain the same */
+        /* CSS styles dengan perbaikan untuk tooltip */
         html, body {
           margin: 0;
           padding: 0;
           font-family: Arial, sans-serif;
           background-color: white;
-          overflow: auto; // Allow scrolling
-          touch-action: auto; // Allow all touch actions
-          -webkit-overflow-scrolling: touch;
-          height: 100%; // Ensure full height is used
+          height: auto;
+          overflow: hidden;
         }
 
         #chart-container {
           margin-top: 10px;
-          width: 1000px;
-          height: auto; // Let it expand based on content
-          min-height: 300px; // Minimum height
-          max-height: 1000px; // Remove maximum height
-          overflow-x: auto;
-          overflow-y: auto;
+          width: 100%;
+          overflow: hidden;
           background-color: white;
+          position: relative; // Important for legend positioning
+          border-radius: 8px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         }
         #chart {
-          height: auto; // Let it expand naturally
-          min-height: 1000px;
-          width: 1000px;
+          width: 100%;
           background-color: white;
         }
         .block {
@@ -107,25 +120,24 @@ export function generateD3Html(
           stroke-width: 0;
         }
         .tooltip {
-          position: absolute;
-          background: white;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          padding: 8px;
-          font-size: 12px;
+          position: fixed;
+          background: #FFFFFF;
+          border: 1px solid #DEE2E6;
+          border-radius: 8px;
+          padding: 12px 16px;
+          font-size: 14px;
           pointer-events: none;
           opacity: 0;
-          transition: opacity 0.2s;
+          transition: opacity 0.2s ease-in-out;
           z-index: 100;
+          max-width: 280px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          color: #495057;
+          line-height: 1.5;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         }
-        .legend {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: rgba(255, 255, 255, 0.9);
-          padding: 10px;
-          border-radius: 4px;
-          border: 1px solid #ddd;
+        .legend-container {
+          /* Removed since we're back to SVG legend */
         }
         .loading {
           position: fixed;
@@ -171,38 +183,9 @@ export function generateD3Html(
           width: 0%;
           transition: width 0.2s;
         }
-        .download-container {
-          position: fixed;
-          top: 10px;
-          right: 10px;
-          z-index: 100;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .download-button {
-          background-color: #0066CC;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          padding: 8px 12px;
-          font-size: 14px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
-        .download-button:active {
-          background-color: #004c99;
-          transform: translateY(1px);
-        }
       </style>
     </head>
     <body>
-      <div class="download-container">
-      <button id="save-to-gallery-btn" class="download-button">Save to Gallery</button>
-    </div>
       <div id="chart-container">
         <div id="chart"></div>
       </div>
@@ -523,26 +506,34 @@ function sendFallbackImage(svgElement) {
             // Get elevation range
             const elevRange = ${safeStringify(elevationRange)}
             
-            // Setup dimensions
-            const margin = { top: 20, right: 30, bottom: 60, left: 80 }; 
+            // Calculate proper dimensions
+            const margin = { top: 40, right: 30, bottom: 200, left: 80 }; // Further increase bottom margin 
 
-            const chartWidth = Math.max(window.innerWidth, lineLength / 2);
-            const height = window.innerHeight * 1;
-            const innerWidth = chartWidth - margin.left - margin.right;
-            const innerHeight = height - margin.top - margin.bottom;
+            // Use full width for mobile
+            const chartWidth = window.innerWidth;
             
-            // Notify React Native of chart width
-            if (!chartWidthSent) {
-              sendToRN('chartDimensions', { width: chartWidth });
-              chartWidthSent = true;
-            }
+            // Calculate height based on viewport but ensure it's not too small
+            const minHeight = 400;
+            const maxHeight = 800;
+            const baseHeight = Math.min(Math.max(window.innerHeight * 0.7, minHeight), maxHeight);
+            
+            const innerWidth = chartWidth - margin.left - margin.right;
+            const innerHeight = baseHeight - margin.top - margin.bottom;
+            
+            // Calculate total SVG height including margins and legend spacing
+            const legendSpacing = 100; // More space for legend after rotated labels
+            const totalHeight = baseHeight + legendSpacing;
+            
+            // Set the container height to match content
+            document.getElementById('chart-container').style.height = totalHeight + 'px';
             
             // Create SVG
             const svg = d3.select('#chart')
             .append('svg')
             .attr('width', chartWidth)
-            .attr('height', Math.max(height, 1500)) // Ensure minimum height, increase from original
-            .attr('viewBox', \`0 0 \${chartWidth} \${Math.max(height, 1500)}\`); // Add viewBox for better scaling
+            .attr('height', totalHeight)
+            .attr('viewBox', \`0 0 \${chartWidth} \${totalHeight}\`);
+            
             // Create tooltip
             const tooltip = d3.select('#tooltip');
               
@@ -550,59 +541,75 @@ function sendFallbackImage(svgElement) {
             const g = svg.append('g')
               .attr('transform', \`translate(\${margin.left}, \${margin.top})\`);
             
-             // Create scales
-        const xScale = d3.scaleLinear()
-          .domain([0, lineLength])
-          .range([0, innerWidth]);
+            // Create scales
+            const xScale = d3.scaleLinear()
+              .domain([0, lineLength])
+              .range([0, innerWidth]);
 
-        const yScale = d3.scaleLinear()
-          .domain([elevRange.min, elevRange.max])
-          .range([innerHeight, 0]);
+            const yScale = d3.scaleLinear()
+              .domain([elevRange.min, elevRange.max])
+              .range([innerHeight, 0]);
+              
+            // Create zoom behavior for pinch-to-zoom
+            const zoom = d3.zoom()
+              .scaleExtent([0.5, 10]) // Allow zoom from 0.5x to 10x
+              .translateExtent([[-chartWidth, -totalHeight], [chartWidth * 2, totalHeight * 2]]) // Allow more free panning
+              .on('zoom', function(event) {
+                g.attr('transform', \`translate(\${margin.left + event.transform.x}, \${margin.top + event.transform.y}) scale(\${event.transform.k})\`);
+                
+                // Hide tooltip during zoom
+                tooltip.transition()
+                  .duration(0)
+                  .style('opacity', 0);
+              });
+            
+            // Apply zoom to SVG
+            svg.call(zoom);
           
-        // Generate tick values at reasonable intervals
-        const tickCount = 25; // Adjust as needed
-        const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => i * (lineLength / tickCount));
-        
-        // Create axes with coordinate labels
-        const xAxis = d3.axisBottom(xScale)
-          .tickValues(tickValues)
-          .tickFormat(d => {
-            // Convert distance to coordinates
-            const coordInfo = processCoordinatesToXaxis(d);
-            return coordInfo.label;
-          });
+            // Generate tick values at reasonable intervals
+            const tickCount = 15;
+            const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => i * (lineLength / tickCount));
+            
+            // Create axes with coordinate labels
+            const xAxis = d3.axisBottom(xScale)
+              .tickValues(tickValues)
+              .tickFormat(d => {
+                // Convert distance to coordinates
+                const coordInfo = processCoordinatesToXaxis(d);
+                return coordInfo.label;
+              });
 
-        const yAxis = d3.axisLeft(yScale)
-          .tickFormat(d => \`\${d.toFixed(0)}mdpl\`);
-          
-        // Add axes with rotated labels for better readability
-        g.append('g')
-          .attr('class', 'x axis')
-          .attr('transform', \`translate(0, \${innerHeight})\`)
-          .call(xAxis)
-          .selectAll("text")  
-          .style("text-anchor", "end")
-          .attr("dx", "-.8em")
-          .attr("dy", ".15em")
-          .attr("transform", "rotate(-90)");
-          
-        g.append('g')
-          .attr('class', 'y axis')
-          .call(yAxis);
-          
-        // Add axis labels
-        g.append('text')
-          .attr('x', innerWidth / 2)
-          .attr('y', innerHeight + 157) // Increased to accommodate rotated labels
-          .attr('text-anchor', 'end')
-          .text('Cross-section coordinates');
-          
-        g.append('text')
-          .attr('transform', 'rotate(-90)')
-          .attr('x', -innerHeight / 2)
-          .attr('y', -60)
-          .attr('text-anchor', 'middle')
-          .text('Elevation (mdpl)');
+            const yAxis = d3.axisLeft(yScale)
+              .tickFormat(d => \`\${d.toFixed(0)}mdpl\`);
+              
+            // Add axes with rotated labels for better readability
+            g.append('g')
+              .attr('class', 'x axis')
+              .attr('transform', \`translate(0, \${innerHeight})\`)
+              .call(xAxis)
+              .selectAll("text")  
+              .style("text-anchor", "end")
+              .attr("dx", "-.8em")
+              .attr("dy", ".15em")
+              .attr("transform", "rotate(-90)");
+              
+            g.append('g')
+              .attr('class', 'y axis')
+              .call(yAxis);
+              
+            // Add axis labels
+            g.append('text')
+              .attr('x', innerWidth / 2)
+              .attr('y', innerHeight + 150) // Moved further down to clear rotated coordinates
+              .attr('text-anchor', 'middle')
+              .text('Cross-section coordinates');
+              
+            g.append('text')
+              .attr('transform', 'rotate(-90)')
+              .attr('x', -innerHeight / 2)
+              .attr('y', -60)
+              .attr('text-anchor', 'middle')
+              .text('Elevation (mdpl)');
 
             // Add grid
             g.append('g')
@@ -660,17 +667,36 @@ function sendFallbackImage(svgElement) {
         // Show tooltip
         tooltip.transition()
           .duration(200)
-          .style('opacity', 0.9);
+          .style('opacity', 1);
+        
+        // Calculate tooltip position
+        let left = event.pageX + 10;
+        let top = event.pageY - 28;
+        
+        // Ensure tooltip doesn't go off screen
+        const tooltipWidth = 200;
+        const tooltipHeight = 150;
+        
+        if (left + tooltipWidth > window.innerWidth) {
+          left = event.pageX - tooltipWidth - 10;
+        }
+        
+        if (top < 0) {
+          top = event.pageY + 20;
+        }
+        
         tooltip.html(
-          \`<strong>Rock Type:</strong> \${d.rock || 'unknown'}<br>
-          <strong>Concentrate:</strong> \${d.concentrate !== undefined ? parseFloat(d.concentrate) : 'N/A'}<br>
-          <strong>Elevation:</strong> \${parseFloat(d.elevation).toFixed(1)}m<br>
-          <strong>Distance:</strong> \${parseFloat(d.distance).toFixed(1)}m<br>
-          <strong>Width:</strong> \${parseFloat(d.width).toFixed(1)}m<br>
-          <strong>Height:</strong> \${parseFloat(d.height).toFixed(1)}m\`
+          \`<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Rock Type:</strong> <span style="color: #495057;">\${d.rock || 'unknown'}</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Concentrate:</strong> <span style="color: #495057;">\${d.concentrate !== undefined ? parseFloat(d.concentrate) : 'N/A'}</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Elevation:</strong> <span style="color: #495057;">\${parseFloat(d.elevation).toFixed(1)}mdpl</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Distance:</strong> <span style="color: #495057;">\${parseFloat(d.distance).toFixed(1)}m</span></div>
+            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Width:</strong> <span style="color: #495057;">\${parseFloat(d.width).toFixed(1)}m</span></div>
+            <div><strong style="color: #212529; font-weight: 600;">Height:</strong> <span style="color: #495057;">\${parseFloat(d.height).toFixed(1)}m</span></div>
+          </div>\`
         )
-        .style('left', (event.pageX + 10) + 'px')
-        .style('top', (event.pageY - 28) + 'px');
+        .style('left', left + 'px')
+        .style('top', top + 'px');
       })
       .on('mouseout', function() {
         // Reset on mouseout
@@ -832,27 +858,27 @@ function sendFallbackImage(svgElement) {
               }
             }
             
-            // Create legend
+            // Create legend OUTSIDE the zoomed group but INSIDE SVG
             const legendWidth = innerWidth * 0.8;
             const legendHeight = 40;
-            const legendX = margin.left + (innerWidth - legendWidth) / 200;
-            const legendY = margin.top + innerHeight + 160;
+            const legendX = (innerWidth - legendWidth) / 2;
+            const legendY = baseHeight - 40; // Position legend just below chart
 
-            // Create the legend container with a light background
+            // Create the legend container directly on SVG (not in the zoomed group)
             const legendBox = svg.append('g')
               .attr('class', 'legend-container')
-              .attr('transform', \`translate(\${legendX}, \${legendY})\`);
+              .attr('transform', \`translate(\${margin.left + legendX}, \${legendY})\`);
 
             // Add a subtle background to make legend more visible
             legendBox.append('rect')
               .attr('width', legendWidth)
               .attr('height', legendHeight)
-              .attr('rx', 5) // Rounded corners
-              .attr('ry', 200)
+              .attr('rx', 5)
+              .attr('ry', 5)
               .attr('fill', 'white')
-              .attr('stroke', '#ddd')
-              .attr('stroke-width', 1)
-              .attr('opacity', 0.8);
+              .attr('stroke', '#999')
+              .attr('stroke-width', 1.5)
+              .attr('opacity', 0.95);
 
             // Calculate how many items we need to display
             const legendItems = [...Object.entries(uniqueRocks)];
@@ -920,7 +946,7 @@ function sendFallbackImage(svgElement) {
                 .attr('y', 5)
                 .attr('alignment-baseline', 'middle')
                 .attr('font-size', '12px')
-                .attr('font-weight', '500') // Slightly bold
+                .attr('font-weight', '500')
                 .text(label);
             });
             
@@ -932,11 +958,8 @@ function sendFallbackImage(svgElement) {
             // Mark as rendered
             hasRendered = true;
             isRendering = false;
-
-            // Setup download button event listeners once visualization is complete
-            document.getElementById('save-to-gallery-btn').addEventListener('click', saveToGallery);
             
-            // Notify React Native with data statscr
+            // Notify React Native with data stats
             sendToRN('renderComplete', { 
               message: 'D3 visualization complete',
               chartWidth: chartWidth,
