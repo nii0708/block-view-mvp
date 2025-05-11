@@ -7,8 +7,15 @@ import {
   Button,
   ScrollView,
   Dimensions,
+  Platform,
+  PermissionsAndroid,
+  ToastAndroid,
+  Alert,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
+import * as Sharing from 'expo-sharing';
 
 import * as turf from "@turf/turf";
 import { convertCoordinates } from "../utils/projectionUtils";
@@ -53,50 +60,162 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
   );
   const [error, setError] = useState<string | null>(null);
   const [chartWidth, setChartWidth] = useState<number>(windowWidth * 2);
+  const [savingFile, setSavingFile] = useState(false);
+
   const webViewRef = useRef<WebView>(null);
   const renderedRef = useRef<boolean>(false);
   const chartWidthSetRef = useRef<boolean>(false);
 
-  // Enable Y-axis scrolling in the WebView with injected JavaScript
-  const ENABLE_SCROLL_SCRIPT = `
-    document.addEventListener('DOMContentLoaded', function() {
-      // Enable vertical scrolling for the entire document
-      document.body.style.overflow = 'auto';
-      document.body.style.overflowY = 'scroll';
-      document.body.style.overflowX = 'hidden';
-      document.body.style.height = 'auto';
-      
-      // Enable vertical scrolling for the chart container
-      const chartContainer = document.getElementById('chart-container');
-      if (chartContainer) {
-        chartContainer.style.overflow = 'auto';
-        chartContainer.style.overflowY = 'scroll';
-        chartContainer.style.overflowX = 'hidden';
-        chartContainer.style.height = 'auto';
-        chartContainer.style.minHeight = '80vh';
+  // Request storage permissions (Android only)
+  const requestStoragePermission = async () => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: "Storage Permission Required",
+            message: "App needs access to your storage to save files",
+            buttonNeutral: "Ask Me Later",
+            buttonNegative: "Cancel",
+            buttonPositive: "OK"
+          }
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } catch (err) {
+        console.warn(err);
+        return false;
       }
-      
-      // Enable vertical scrolling for the chart itself
-      const chart = document.getElementById('chart');
-      if (chart) {
-        chart.style.overflow = 'auto';
-        chart.style.overflowY = 'scroll';
-        chart.style.overflowX = 'hidden';
-        chart.style.height = 'auto';
-        chart.style.minHeight = '80vh';
+    }
+    return true; // iOS doesn't need this permission
+  };
+
+  // Request media library permissions
+  const requestMediaLibraryPermission = async () => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      return status === 'granted';
+    } catch (err) {
+      console.warn(err);
+      return false;
+    }
+  };
+
+  // Function to save base64 data to a file and share/save it
+  const saveBase64ToFile = async (dataUrl: string, filename: string, mimeType: string, saveToGallery: boolean = false) => {
+    try {
+      setSavingFile(true);
+  
+      // Check permissions
+      let hasPermission;
+      if (saveToGallery) {
+        hasPermission = await requestMediaLibraryPermission();
+      } else {
+        hasPermission = await requestStoragePermission();
       }
-      
-      // Set SVG to be scrollable and have larger height
-      setTimeout(() => {
-        const svgElement = document.querySelector('svg');
-        if (svgElement) {
-          svgElement.style.height = '120vh'; // Make SVG taller for scrolling
-          svgElement.style.overflow = 'visible'; // Show content outside SVG bounds
+  
+      if (!hasPermission) {
+        showToast("Permission denied to save file");
+        setSavingFile(false);
+        return;
+      }
+  
+      // Extract base64 data from data URL
+      let base64Data = dataUrl;
+      if (dataUrl.includes('base64,')) {
+        base64Data = dataUrl.split('base64,')[1];
+        if (!base64Data) {
+          throw new Error("Invalid data URL format");
         }
-      }, 1000); // Wait for SVG to be created
-    });
-    true;
-  `;
+      }
+  
+      // Create a temp file
+      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+  
+      if (saveToGallery) {
+        try {
+          // Try the simple approach first - this is what's failing with the argument error
+          const asset = await MediaLibrary.createAssetAsync(fileUri);
+          showToast("Saved to gallery");
+        } catch (galleryError) {          
+          // Try an alternative approach with explicit options object
+          try {
+            console.log("Trying alternative save method...");
+            // Some versions of MediaLibrary expect options as a second parameter
+            // @ts-ignore - Ignore TypeScript errors for this workaround
+            await MediaLibrary.saveToLibraryAsync(fileUri);
+            showToast("Image saved");
+          } catch (altError) {
+            console.error("Alternative save method also failed:", altError);
+            showToast("Could not save to gallery: " + (altError instanceof Error ? altError.message : String(altError)));
+          }
+        }
+      } else {
+        // Share file
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: mimeType,
+            dialogTitle: `Share ${filename}`,
+            UTI: mimeType === 'image/png' ? 'public.png' : 'public.svg+xml'
+          });
+        } else {
+          showToast("Sharing not available on this device");
+        }
+      }
+    } catch (error) {
+      console.error("Error saving file:", error);
+      showToast(`Error saving file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSavingFile(false);
+    }
+  };
+  // Save SVG data directly
+  const saveSvgData = async (svgData: string, filename: string) => {
+    try {
+      setSavingFile(true);
+
+      // Check permissions
+      const hasPermission = await requestStoragePermission();
+      if (!hasPermission) {
+        showToast("Permission denied to save file");
+        setSavingFile(false);
+        return;
+      }
+
+      // Create a temp file
+      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, svgData, {
+        encoding: FileSystem.EncodingType.UTF8
+      });
+
+      // Share file
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'image/svg+xml',
+          dialogTitle: `Share ${filename}`,
+          UTI: 'public.svg+xml'
+        });
+      } else {
+        showToast("Sharing not available on this device");
+      }
+    } catch (error) {
+      console.error("Error saving SVG file:", error);
+      showToast(`Error saving file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSavingFile(false);
+    }
+  };
+
+  // Toast helper function
+  const showToast = (message: string) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert("Info", message);
+    }
+  };
 
   function createLineGeoJSON(
     startLat: number,
@@ -124,6 +243,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
           y: parseFloat(block.centroid_y || block.y || 0),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
+          concentrate: parseFloat(block.concentrate || -99)
         }));
 
         // Format elevation data for WebView consumption
@@ -314,6 +434,30 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
             });
           }
           break;
+        case "downloadFile":
+          // Handle file download request from WebView
+          if (message.dataUrl && message.filename) {
+            saveBase64ToFile(
+              message.dataUrl,
+              message.filename,
+              message.mimeType || 'application/octet-stream'
+            );
+          } else if (message.data && message.filename) {
+            // For SVG data that is sent directly as text
+            saveSvgData(message.data, message.filename);
+          }
+          break;
+        case "saveToGallery":
+          // Handle save to gallery request from WebView
+          if (message.dataUrl && message.filename) {
+            saveBase64ToFile(
+              message.dataUrl,
+              message.filename,
+              'image/png',
+              true // Flag to save to gallery instead of sharing
+            );
+          }
+          break;
       }
     } catch (e) {
       console.error("Error parsing WebView message:", e);
@@ -374,6 +518,13 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         </View>
       )}
 
+      {savingFile && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#4CAF50" />
+          <Text style={styles.loadingText}>Processing file...</Text>
+        </View>
+      )}
+
       <ScrollView
         horizontal={true}
         style={styles.scrollContainer}
@@ -383,10 +534,7 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
         <WebView
           ref={webViewRef}
           source={{
-            html: d3Html.replace(
-              '<div id="loading" class="loading">',
-              '<div id="loading" class="loading" style="display:none;">'
-            ),
+            html: d3Html,
           }}
           style={[styles.webview, { width: chartWidth }]}
           originWhitelist={["*"]}
@@ -421,7 +569,6 @@ const CrossSectionWebView: React.FC<CrossSectionWebViewProps> = ({
 };
 
 const styles = StyleSheet.create({
-  // Styles remain the same
   container: {
     flex: 1,
     backgroundColor: "#fff",

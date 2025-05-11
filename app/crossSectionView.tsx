@@ -64,9 +64,9 @@ export default function CrossSectionViewScreen() {
 
       // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
-        console.log(
-          `Preparing ${fullBlockModelData.length} blocks for cross-section`
-        );
+        // console.log(
+        //   `Preparing ${fullBlockModelData.length} blocks for cross-section`
+        // );
 
         // Direct mapping without filtering (WebView will handle filtering)
         const extractedBlocks = fullBlockModelData.map((block) => ({
@@ -78,10 +78,13 @@ export default function CrossSectionViewScreen() {
           dim_z: parseFloat(block.dim_z || block.height || 10),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
+          concentrate: parseFloat(block.ni_ok || block.ni_ok || 0)
         }));
 
+        // console.log("concentrate", extractedBlocks[0])
+
         setBlockModelData(extractedBlocks);
-        console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
+        // console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
       }
 
       // Process elevation data if available
@@ -125,7 +128,7 @@ export default function CrossSectionViewScreen() {
       displayedElevationPoints: number;
       displayedPitPoints: number;
     }) => {
-      console.log("Received processed data counts:", data);
+      // console.log("Received processed data counts:", data);
       setDisplayedDataCounts(data);
     },
     []

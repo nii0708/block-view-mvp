@@ -213,9 +213,7 @@ export function processBlockModelCSV(
 
     // If requested, filter to only keep the top elevation blocks
     if (topElevationOnly) {
-      console.log(`Original block count: ${mappedData.length}`);
       mappedData = filterTopElevationBlocks(mappedData);
-      console.log(`Filtered to top elevation blocks: ${mappedData.length}`);
     }
 
     // Create the mapping
@@ -232,8 +230,6 @@ export function processBlockModelCSV(
       rock: row.rock,
       color: rockColorMap[row.rock] || "#aaaaaa",
     }));
-
-    console.log("First data row:", JSON.stringify(filteredData[0]));
 
     // Create polygon features with projection conversion
     const polygons = createPolygonsFromCoordsAndDims(

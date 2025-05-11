@@ -1,6 +1,7 @@
 import { processCrossSectionBlocks } from "./processCrossSectionBlocks"
 import { processElevationData } from "./processElevationData"
 import {  processPitData } from "./processPitDataCrossSection"
+import { getElevationRange } from "./getElevationRange";
 
 export function generateD3Html(
   blockModelData: any[],
@@ -21,6 +22,8 @@ export function generateD3Html(
   let elevationPoints = processElevationData(elevationData, sourceProjection, startLat, startLng, endLat, endLng, lineLength);
 
   const pitPoints = processPitData(pitData);
+
+  const elevationRange = getElevationRange(intersectingBlocks, elevationPoints, pitPoints)
 
  const safeStringify = (data: any) => {
     try {
@@ -52,22 +55,26 @@ export function generateD3Html(
           padding: 0;
           font-family: Arial, sans-serif;
           background-color: white;
-          overflow: hidden;
-          touch-action: pan-y;
+          overflow: auto; // Allow scrolling
+          touch-action: auto; // Allow all touch actions
           -webkit-overflow-scrolling: touch;
+          height: 100%; // Ensure full height is used
         }
 
         #chart-container {
           margin-top: 10px;
-          width: 100%;
-          height: 1000px;
+          width: 1000px;
+          height: auto; // Let it expand based on content
+          min-height: 300px; // Minimum height
+          max-height: 1000px; // Remove maximum height
           overflow-x: auto;
           overflow-y: auto;
           background-color: white;
         }
         #chart {
-          height: 100%;
-          width: 100%;
+          height: auto; // Let it expand naturally
+          min-height: 1000px;
+          width: 1000px;
           background-color: white;
         }
         .block {
@@ -164,9 +171,38 @@ export function generateD3Html(
           width: 0%;
           transition: width 0.2s;
         }
+        .download-container {
+          position: fixed;
+          top: 10px;
+          right: 10px;
+          z-index: 100;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .download-button {
+          background-color: #0066CC;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 8px 12px;
+          font-size: 14px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .download-button:active {
+          background-color: #004c99;
+          transform: translateY(1px);
+        }
       </style>
     </head>
     <body>
+      <div class="download-container">
+      <button id="save-to-gallery-btn" class="download-button">Save to Gallery</button>
+    </div>
       <div id="chart-container">
         <div id="chart"></div>
       </div>
@@ -216,6 +252,56 @@ export function generateD3Html(
               type: type,
               ...data
             }));
+          }
+        }
+
+        // Save to gallery function - this just sends a request to React Native to handle
+        function saveToGallery() {
+          try {
+            const svgElement = document.querySelector('svg');
+            if (!svgElement) {
+              debug("No SVG element found to save to gallery");
+              return;
+            }
+            
+            const svgRect = svgElement.getBoundingClientRect();
+            const width = svgRect.width;
+            const height = svgRect.height;
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+            
+            const svgData = new XMLSerializer().serializeToString(svgElement);
+            const svgBlob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+            const url = URL.createObjectURL(svgBlob);
+            
+            const img = new Image();
+            img.onload = function() {
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              
+              const pngDataUrl = canvas.toDataURL('image/png');
+              
+              // Notify React Native to save to gallery
+              sendToRN('saveToGallery', {
+                dataUrl: pngDataUrl,
+                filename: 'cross-section.png'
+              });
+              
+              debug("Save to gallery request sent successfully");
+            };
+            img.onerror = function() {
+              debug("Error loading SVG image to save to gallery");
+              URL.revokeObjectURL(url);
+            };
+            img.src = url;
+          } catch (error) {
+            debug("Error preparing save to gallery: " + error.toString());
           }
         }
         
@@ -282,52 +368,6 @@ export function generateD3Html(
 
         elevationPoints = ${safeStringify(elevationPoints)};
         
-        // Get elevation range for Y-axis scaling
-        function getElevationRange(blocks, elevationPoints, pitPoints) {
-          try {
-            const allElevations = [];
-            
-            // Add block elevations
-            blocks.forEach(block => {
-              allElevations.push(block.elevation + block.height/2);
-              allElevations.push(block.elevation - block.height/2);
-            });
-            
-            // Add elevation profile points
-            if (elevationPoints && elevationPoints.length > 0) {
-              elevationPoints.forEach(point => {
-                if (point.elevation !== null && !isNaN(point.elevation)) {
-                  allElevations.push(point.elevation);
-                }
-              });
-            }
-            
-            // Add pit points
-            if (pitPoints && pitPoints.length > 0) {
-              pitPoints.forEach(point => {
-                if (!isNaN(point.elevation)) {
-                  allElevations.push(point.elevation);
-                }
-              });
-            }
-            
-            // Filter out invalid values
-            const validElevations = allElevations.filter(e => !isNaN(e));
-            
-            if (validElevations.length === 0) {
-              return { min: 0, max: 100 };
-            }
-            
-            // Find min and max with padding
-            const min = Math.min(...validElevations) - 20;
-            const max = Math.max(...validElevations) + 20;
-            
-            return { min, max };
-          } catch (err) {
-            return { min: 0, max: 100 };
-          }
-        }
-        
         // Main rendering function
         function renderVisualization() {
           if (isRendering || hasRendered) return;
@@ -358,13 +398,13 @@ export function generateD3Html(
             );
             
             // Get elevation range
-            const elevRange = getElevationRange(sectionBlocks, elevationProfile, pitProfile);
+            const elevRange = ${safeStringify(elevationRange)}
             
             // Setup dimensions
-            const margin = { top: 20, right: 30, bottom: 190, left: 80 }; 
+            const margin = { top: 20, right: 30, bottom: 60, left: 80 }; 
 
             const chartWidth = Math.max(window.innerWidth, lineLength / 2);
-            const height = window.innerHeight * 0.8;
+            const height = window.innerHeight * 1;
             const innerWidth = chartWidth - margin.left - margin.right;
             const innerHeight = height - margin.top - margin.bottom;
             
@@ -376,10 +416,10 @@ export function generateD3Html(
             
             // Create SVG
             const svg = d3.select('#chart')
-              .append('svg')
-              .attr('width', chartWidth)
-              .attr('height', height);
-              
+            .append('svg')
+            .attr('width', chartWidth)
+            .attr('height', Math.max(height, 1500)) // Ensure minimum height, increase from original
+            .attr('viewBox', \`0 0 \${chartWidth} \${Math.max(height, 1500)}\`); // Add viewBox for better scaling
             // Create tooltip
             const tooltip = d3.select('#tooltip');
               
@@ -462,64 +502,109 @@ export function generateD3Html(
             // Collect unique rock types for legend
             const uniqueRocks = {};
             
-            // Draw blocks
             if (sectionBlocks && sectionBlocks.length > 0) {
-              try {
-                // Gather unique rock types
-                sectionBlocks.forEach(block => {
-                  const rockType = block.rock || 'unknown';
-                  const color = block.color 
-                  uniqueRocks[rockType] = color;
-                });
-                
-                // Add blocks
-                g.selectAll('.block')
-                  .data(sectionBlocks)
-                  .enter()
-                  .append('rect')
-                  .attr('class', 'block')
-                  .attr('x', d => xScale(d.distance))
-                  .attr('y', d => yScale(d.elevation + d.height/2))
-                  .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance))
-                  .attr('height', d => Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2)))
-                  .attr('fill', d => d.color)
-                  .attr('stroke', 'black')
-                  .attr('stroke-width', 0.25)
-                  .on('mouseover', function(event, d) {
-                    // Highlight on hover
-                    d3.select(this)
-                      .attr('stroke-width', 2)
-                      .attr('stroke', '#333');
-                                          
-                    // Show tooltip
-                    tooltip.transition()
-                      .duration(200)
-                      .style('opacity', 0.9);
-                    tooltip.html(
-                      \`<strong>Rock Type:</strong> \${d.rock || 'unknown'}<br>
-                      <strong>Elevation:</strong> \${parseFloat(d.elevation).toFixed(1)}m<br>
-                      <strong>Distance:</strong> \${parseFloat(d.distance).toFixed(1)}m<br>
-                      <strong>Width:</strong> \${parseFloat(d.width).toFixed(1)}m<br>
-                      <strong>Height:</strong> \${parseFloat(d.height).toFixed(1)}m\`
-                    )
-                    .style('left', (event.pageX + 10) + 'px')
-                    .style('top', (event.pageY - 28) + 'px');
-                  })
-                  .on('mouseout', function() {
-                    // Reset on mouseout
-                    d3.select(this)
-                      .attr('stroke-width', 0.5)
-                      .attr('stroke', 'black');
-                      
-                    // Hide tooltip
-                    tooltip.transition()
-                      .duration(500)
-                      .style('opacity', 0);
-                  });
-              } catch (err) {
-                debug("Error drawing blocks: " + err.message);
-              }
-            }
+  try {
+    // Gather unique rock types
+    sectionBlocks.forEach(block => {
+      const rockType = block.rock || 'unknown';
+      const color = block.color 
+      uniqueRocks[rockType] = color;
+    });
+    
+    // Create a group for each block that will contain both the rectangle and the text
+    const blockGroups = g.selectAll('.block-group')
+      .data(sectionBlocks)
+      .enter()
+      .append('g')
+      .attr('class', 'block-group');
+    
+    // Add rectangles to each group
+    blockGroups.append('rect')
+      .attr('class', 'block')
+      .attr('x', d => xScale(d.distance))
+      .attr('y', d => yScale(d.elevation + d.height/2))
+      .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance))
+      .attr('height', d => Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2)))
+      .attr('fill', d => d.color)
+      .attr('stroke', 'black')
+      .attr('stroke-width', 0.25)
+      .on('mouseover', function(event, d) {
+        // Highlight on hover
+        d3.select(this)
+          .attr('stroke-width', 2)
+          .attr('stroke', '#333');
+                              
+        // Show tooltip
+        tooltip.transition()
+          .duration(200)
+          .style('opacity', 0.9);
+        tooltip.html(
+          \`<strong>Rock Type:</strong> \${d.rock || 'unknown'}<br>
+          <strong>Concentrate:</strong> \${d.concentrate !== undefined ? parseFloat(d.concentrate).toFixed(2) : 'N/A'}<br>
+          <strong>Elevation:</strong> \${parseFloat(d.elevation).toFixed(1)}m<br>
+          <strong>Distance:</strong> \${parseFloat(d.distance).toFixed(1)}m<br>
+          <strong>Width:</strong> \${parseFloat(d.width).toFixed(1)}m<br>
+          <strong>Height:</strong> \${parseFloat(d.height).toFixed(1)}m\`
+        )
+        .style('left', (event.pageX + 10) + 'px')
+        .style('top', (event.pageY - 28) + 'px');
+      })
+      .on('mouseout', function() {
+        // Reset on mouseout
+        d3.select(this)
+          .attr('stroke-width', 0.5)
+          .attr('stroke', 'black');
+          
+        // Hide tooltip
+        tooltip.transition()
+          .duration(500)
+          .style('opacity', 0);
+      });
+    
+    // Add text displaying the concentrate value in the middle of each block
+    blockGroups.append('text')
+  .attr('class', 'block-concentrate')
+  .attr('x', d => xScale(d.distance + d.width/2)) // Center horizontally
+  .attr('y', d => yScale(d.elevation)) // Center vertically
+  .attr('text-anchor', 'middle') // Ensure text is centered
+  .attr('dominant-baseline', 'middle') // Vertical alignment
+  .attr('fill', 'black') // Text color
+  .attr('pointer-events', 'none') // Make text non-interactive
+  .text(d => d.concentrate !== undefined ? parseFloat(d.concentrate).toFixed(2) : '')
+  .attr('font-size', function(d) {
+    // Calculate block dimensions in pixels
+    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
+    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
+    
+    // Calculate a font size proportional to the block size
+    // Base size on the smaller dimension (width or height)
+    const minDimension = Math.min(blockWidth, blockHeight);
+    
+    // Scale factor determines how much of the block the text should fill
+    // Lower values = smaller text relative to block size
+    const scaleFactor = 0.4; 
+    
+    // Calculate font size with minimum and maximum constraints
+    const calculatedSize = Math.max(8, Math.min(minDimension * scaleFactor, 14));
+    
+    return calculatedSize + 'px';
+  })
+  .attr('visibility', function(d) {
+    // Calculate block dimensions in pixels
+    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
+    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
+    
+    // Only show text if block is large enough to accommodate it
+    // Now using more appropriate thresholds based on text length
+    const textLength = (d.concentrate !== undefined ? parseFloat(d.concentrate).toFixed(2) : '').length;
+    const minWidthNeeded = textLength * 6; // Rough estimate: each character needs ~6px
+    
+    // return (blockWidth > minWidthNeeded && blockHeight > 8) ? 'visible' : 'hidden';
+  });
+  } catch (err) {
+    debug("Error drawing blocks: " + err.message);
+  }
+}
             
             // Draw elevation profile
             if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
@@ -633,7 +718,7 @@ export function generateD3Html(
               .attr('width', legendWidth)
               .attr('height', legendHeight)
               .attr('rx', 5) // Rounded corners
-              .attr('ry', 300)
+              .attr('ry', 200)
               .attr('fill', 'white')
               .attr('stroke', '#ddd')
               .attr('stroke-width', 1)
@@ -717,6 +802,9 @@ export function generateD3Html(
             // Mark as rendered
             hasRendered = true;
             isRendering = false;
+
+            // Setup download button event listeners once visualization is complete
+            document.getElementById('save-to-gallery-btn').addEventListener('click', saveToGallery);
             
             // Notify React Native with data statscr
             sendToRN('renderComplete', { 

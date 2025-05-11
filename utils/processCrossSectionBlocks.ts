@@ -217,8 +217,10 @@ export function processCrossSectionBlocks(blockModelData: any[], sourceProjectio
               height: height,
               elevation: z,
               rock: block.rock || "unknown",
-              color: block.color
+              color: block.color,
+              concentrate: block.concentrate
             });
+
           }
         }
       }

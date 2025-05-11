@@ -157,7 +157,6 @@ export const pickSVG = async (): Promise<FileInfo | null> => {
     if (file) {
       // Check if the file has a .svg extension
       if (!file.name.toLowerCase().endsWith(".svg")) {
-        console.log(`File ${file.name} is not an SVG file`);
         alert("Please select an SVG file (with .svg extension)");
         return null;
       }
@@ -172,10 +171,7 @@ export const pickSVG = async (): Promise<FileInfo | null> => {
  */
 export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
   try {
-    console.log(`Reading CSV file from URI: ${fileUri.substring(0, 50)}...`);
     const fileContent = await FileSystem.readAsStringAsync(fileUri);
-    console.log(`CSV file content length: ${fileContent.length} bytes`);
-    console.log(`CSV sample: ${fileContent.substring(0, 100)}...`);
 
     return new Promise((resolve, reject) => {
       Papa.parse(fileContent, {
@@ -189,13 +185,6 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
               new Error(`Error parsing CSV: ${results.errors[0].message}`)
             );
             return;
-          }
-
-          console.log(
-            `Successfully parsed CSV with ${results.data.length} rows`
-          );
-          if (results.data.length > 0) {
-            console.log(`Sample CSV row:`, results.data[0]);
           }
 
           // Skip the first 3 rows for block model data (important!)
@@ -226,10 +215,7 @@ export const parseLiDARFile = async (
   } = {}
 ): Promise<LiDARPoint[]> => {
   try {
-    console.log(`Reading STR file from URI: ${fileUri.substring(0, 50)}...`);
     const fileContent = await FileSystem.readAsStringAsync(fileUri);
-    console.log(`STR file content length: ${fileContent.length} bytes`);
-    console.log(`STR sample: ${fileContent.substring(0, 100)}...`);
 
     return new Promise((resolve, reject) => {
       Papa.parse(fileContent, {
@@ -245,13 +231,6 @@ export const parseLiDARFile = async (
             return;
           }
 
-          console.log(
-            `Successfully parsed STR with ${results.data.length} rows`
-          );
-          if (results.data.length > 0) {
-            console.log(`Sample STR row:`, results.data[0]);
-          }
-
           // Skip header row and process data rows
           const dataRows = results.data.slice(1) as LiDARRow[];
 
@@ -261,9 +240,7 @@ export const parseLiDARFile = async (
           // If maxPoints is specified, calculate appropriate sampling rate
           if (options.maxPoints && dataRows.length > options.maxPoints) {
             const sampleRate = Math.ceil(dataRows.length / options.maxPoints);
-            console.log(
-              `Data has ${dataRows.length} points, sampling every ${sampleRate}th point to get ~${options.maxPoints} points`
-            );
+
             processedRows = dataRows.filter(
               (_, index) => index % sampleRate === 0
             );
@@ -271,7 +248,6 @@ export const parseLiDARFile = async (
           // Otherwise if sampleRate is specified, use that
           else if (options.sampleRate && options.sampleRate > 1) {
             const rate = options.sampleRate; // Create a local constant to satisfy TypeScript
-            console.log(`Sampling every ${rate}th point`);
             processedRows = dataRows.filter((_, index) => index % rate === 0);
           }
 
@@ -291,7 +267,6 @@ export const parseLiDARFile = async (
               };
             });
 
-          console.log(`Processed ${processedData.length} LiDAR points`);
           resolve(processedData);
         },
         error: (error: Error) => {
@@ -315,7 +290,6 @@ export const saveFileInfo = async (
   try {
     const filePath = FileSystem.documentDirectory + STORAGE_KEY;
     await FileSystem.writeAsStringAsync(filePath, JSON.stringify(files));
-    console.log("Files saved successfully to:", filePath);
     return true;
   } catch (error: any) {
     console.error("Error saving file info:", error);
@@ -332,7 +306,7 @@ export const getFileInfo = async (): Promise<MiningDataFile[]> => {
     const fileInfoString = await FileSystem.readAsStringAsync(filePath);
     return JSON.parse(fileInfoString) as MiningDataFile[];
   } catch (error: any) {
-    console.log("No saved files found or error reading files:", error);
+    console.error("No saved files found or error reading files:", error);
     return [];
   }
 };
