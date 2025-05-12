@@ -62,6 +62,47 @@ export interface PDFData {
 const STORAGE_KEY = "mining_data_files.json";
 
 /**
+ * Pick a PDF file for geospatial data
+ */
+export const pickPDF = async (): Promise<PDFData | null> => {
+  // First try with specific types
+  let file = await pickFile([
+    "application/pdf",
+    "application/x-pdf",
+    "application/acrobat",
+    "text/pdf",
+    "text/x-pdf",
+  ]);
+
+  // If that doesn't work, try with all file types and filter by extension
+  if (!file) {
+    console.log(
+      "Specific PDF MIME types didn't work, trying with any file type"
+    );
+    file = await pickFile("*/*");
+
+    if (file) {
+      // Check if the file has a .pdf extension
+      if (!file.name.toLowerCase().endsWith(".pdf")) {
+        console.log(`File ${file.name} is not a PDF file`);
+        alert("Please select a PDF file (with .pdf extension)");
+        return null;
+      }
+    }
+  }
+
+  if (!file) return null;
+
+  // Return PDF data with processing flag
+  return {
+    fileUri: file.uri,
+    fileName: file.name,
+    coordinates: undefined,
+    isProcessing: false,
+  };
+};
+
+/**
  * Pick a file from device storage with extensive logging
  */
 export const pickFile = async (
@@ -100,7 +141,7 @@ export const pickFile = async (
 };
 
 /**
- * Pick a CSV file specifically
+ * Pick a CSV file specifically - using expanded MIME types and fallback approach
  */
 export const pickCSV = async (): Promise<FileInfo | null> => {
   // First try with specific MIME types
@@ -160,44 +201,30 @@ export const pickLiDAR = async (): Promise<FileInfo | null> => {
 };
 
 /**
- * Pick a PDF file for geospatial data
+ * Pick an SVG file (for orthophoto data)
  */
-export const pickPDF = async (): Promise<PDFData | null> => {
+export const pickSVG = async (): Promise<FileInfo | null> => {
   // First try with specific types
-  let file = await pickFile([
-    "application/pdf",
-    "application/x-pdf",
-    "application/acrobat",
-    "text/pdf",
-    "text/x-pdf",
-  ]);
+  let file = await pickFile(["image/svg+xml", "image/*"]);
 
   // If that doesn't work, try with all file types and filter by extension
   if (!file) {
     console.log(
-      "Specific PDF MIME types didn't work, trying with any file type"
+      "Specific SVG MIME types didn't work, trying with any file type"
     );
     file = await pickFile("*/*");
 
     if (file) {
-      // Check if the file has a .pdf extension
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        console.log(`File ${file.name} is not a PDF file`);
-        alert("Please select a PDF file (with .pdf extension)");
+      // Check if the file has a .svg extension
+      if (!file.name.toLowerCase().endsWith(".svg")) {
+        console.log(`File ${file.name} is not an SVG file`);
+        alert("Please select an SVG file (with .svg extension)");
         return null;
       }
     }
   }
 
-  if (!file) return null;
-
-  // Return PDF data with processing flag
-  return {
-    fileUri: file.uri,
-    fileName: file.name,
-    coordinates: undefined,
-    isProcessing: false,
-  };
+  return file;
 };
 
 /**
@@ -249,6 +276,7 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
 
 /**
  * Parse an STR file (LiDAR data) and return the parsed data
+ * Added options for sampling to reduce data size
  */
 export const parseLiDARFile = async (
   fileUri: string,

@@ -1,7 +1,6 @@
 import { processCrossSectionBlocks } from "./processCrossSectionBlocks";
 import { processElevationData } from "./processElevationData";
 import { processPitData } from "./processPitDataCrossSection";
-import { getElevationRange } from "./getElevationRange";
 
 export function generateD3Html(
   blockModelData: any[],
@@ -37,12 +36,6 @@ export function generateD3Html(
 
   const pitPoints = processPitData(pitData);
 
-  const elevationRange = getElevationRange(
-    intersectingBlocks,
-    elevationPoints,
-    pitPoints
-  );
-
   const safeStringify = (data: any) => {
     try {
       return JSON.stringify(data || []);
@@ -52,13 +45,13 @@ export function generateD3Html(
     }
   };
 
-  // HTML template with D3.js - Adding data stats messaging
+  // HTML template with D3.js - Adding data stats messaging and screenshot function
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       <title>Cross Section View</title>
       
       <!-- Include D3.js -->
@@ -67,26 +60,29 @@ export function generateD3Html(
       <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
       
       <style>
-        /* CSS styles dengan perbaikan untuk tooltip */
+        /* CSS styles with improved layout */
         html, body {
           margin: 0;
           padding: 0;
           font-family: Arial, sans-serif;
           background-color: white;
-          height: auto;
           overflow: hidden;
+          touch-action: pan-y;
+          -webkit-overflow-scrolling: touch;
         }
 
         #chart-container {
           margin-top: 10px;
           width: 100%;
-          overflow: hidden;
+          min-height: 85vh; /* Use viewport height instead of fixed height */
+          height: auto;
+          overflow-x: auto;
+          overflow-y: hidden; /* Prevent vertical scroll in container */
           background-color: white;
-          position: relative; // Important for legend positioning
-          border-radius: 8px;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+          padding-bottom: 20px; /* Add padding at bottom */
         }
         #chart {
+          height: 100%;
           width: 100%;
           background-color: white;
         }
@@ -106,7 +102,7 @@ export function generateD3Html(
           font-size: 12px;
           fill: #666;
         }
-          .x.axis text {
+        .x.axis text {
           text-anchor: middle;
           dominant-baseline: hanging;
           font-size: 10px;
@@ -120,24 +116,32 @@ export function generateD3Html(
           stroke-width: 0;
         }
         .tooltip {
-          position: fixed;
-          background: #FFFFFF;
-          border: 1px solid #DEE2E6;
-          border-radius: 8px;
-          padding: 12px 16px;
-          font-size: 14px;
+          position: absolute;
+          background: white;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          padding: 8px;
+          font-size: 12px;
           pointer-events: none;
           opacity: 0;
-          transition: opacity 0.2s ease-in-out;
+          transition: opacity 0.2s;
           z-index: 100;
-          max-width: 280px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-          color: #495057;
-          line-height: 1.5;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
         }
-        .legend-container {
-          /* Removed since we're back to SVG legend */
+        .legend {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 10px;
+          border-radius: 4px;
+          border: 1px solid #ddd;
+        }
+        .block-concentrate {
+          font-family: Arial, sans-serif;
+          font-weight: bold;
+          fill: white;
+          text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+          pointer-events: none;
         }
         .loading {
           position: fixed;
@@ -237,179 +241,178 @@ export function generateD3Html(
             }));
           }
         }
-
-        // Save to gallery function - this just sends a request to React Native to handle
+        
+        // Save to gallery function
         function saveToGallery() {
-  try {
-    const svgElement = document.querySelector('svg');
-    if (!svgElement) {
-      debug("No SVG element found to save to gallery");
-      return;
-    }
-    
-    // Update UI to show progress
-    if (document.getElementById('loading')) {
-      document.getElementById('loading').style.display = 'flex';
-      document.getElementById('message').textContent = 'Preparing HD image...';
-      document.getElementById('progress-fill').style.width = '50%';
-    }
-    
-    // Get the SVG dimensions
-    const svgRect = svgElement.getBoundingClientRect();
-    const width = svgRect.width;
-    const height = svgRect.height;
-    
-    // Use a more modest scale factor to prevent performance issues
-    // Reduce from 3x to 2x if there are performance problems
-    const scaleFactor = 2;
-    
-    // Create canvas with timeout to prevent UI freezing
-    setTimeout(() => {
-      try {
-        // Create canvas with dimensions based on scale factor
-        const canvas = document.createElement('canvas');
-        canvas.width = width * scaleFactor;
-        canvas.height = height * scaleFactor;
-        const ctx = canvas.getContext('2d');
-        
-        // Fill with white background
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Get SVG data
-        const svgData = new XMLSerializer().serializeToString(svgElement);
-        
-        // Create a more efficient image/SVG processing approach
-        const DOMURL = window.URL || window.webkitURL || window;
-        const img = new Image();
-        const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
-        const url = DOMURL.createObjectURL(svgBlob);
-        
-        // Update progress
-        if (document.getElementById('message')) {
-          document.getElementById('message').textContent = 'Converting image...';
-          document.getElementById('progress-fill').style.width = '75%';
-        }
-        
-        img.onload = function() {
-          // Use setTimeout to prevent UI freeze
-          setTimeout(() => {
+          try {
+            const svgElement = document.querySelector('svg');
+            if (!svgElement) {
+              debug("No SVG element found to save to gallery");
+              return;
+            }
+            
+            // Update UI to show progress
+            if (document.getElementById('loading')) {
+              document.getElementById('loading').style.display = 'flex';
+              document.getElementById('message').textContent = 'Preparing HD image...';
+              document.getElementById('progress-fill').style.width = '50%';
+            }
+            
+            // Get the SVG dimensions
+            const svgRect = svgElement.getBoundingClientRect();
+            const width = svgRect.width;
+            const height = svgRect.height;
+            
+            // Use a more modest scale factor to prevent performance issues
+            const scaleFactor = 2;
+            
+            // Create canvas with timeout to prevent UI freezing
+            setTimeout(() => {
+              try {
+                // Create canvas with dimensions based on scale factor
+                const canvas = document.createElement('canvas');
+                canvas.width = width * scaleFactor;
+                canvas.height = height * scaleFactor;
+                const ctx = canvas.getContext('2d');
+                
+                // Fill with white background
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Get SVG data
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                
+                // Create a more efficient image/SVG processing approach
+                const DOMURL = window.URL || window.webkitURL || window;
+                const img = new Image();
+                const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+                const url = DOMURL.createObjectURL(svgBlob);
+                
+                // Update progress
+                if (document.getElementById('message')) {
+                  document.getElementById('message').textContent = 'Converting image...';
+                  document.getElementById('progress-fill').style.width = '75%';
+                }
+                
+                img.onload = function() {
+                  // Use setTimeout to prevent UI freeze
+                  setTimeout(() => {
+                    try {
+                      // Set rendering quality
+                      ctx.imageSmoothingEnabled = true;
+                      ctx.imageSmoothingQuality = 'high';
+                      
+                      // Draw image at scaled size
+                      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                      DOMURL.revokeObjectURL(url);
+                      
+                      // Generate PNG at moderate quality for better performance
+                      const pngDataUrl = canvas.toDataURL('image/png', 0.9);
+                      
+                      // Notify React Native to save to gallery
+                      sendToRN('saveToGallery', {
+                        dataUrl: pngDataUrl,
+                        filename: 'cross-section-hd.png'
+                      });
+                      
+                      debug("HD image save request sent");
+                      
+                      // Hide loading indicator if visible
+                      if (document.getElementById('loading')) {
+                        document.getElementById('loading').style.display = 'none';
+                      }
+                    } catch (drawError) {
+                      debug("Error drawing image: " + drawError.toString());
+                      if (document.getElementById('loading')) {
+                        document.getElementById('loading').style.display = 'none';
+                      }
+                    }
+                  }, 10); // Small delay to let UI update
+                };
+                
+                img.onerror = function(e) {
+                  debug("Error loading SVG image: " + e);
+                  DOMURL.revokeObjectURL(url);
+                  if (document.getElementById('loading')) {
+                    document.getElementById('loading').style.display = 'none';
+                  }
+                };
+                
+                // Initiate image loading
+                img.src = url;
+                
+              } catch (canvasError) {
+                debug("Error creating canvas: " + canvasError.toString());
+                if (document.getElementById('loading')) {
+                  document.getElementById('loading').style.display = 'none';
+                }
+                
+                // Fallback to original resolution if HD fails
+                sendFallbackImage(svgElement);
+              }
+            }, 50); // Delay to let UI update before heavy processing
+            
+          } catch (error) {
+            debug("Error in save to gallery: " + error.toString());
+            if (document.getElementById('loading')) {
+              document.getElementById('loading').style.display = 'none';
+            }
+            
+            // Try fallback at original resolution
             try {
-              // Set rendering quality
-              ctx.imageSmoothingEnabled = true;
-              ctx.imageSmoothingQuality = 'high';
+              sendFallbackImage(document.querySelector('svg'));
+            } catch (e) {
+              debug("Fallback save also failed: " + e.toString());
+            }
+          }
+        }
+
+        // Fallback function that sends the original resolution image if HD fails
+        function sendFallbackImage(svgElement) {
+          if (!svgElement) return;
+          
+          try {
+            debug("Using fallback image save at original resolution");
+            
+            const svgData = new XMLSerializer().serializeToString(svgElement);
+            const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(svgBlob);
+            
+            const img = new Image();
+            const canvas = document.createElement('canvas');
+            const svgRect = svgElement.getBoundingClientRect();
+            
+            canvas.width = svgRect.width;
+            canvas.height = svgRect.height;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            img.onload = function() {
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
               
-              // Draw image at scaled size
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              DOMURL.revokeObjectURL(url);
+              const pngDataUrl = canvas.toDataURL('image/png', 0.8);
               
-              // Generate PNG at moderate quality for better performance (0.8 instead of 1.0)
-              const pngDataUrl = canvas.toDataURL('image/png', 0.9);
-              
-              // Notify React Native to save to gallery
               sendToRN('saveToGallery', {
                 dataUrl: pngDataUrl,
-                filename: 'cross-section-hd.png'
+                filename: 'cross-section.png'
               });
               
-              debug("HD image save request sent");
-              
-              // Hide loading indicator if visible
-              if (document.getElementById('loading')) {
-                document.getElementById('loading').style.display = 'none';
-              }
-            } catch (drawError) {
-              debug("Error drawing image: " + drawError.toString());
-              if (document.getElementById('loading')) {
-                document.getElementById('loading').style.display = 'none';
-              }
-            }
-          }, 10); // Small delay to let UI update
-        };
-        
-        img.onerror = function(e) {
-          debug("Error loading SVG image: " + e);
-          DOMURL.revokeObjectURL(url);
-          if (document.getElementById('loading')) {
-            document.getElementById('loading').style.display = 'none';
+              debug("Fallback image save request sent");
+            };
+            
+            img.onerror = function() {
+              debug("Fallback image loading failed");
+              URL.revokeObjectURL(url);
+            };
+            
+            img.src = url;
+          } catch (error) {
+            debug("Fallback image generation failed: " + error.toString());
           }
-        };
-        
-        // Initiate image loading
-        img.src = url;
-        
-      } catch (canvasError) {
-        debug("Error creating canvas: " + canvasError.toString());
-        if (document.getElementById('loading')) {
-          document.getElementById('loading').style.display = 'none';
         }
-        
-        // Fallback to original resolution if HD fails
-        sendFallbackImage(svgElement);
-      }
-    }, 50); // Delay to let UI update before heavy processing
-    
-  } catch (error) {
-    debug("Error in save to gallery: " + error.toString());
-    if (document.getElementById('loading')) {
-      document.getElementById('loading').style.display = 'none';
-    }
-    
-    // Try fallback at original resolution
-    try {
-      sendFallbackImage(document.querySelector('svg'));
-    } catch (e) {
-      debug("Fallback save also failed: " + e.toString());
-    }
-  }
-}
-
-// Fallback function that sends the original resolution image if HD fails
-function sendFallbackImage(svgElement) {
-  if (!svgElement) return;
-  
-  try {
-    debug("Using fallback image save at original resolution");
-    
-    const svgData = new XMLSerializer().serializeToString(svgElement);
-    const svgBlob = new Blob([svgData], {type: 'image/svg+xml'});
-    const url = URL.createObjectURL(svgBlob);
-    
-    const img = new Image();
-    const canvas = document.createElement('canvas');
-    const svgRect = svgElement.getBoundingClientRect();
-    
-    canvas.width = svgRect.width;
-    canvas.height = svgRect.height;
-    const ctx = canvas.getContext('2d');
-    
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    img.onload = function() {
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      
-      const pngDataUrl = canvas.toDataURL('image/png', 0.8);
-      
-      sendToRN('saveToGallery', {
-        dataUrl: pngDataUrl,
-        filename: 'cross-section.png'
-      });
-      
-      debug("Fallback image save request sent");
-    };
-    
-    img.onerror = function() {
-      debug("Fallback image loading failed");
-      URL.revokeObjectURL(url);
-    };
-    
-    img.src = url;
-  } catch (error) {
-    debug("Fallback image generation failed: " + error.toString());
-  }
-}
         
         // Send data statistics back to React Native
         function sendDataStats() {
@@ -474,10 +477,55 @@ function sendFallbackImage(svgElement) {
 
         elevationPoints = ${safeStringify(elevationPoints)};
         
+        // Get elevation range for Y-axis scaling
+        function getElevationRange(blocks, elevationPoints, pitPoints) {
+          try {
+            const allElevations = [];
+            
+            // Add block elevations
+            blocks.forEach(block => {
+              allElevations.push(block.elevation + block.height/2);
+              allElevations.push(block.elevation - block.height/2);
+            });
+            
+            // Add elevation profile points
+            if (elevationPoints && elevationPoints.length > 0) {
+              elevationPoints.forEach(point => {
+                if (point.elevation !== null && !isNaN(point.elevation)) {
+                  allElevations.push(point.elevation);
+                }
+              });
+            }
+            
+            // Add pit points
+            if (pitPoints && pitPoints.length > 0) {
+              pitPoints.forEach(point => {
+                if (!isNaN(point.elevation)) {
+                  allElevations.push(point.elevation);
+                }
+              });
+            }
+            
+            // Filter out invalid values
+            const validElevations = allElevations.filter(e => !isNaN(e));
+            
+            if (validElevations.length === 0) {
+              return { min: 0, max: 100 };
+            }
+            
+            // Find min and max with padding
+            const min = Math.min(...validElevations) - 20;
+            const max = Math.max(...validElevations) + 20;
+            
+            return { min, max };
+          } catch (err) {
+            return { min: 0, max: 100 };
+          }
+        }
+        
         // Main rendering function
         function renderVisualization() {
           if (isRendering || hasRendered) return;
-          
           isRendering = true;
           
           try {
@@ -504,36 +552,30 @@ function sendFallbackImage(svgElement) {
             );
             
             // Get elevation range
-            const elevRange = ${safeStringify(elevationRange)}
+            const elevRange = getElevationRange(sectionBlocks, elevationProfile, pitProfile);
             
-            // Calculate proper dimensions
-            const margin = { top: 40, right: 30, bottom: 200, left: 80 }; // Further increase bottom margin 
+            // Setup dimensions - Adjusted to provide more space for legend
+            const margin = { top: 20, right: 30, bottom: 280, left: 80 }; // Increased bottom margin for legend below axis label
 
-            // Use full width for mobile
-            const chartWidth = window.innerWidth;
-            
-            // Calculate height based on viewport but ensure it's not too small
-            const minHeight = 400;
-            const maxHeight = 800;
-            const baseHeight = Math.min(Math.max(window.innerHeight * 0.7, minHeight), maxHeight);
-            
+            const chartWidth = Math.max(window.innerWidth, lineLength / 2);
+            const height = window.innerHeight * 0.85; // Slightly increase overall height
             const innerWidth = chartWidth - margin.left - margin.right;
-            const innerHeight = baseHeight - margin.top - margin.bottom;
+            const innerHeight = height - margin.top - margin.bottom;
             
-            // Calculate total SVG height including margins and legend spacing
-            const legendSpacing = 100; // More space for legend after rotated labels
-            const totalHeight = baseHeight + legendSpacing;
+            // Notify React Native of chart width
+            if (!chartWidthSent) {
+              sendToRN('chartDimensions', { width: chartWidth });
+              chartWidthSent = true;
+            }
             
-            // Set the container height to match content
-            document.getElementById('chart-container').style.height = totalHeight + 'px';
-            
-            // Create SVG
+            // Create SVG - with explicit viewBox for better control
             const svg = d3.select('#chart')
-            .append('svg')
-            .attr('width', chartWidth)
-            .attr('height', totalHeight)
-            .attr('viewBox', \`0 0 \${chartWidth} \${totalHeight}\`);
-            
+              .append('svg')
+              .attr('width', chartWidth)
+              .attr('height', height)
+              .attr('viewBox', \`0 0 \${chartWidth} \${height}\`)
+              .attr('preserveAspectRatio', 'xMidYMid meet');
+              
             // Create tooltip
             const tooltip = d3.select('#tooltip');
               
@@ -549,25 +591,9 @@ function sendFallbackImage(svgElement) {
             const yScale = d3.scaleLinear()
               .domain([elevRange.min, elevRange.max])
               .range([innerHeight, 0]);
-              
-            // Create zoom behavior for pinch-to-zoom
-            const zoom = d3.zoom()
-              .scaleExtent([0.5, 10]) // Allow zoom from 0.5x to 10x
-              .translateExtent([[-chartWidth, -totalHeight], [chartWidth * 2, totalHeight * 2]]) // Allow more free panning
-              .on('zoom', function(event) {
-                g.attr('transform', \`translate(\${margin.left + event.transform.x}, \${margin.top + event.transform.y}) scale(\${event.transform.k})\`);
-                
-                // Hide tooltip during zoom
-                tooltip.transition()
-                  .duration(0)
-                  .style('opacity', 0);
-              });
-            
-            // Apply zoom to SVG
-            svg.call(zoom);
           
             // Generate tick values at reasonable intervals
-            const tickCount = 15;
+            const tickCount = 25; // Adjust as needed
             const tickValues = Array.from({ length: tickCount + 1 }, (_, i) => i * (lineLength / tickCount));
             
             // Create axes with coordinate labels
@@ -600,8 +626,10 @@ function sendFallbackImage(svgElement) {
             // Add axis labels
             g.append('text')
               .attr('x', innerWidth / 2)
-              .attr('y', innerHeight + 150) // Moved further down to clear rotated coordinates
+              .attr('y', innerHeight + 170) // Position for x-axis label
               .attr('text-anchor', 'middle')
+              .attr('font-size', '14px')
+              .attr('font-weight', '500')
               .text('Cross-section coordinates');
               
             g.append('text')
@@ -609,6 +637,8 @@ function sendFallbackImage(svgElement) {
               .attr('x', -innerHeight / 2)
               .attr('y', -60)
               .attr('text-anchor', 'middle')
+              .attr('font-size', '14px')
+              .attr('font-weight', '500')
               .text('Elevation (mdpl)');
 
             // Add grid
@@ -632,135 +662,144 @@ function sendFallbackImage(svgElement) {
             // Collect unique rock types for legend
             const uniqueRocks = {};
             
+            // Draw blocks
             if (sectionBlocks && sectionBlocks.length > 0) {
-  try {
-    // Gather unique rock types
-    sectionBlocks.forEach(block => {
-      const rockType = block.rock || 'unknown';
-      const color = block.color 
-      uniqueRocks[rockType] = color;
-    });
-    
-    // Create a group for each block that will contain both the rectangle and the text
-    const blockGroups = g.selectAll('.block-group')
-      .data(sectionBlocks)
-      .enter()
-      .append('g')
-      .attr('class', 'block-group');
-    
-    // Add rectangles to each group
-    blockGroups.append('rect')
-      .attr('class', 'block')
-      .attr('x', d => xScale(d.distance))
-      .attr('y', d => yScale(d.elevation + d.height/2))
-      .attr("width", d => xScale(d.distance + d.width) - xScale(d.distance))
-      .attr('height', d => Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2)))
-      .attr('fill', d => d.color)
-      .attr('stroke', 'black')
-      .attr('stroke-width', 0.25)
-      .on('mouseover', function(event, d) {
-        // Highlight on hover
-        d3.select(this)
-          .attr('stroke-width', 2)
-          .attr('stroke', '#333');
-                              
-        // Show tooltip
-        tooltip.transition()
-          .duration(200)
-          .style('opacity', 1);
-        
-        // Calculate tooltip position
-        let left = event.pageX + 10;
-        let top = event.pageY - 28;
-        
-        // Ensure tooltip doesn't go off screen
-        const tooltipWidth = 200;
-        const tooltipHeight = 150;
-        
-        if (left + tooltipWidth > window.innerWidth) {
-          left = event.pageX - tooltipWidth - 10;
-        }
-        
-        if (top < 0) {
-          top = event.pageY + 20;
-        }
-        
-        tooltip.html(
-          \`<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Rock Type:</strong> <span style="color: #495057;">\${d.rock || 'unknown'}</span></div>
-            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Concentrate:</strong> <span style="color: #495057;">\${d.concentrate !== undefined ? parseFloat(d.concentrate) : 'N/A'}</span></div>
-            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Elevation:</strong> <span style="color: #495057;">\${parseFloat(d.elevation).toFixed(1)}mdpl</span></div>
-            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Distance:</strong> <span style="color: #495057;">\${parseFloat(d.distance).toFixed(1)}m</span></div>
-            <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Width:</strong> <span style="color: #495057;">\${parseFloat(d.width).toFixed(1)}m</span></div>
-            <div><strong style="color: #212529; font-weight: 600;">Height:</strong> <span style="color: #495057;">\${parseFloat(d.height).toFixed(1)}m</span></div>
-          </div>\`
-        )
-        .style('left', left + 'px')
-        .style('top', top + 'px');
-      })
-      .on('mouseout', function() {
-        // Reset on mouseout
-        d3.select(this)
-          .attr('stroke-width', 0.5)
-          .attr('stroke', 'black');
-          
-        // Hide tooltip
-        tooltip.transition()
-          .duration(500)
-          .style('opacity', 0);
-      });
-    
-    // Add text displaying the concentrate value in the middle of each block
-    blockGroups.append('text')
-  .attr('class', 'block-concentrate')
-  .attr('x', d => xScale(d.distance + d.width/2)) // Center horizontally
-  .attr('y', d => yScale(d.elevation)) // Center vertically
-  .attr('text-anchor', 'middle') // Ensure text is centered
-  .attr('dominant-baseline', 'middle') // Vertical alignment
-  .attr('fill', 'white') // Text color
-  .attr('pointer-events', 'none') // Make text non-interactive
-  .text(d => d.concentrate !== undefined ? parseFloat(d.concentrate) : '')
-  .attr('font-size', function(d) {
-    // Calculate block dimensions in pixels
-    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
-    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
-    
-    // Calculate a font size proportional to the block size
-    // Base size on the smaller dimension (width or height)
-    const minDimension = Math.min(blockWidth, blockHeight);
-    
-    // More aggressive scaling factor - adjust based on total blocks
-    // This makes the text size more proportional to block size
-    const scaleFactor = 0.35; 
-    
-    // More dynamic min/max constraints based on block size
-    const minFontSize = 3; // Smaller minimum size
-    const maxFontSize = 20; // Smaller maximum size
-    
-    // Calculate font size with improved constraints
-    const calculatedSize = Math.max(minFontSize, Math.min(minDimension * scaleFactor, maxFontSize));
-    
-    return calculatedSize + 'px';
-  })
-  .attr('visibility', function(d) {
-    // Calculate block dimensions in pixels
-    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
-    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
-    
-    // Text length based on the actual displayed text
-    const textContent = d.concentrate !== undefined ? parseFloat(d.concentrate) : '';
-    const textLength = textContent.length;
-    
-    // Estimate space needed - now more conservative
-    const minWidthNeeded = textLength * 5; // Pixels per character (reduced from 6)
-    const minHeightNeeded = 6; // Minimum height needed for text
-    
-    
-  });
-  } catch (err) {
-    debug("Error drawing blocks: " + err.message);
-  }
-}
+              try {
+                // Gather unique rock types
+                sectionBlocks.forEach(block => {
+                  const rockType = block.rock || 'unknown';
+                  const color = block.color; 
+                  uniqueRocks[rockType] = color;
+                });
+                
+                // Create separate layers
+                const blockLayer = g.append('g').attr('class', 'block-layer');
+                const textLayer = g.append('g').attr('class', 'text-layer');
+
+                // Draw blocks FIRST in block layer
+                blockLayer.selectAll('.block')
+                  .data(sectionBlocks)
+                  .enter()
+                  .append('rect')
+                  .attr('class', 'block')
+                  .attr('x', d => xScale(d.distance))
+                  .attr('y', d => yScale(d.elevation + d.height/2))
+                  .attr('width', d => xScale(d.distance + d.width) - xScale(d.distance))
+                  .attr('height', d => Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2)))
+                  .attr('fill', d => d.color)
+                  .attr('stroke', 'black')
+                  .attr('stroke-width', 0.25)
+                  .on('mouseover', function(event, d) {
+                    // Highlight on hover
+                    d3.select(this)
+                      .attr('stroke-width', 2)
+                      .attr('stroke', '#333');
+                                          
+                    // Show tooltip
+                    tooltip.transition()
+                      .duration(200)
+                      .style('opacity', 1);
+                    
+                    // Calculate tooltip position
+                    let left = event.pageX + 10;
+                    let top = event.pageY - 28;
+                    
+                    // Ensure tooltip doesn't go off screen
+                    const tooltipWidth = 280;
+                    const tooltipHeight = 200;
+                    
+                    if (left + tooltipWidth > window.innerWidth) {
+                      left = event.pageX - tooltipWidth - 10;
+                    }
+                    
+                    if (top < 0) {
+                      top = event.pageY + 20;
+                    }
+                    
+                    // Format concentration values
+                    const formatConc = (value) => {
+                      return value !== -99 && value !== undefined && value !== null 
+                        ? parseFloat(value).toFixed(3) + '%' 
+                        : 'N/A';
+                    };
+                    
+                    tooltip.html(
+                      \`<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Rock Type:</strong> <span style="color: #495057;">\${d.rock || 'unknown'}</span></div>
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Ni:</strong> <span style="color: #495057;">\${formatConc(d.ni_ok)}</span></div>
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Fe:</strong> <span style="color: #495057;">\${formatConc(d.fe_ok)}</span></div>
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Co:</strong> <span style="color: #495057;">\${formatConc(d.co_idw)}</span></div>
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Elevation:</strong> <span style="color: #495057;">\${parseFloat(d.elevation).toFixed(1)}mdpl</span></div>
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Distance:</strong> <span style="color: #495057;">\${parseFloat(d.distance).toFixed(1)}m</span></div>
+                        <div style="margin-bottom: 6px;"><strong style="color: #212529; font-weight: 600;">Width:</strong> <span style="color: #495057;">\${parseFloat(d.width).toFixed(1)}m</span></div>
+                        <div><strong style="color: #212529; font-weight: 600;">Height:</strong> <span style="color: #495057;">\${parseFloat(d.height).toFixed(1)}m</span></div>
+                      </div>\`
+                    )
+                    .style('left', left + 'px')
+                    .style('top', top + 'px');
+                  })
+                  .on('mouseout', function() {
+                    // Reset on mouseout
+                    d3.select(this)
+                      .attr('stroke-width', 0.5)
+                      .attr('stroke', 'black');
+                      
+                    // Hide tooltip
+                    tooltip.transition()
+                      .duration(500)
+                      .style('opacity', 0);
+                  });
+
+                // Draw text AFTER in text layer (will be on top)
+                textLayer.selectAll('.block-text')
+                  .data(sectionBlocks)
+                  .enter()
+                  .append('text')
+                  .attr('x', d => xScale(d.distance + d.width/2))
+                  .attr('y', d => yScale(d.elevation))
+                  .attr('text-anchor', 'middle')
+                  .attr('dominant-baseline', 'middle')
+                  .attr('fill', 'white')
+                  .attr('font-size', function(d) {
+                    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
+                    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
+                    const minDimension = Math.min(blockWidth, blockHeight);
+                    const scaleFactor = 0.35;
+                    const minFontSize = 6;
+                    const maxFontSize = 16;
+                    const calculatedSize = Math.max(minFontSize, Math.min(minDimension * scaleFactor, maxFontSize));
+                    return calculatedSize + 'px';
+                  })
+                  .attr('font-weight', 'bold')
+                  .style('text-shadow', '1px 1px 2px rgba(0,0,0,0.8)')
+                  .text(d => {
+                    if (d.ni_ok !== -99 && d.ni_ok !== undefined && d.ni_ok !== null) {
+                      return parseFloat(d.ni_ok).toFixed(2) + '%';
+                    }
+                    return '';
+                  })
+                  .attr('visibility', function(d) {
+                    // Hide text if no valid value
+                    if (d.ni_ok === -99 || d.ni_ok === undefined || d.ni_ok === null) {
+                      return 'hidden';
+                    }
+                    
+                    // Calculate block dimensions in pixels
+                    const blockWidth = Math.abs(xScale(d.distance + d.width) - xScale(d.distance));
+                    const blockHeight = Math.abs(yScale(d.elevation - d.height/2) - yScale(d.elevation + d.height/2));
+                    
+                    // Hide text if block is too small
+                    if (blockWidth < 20 || blockHeight < 20) {
+                      return 'hidden';
+                    }
+                    
+                    return 'visible';
+                  });
+                  
+              } catch (err) {
+                debug("Error drawing blocks: " + err.message);
+              }
+            }
             
             // Draw elevation profile
             if (elevationProfile.length > 0 && elevationProfile.some(p => p.elevation !== null)) {
@@ -858,26 +897,27 @@ function sendFallbackImage(svgElement) {
               }
             }
             
-            // Create legend OUTSIDE the zoomed group but INSIDE SVG
-            const legendWidth = innerWidth * 0.8;
-            const legendHeight = 40;
-            const legendX = (innerWidth - legendWidth) / 2;
-            const legendY = baseHeight - 40; // Position legend just below chart
+            // Create legend - Position below the x-axis label
+            const legendWidth = innerWidth * 0.9;
+            const legendHeight = 50;
+            const legendX = margin.left + (innerWidth - legendWidth) / 2;
+            // Position legend below the x-axis label with some spacing
+            const legendY = margin.top + innerHeight + 190; // 190 = 170 (axis label position) + 20 (spacing)
 
-            // Create the legend container directly on SVG (not in the zoomed group)
+            // Create the legend container with a light background
             const legendBox = svg.append('g')
               .attr('class', 'legend-container')
-              .attr('transform', \`translate(\${margin.left + legendX}, \${legendY})\`);
+              .attr('transform', \`translate(\${legendX}, \${legendY})\`);
 
             // Add a subtle background to make legend more visible
             legendBox.append('rect')
               .attr('width', legendWidth)
               .attr('height', legendHeight)
-              .attr('rx', 5)
-              .attr('ry', 5)
+              .attr('rx', 5) // Rounded corners
+              .attr('ry', 5) // Fixed ry value
               .attr('fill', 'white')
-              .attr('stroke', '#999')
-              .attr('stroke-width', 1.5)
+              .attr('stroke', '#ddd')
+              .attr('stroke-width', 1)
               .attr('opacity', 0.95);
 
             // Calculate how many items we need to display
@@ -898,7 +938,7 @@ function sendFallbackImage(svgElement) {
               const x = i * itemWidth;
               
               const legendItem = legendBox.append('g')
-                .attr('transform', \`translate(\${x + 10}, 20)\`);
+                .attr('transform', \`translate(\${x + itemWidth/2 - 50}, 25)\`); // Center items better
               
               if (label === 'Terrain Elevation') {
                 // Draw a line for terrain elevation
@@ -946,7 +986,7 @@ function sendFallbackImage(svgElement) {
                 .attr('y', 5)
                 .attr('alignment-baseline', 'middle')
                 .attr('font-size', '12px')
-                .attr('font-weight', '500')
+                .attr('font-weight', '500') // Slightly bold
                 .text(label);
             });
             

@@ -15,9 +15,9 @@ export const createBoundingBoxFromBlockModel = (
   }
 
   const startTime = Date.now();
-  console.log(
-    `Creating bounding box from ${blockModelData.length} block model points`
-  );
+  // console.log(
+  //   `Creating bounding box from ${blockModelData.length} block model points`
+  // );
 
   // Extract x,y coordinates from block model data
   const xValues = blockModelData
@@ -49,11 +49,11 @@ export const createBoundingBoxFromBlockModel = (
   const minY = Math.min(...yValues) - buffer;
   const maxY = Math.max(...yValues) + buffer;
 
-  console.log(
-    `Created bounding box: [${minX}, ${minY}] to [${maxX}, ${maxY}] in ${
-      (Date.now() - startTime) / 1000
-    }s`
-  );
+  // console.log(
+  //   `Created bounding box: [${minX}, ${minY}] to [${maxX}, ${maxY}] in ${
+  //     (Date.now() - startTime) / 1000
+  //   }s`
+  // );
 
   return { minX, maxX, minY, maxY };
 };
@@ -82,7 +82,7 @@ export const filterElevationDataByBlockModel = (
   }
 
   const startTime = Date.now();
-  console.log(`Filtering ${elevationData.length} elevation points...`);
+  // console.log(`Filtering ${elevationData.length} elevation points...`);
 
   // Use a more efficient approach with fewer object allocations
   const { minX, maxX, minY, maxY } = blockModelBoundingBox;
@@ -100,11 +100,11 @@ export const filterElevationDataByBlockModel = (
   });
 
   const endTime = Date.now();
-  console.log(
-    `Filtered elevation data from ${elevationData.length} to ${
-      filteredData.length
-    } points (${((endTime - startTime) / 1000).toFixed(2)}s)`
-  );
+  // console.log(
+  //   `Filtered elevation data from ${elevationData.length} to ${
+  //     filteredData.length
+  //   } points (${((endTime - startTime) / 1000).toFixed(2)}s)`
+  // );
 
   return filteredData;
 };
@@ -140,7 +140,7 @@ export const processElevationData = (
   }
 
   const startTime = Date.now();
-  console.log(`Processing ${data.length} elevation data points...`);
+  // console.log(`Processing ${data.length} elevation data points...`);
 
   // Filter data by block model bounding box if provided
   let dataToProcess = data;
@@ -152,7 +152,7 @@ export const processElevationData = (
       latField
     );
 
-    console.log(`Time to filter data: ${(Date.now() - startTime) / 1000}s`);
+    // console.log(`Time to filter data: ${(Date.now() - startTime) / 1000}s`);
   }
 
   // If we still have too many points, sample them
@@ -162,15 +162,15 @@ export const processElevationData = (
     dataToProcess = dataToProcess.filter(
       (_, index) => index % sampleRate === 0
     );
-    console.log(`Sampled ${dataToProcess.length} points from filtered data`);
+    // console.log(`Sampled ${dataToProcess.length} points from filtered data`);
   }
 
-  console.log(
-    `Processing ${dataToProcess.length} points, first point:`,
-    dataToProcess.length > 0
-      ? `x: ${dataToProcess[0][lonField]}, y: ${dataToProcess[0][latField]}, z: ${dataToProcess[0][elevField]}`
-      : "No data"
-  );
+  // console.log(
+  //   `Processing ${dataToProcess.length} points, first point:`,
+  //   dataToProcess.length > 0
+  //     ? `x: ${dataToProcess[0][lonField]}, y: ${dataToProcess[0][latField]}, z: ${dataToProcess[0][elevField]}`
+  //     : "No data"
+  // );
 
   const conversionStart = Date.now();
 
@@ -220,11 +220,11 @@ export const processElevationData = (
   }
 
   const endTime = Date.now();
-  console.log(
-    `Completed elevation processing: ${processedData.length} points in ${
-      (endTime - startTime) / 1000
-    }s`
-  );
+  // console.log(
+  //   `Completed elevation processing: ${processedData.length} points in ${
+  //     (endTime - startTime) / 1000
+  //   }s`
+  // );
 
   return processedData;
 };

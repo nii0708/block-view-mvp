@@ -529,27 +529,27 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           }
         }
         
-        // Update map with GeoJSON data and PDF overlay - FIXED VERSION
+        // Update map with GeoJSON data and PDF overlay (SIMPLIFIED)
         async function updateMapData(data) {
           try {
             console.log("updateMapData called", data);
             
             // Block model GeoJSON handling
-            if (data.geoJsonData !== undefined) {
+            if (data.geoJsonData && data.geoJsonData !== null) {
               if (geoJsonLayer) {
                 map.removeLayer(geoJsonLayer);
                 geoJsonLayer = null;
               }
               
-              if (data.geoJsonData && data.geoJsonData.features && data.geoJsonData.features.length > 0) {
+              if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
                 geoJsonLayer = L.geoJSON(data.geoJsonData, {
                   style: function(feature) {
                     return {
                       fillColor: feature.properties.color || '#3388ff',
                       weight: 1,
-                      opacity: 0.7,
+                      opacity: 0.7, // Reduced from 1 to 0.7
                       color: 'black',
-                      fillOpacity: 0.4
+                      fillOpacity: 0.4 // Reduced from 0.7 to 0.4
                     };
                   },
                   onEachFeature: function(feature, layer) {
@@ -566,22 +566,28 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                   }
                 }).addTo(map);
               }
+            } else if (data.geoJsonData === null) {
+              // Remove the layer if data is null
+              if (geoJsonLayer) {
+                map.removeLayer(geoJsonLayer);
+                geoJsonLayer = null;
+              }
             }
             
             // Pit GeoJSON handling with reduced opacity
-            if (data.pitGeoJsonData !== undefined) {
+            if (data.pitGeoJsonData && data.pitGeoJsonData !== null) {
               if (pitLayer) {
                 map.removeLayer(pitLayer);
                 pitLayer = null;
               }
               
-              if (data.pitGeoJsonData && data.pitGeoJsonData.features && data.pitGeoJsonData.features.length > 0) {
+              if (data.pitGeoJsonData.features && data.pitGeoJsonData.features.length > 0) {
                 pitLayer = L.geoJSON(data.pitGeoJsonData, {
                   style: function(feature) {
                     return {
                       color: '#FF6600',
-                      weight: 3,
-                      opacity: 0.8,
+                      weight: 3, // Reduced from 4 to 3
+                      opacity: 0.8, // Reduced from 1.0 to 0.8
                       dashArray: '5, 5'
                     };
                   },
@@ -599,87 +605,90 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
                   }
                 }).addTo(map);
               }
+            } else if (data.pitGeoJsonData === null) {
+              // Remove the layer if data is null
+              if (pitLayer) {
+                map.removeLayer(pitLayer);
+                pitLayer = null;
+              }
             }
             
-            // Handle PDF overlay - FIXED VERSION
-            if (data.pdfOverlayData !== undefined) {
-              // Always remove existing PDF layer first
-              if (pdfLayer) {
-                console.log('Removing existing PDF layer');
-                map.removeLayer(pdfLayer);
-                pdfLayer = null;
-              }
+            // Handle PDF overlay - SIMPLIFIED VERSION
+            if (data.pdfOverlayData) {
+          if (pdfLayer) {
+            map.removeLayer(pdfLayer);
+            pdfLayer = null;
+          }
+          
+          if (data.pdfOverlayData.bounds) {
+            if (data.pdfOverlayData.imageBase64) {
+              // Ada image base64, tampilkan sebagai image overlay dengan opacity penuh
+              console.log('Adding PDF as image overlay with full opacity...');
               
-              // Only add new PDF layer if data is not null
-              if (data.pdfOverlayData && data.pdfOverlayData.bounds) {
-                if (data.pdfOverlayData.imageBase64) {
-                  // Ada image base64, tampilkan sebagai image overlay dengan opacity penuh
-                  console.log('Adding PDF as image overlay with full opacity...');
-                  
-                  // Gunakan format image yang benar
-                  const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
-                  
-                  pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
-                    opacity: 1.0, // Full opacity, no transparency
-                    interactive: true,
-                    className: 'pdf-overlay',
-                    attribution: 'PDF Map'
-                  }).addTo(map);
-                  
-                  pdfLayer.bindPopup(
-                    '<div class="pdf-popup">' +
-                    '<strong>PDF Map</strong><br>' +
-                    'Geospatial PDF Overlay<br>' +
-                    '<small>Click to see full extent</small>' +
-                    '</div>'
-                  );
-                  
-                  console.log('PDF image overlay created successfully with full opacity');
-                  
-                  // Auto-fit bounds for PDF if it's the primary data
-                  if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
-                    console.log('Fitting PDF bounds...');
-                    const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
-                    map.fitBounds(pdfBounds, { 
-                      padding: [20, 20],
-                      maxZoom: data.pdfOverlayData.zoom || 14
-                    });
-                  }
-                } else {
-                  // Belum ada image, tampilkan sebagai marker sementara
-                  console.log('Adding PDF as marker (processing)...');
-                  
-                  const pdfCenter = [
-                    (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
-                    (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
-                  ];
-                  
-                  const pdfMarker = L.marker(pdfCenter, {
-                    icon: L.divIcon({
-                      className: 'pdf-processing-marker',
-                      html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
-                      iconSize: [120, 30],
-                      iconAnchor: [60, 15]
-                    })
-                  }).addTo(map)
-                  .bindPopup(
-                    '<div class="pdf-popup">' +
-                    '<strong>PDF Location</strong><br>' +
-                    'Converting to image...<br>' +
-                    '<small>Please wait</small>' +
-                    '</div>'
-                  );
-                  
-                  pdfLayer = pdfMarker;
-                  console.log('PDF processing marker created at:', pdfCenter);
-                  
-                  // Center map on PDF location if no other data
-                  if (!data.skipFitBounds) {
-                    map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
-                  }
-                }
+              // Gunakan format image yang benar
+              const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
+              
+              pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
+                opacity: 1.0, // Full opacity, no transparency
+                interactive: true,
+                className: 'pdf-overlay',
+                attribution: 'PDF Map'
+              }).addTo(map);
+              
+              pdfLayer.bindPopup(
+                '<div class="pdf-popup">' +
+                '<strong>PDF Map</strong><br>' +
+                'Geospatial PDF Overlay<br>' +
+                '<small>Click to see full extent</small>' +
+                '</div>'
+              );
+              
+              console.log('PDF image overlay created successfully with full opacity');
+              
+              // Auto-fit bounds for PDF if it's the primary data
+              if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
+                console.log('Fitting PDF bounds...');
+                const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+                map.fitBounds(pdfBounds, { 
+                  padding: [20, 20],
+                  maxZoom: data.pdfOverlayData.zoom || 14
+                });
+              }
+            } else {
+              // Belum ada image, tampilkan sebagai marker sementara
+              console.log('Adding PDF as marker (processing)...');
+              
+              const pdfCenter = [
+                (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
+                (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
+              ];
+              
+              const pdfMarker = L.marker(pdfCenter, {
+                icon: L.divIcon({
+                  className: 'pdf-processing-marker',
+                  html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
+                  iconSize: [120, 30],
+                  iconAnchor: [60, 15]
+                })
+              }).addTo(map)
+              .bindPopup(
+                '<div class="pdf-popup">' +
+                '<strong>PDF Location</strong><br>' +
+                'Converting to image...<br>' +
+                '<small>Please wait</small>' +
+                '</div>'
+              );
+              
+              pdfLayer = pdfMarker;
+              console.log('PDF processing marker created at:', pdfCenter);
+              
+              // Center map on PDF location if no other data
+              if (!data.skipFitBounds) {
+                map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
               }
             }
+          }
+        }
             
             // Only fit bounds once on initial load, not on updates
             if (!data.skipFitBounds) {

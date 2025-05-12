@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -41,7 +41,7 @@ export default function CrossSectionViewScreen() {
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
 
-  // NEW: State for processed data counts (what's actually displayed)
+  // State for processed data counts
   const [displayedDataCounts, setDisplayedDataCounts] = useState({
     displayedBlocks: 0,
     displayedElevationPoints: 0,
@@ -51,6 +51,13 @@ export default function CrossSectionViewScreen() {
   // Get data from context
   const { fullBlockModelData, processedElevation, processedPitData } =
     useMiningData();
+
+  // Reference for WebView to handle screenshot
+  type CrossSectionWebViewRef = {
+    triggerScreenshot: () => void;
+  };
+
+  const webViewRef = useRef<CrossSectionWebViewRef>(null);
 
   // Load data on component mount
   useEffect(() => {
@@ -64,6 +71,10 @@ export default function CrossSectionViewScreen() {
 
       // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
+        console.log(
+          `Preparing ${fullBlockModelData.length} blocks for cross-section`
+        );
+
         // Direct mapping without filtering (WebView will handle filtering)
         const extractedBlocks = fullBlockModelData.map((block) => ({
           centroid_x: parseFloat(block.centroid_x || block.x || 0),
@@ -74,20 +85,22 @@ export default function CrossSectionViewScreen() {
           dim_z: parseFloat(block.dim_z || block.height || 10),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
+          ni_ok: parseFloat(block.ni_ok || -99),
+          fe_ok: parseFloat(block.fe_ok || -99),
+          co_idw: parseFloat(block.co_idw || -99),
         }));
 
         setBlockModelData(extractedBlocks);
+        console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
       }
 
       // Process elevation data if available
       if (processedElevation && processedElevation.length > 0) {
-        // Direct mapping without filtering (WebView will handle filtering)
         setElevationData(processedElevation);
       }
 
       // Process pit data if available
       if (processedPitData?.features) {
-        // Direct mapping without filtering (WebView will handle filtering)
         setPitData(processedPitData.features);
       }
 
@@ -113,13 +126,14 @@ export default function CrossSectionViewScreen() {
     return rockColors[rockType.toLowerCase()] || "#CCCCCC";
   };
 
-  // NEW: Handler for processed data from WebView
+  // Handler for processed data from WebView
   const handleDataProcessed = useCallback(
     (data: {
       displayedBlocks: number;
       displayedElevationPoints: number;
       displayedPitPoints: number;
     }) => {
+      console.log("Received processed data counts:", data);
       setDisplayedDataCounts(data);
     },
     []
@@ -139,51 +153,6 @@ export default function CrossSectionViewScreen() {
   const handleExportCancel = useCallback(() => {
     setExportDialogVisible(false);
   }, []);
-
-  // Handle export data - now accepts multiple selections
-  const handleExport = useCallback(
-    async (dataTypes: string[]) => {
-      try {
-        setIsExporting(true);
-
-        // Process each selected export type
-        for (const dataType of dataTypes) {
-          if (dataType === "screenshot") {
-            // Handle screenshot - send request to WebView
-            // We'll create a ref for this - for now let's alert
-            Alert.alert(
-              "Screenshot",
-              "Screenshot feature will be implemented soon"
-            );
-          } else {
-            // Handle data exports
-            await exportDataType(dataType);
-          }
-        }
-
-        setIsExporting(false);
-        setExportDialogVisible(false);
-      } catch (error) {
-        console.error("Error exporting data:", error);
-        Alert.alert(
-          "Export Error",
-          "Failed to export the data. Please try again."
-        );
-        setIsExporting(false);
-      }
-    },
-    [
-      blockModelData,
-      elevationData,
-      pitData,
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-      length,
-      projection,
-    ]
-  );
 
   // Helper function to export a specific data type
   const exportDataType = async (dataType: string) => {
@@ -233,9 +202,6 @@ export default function CrossSectionViewScreen() {
     }
   };
 
-  // Reference for WebView to handle screenshot
-  const webViewRef = React.useRef<any>(null);
-
   // Function to trigger screenshot from WebView
   const triggerScreenshot = useCallback(() => {
     if (webViewRef.current) {
@@ -243,8 +209,8 @@ export default function CrossSectionViewScreen() {
     }
   }, []);
 
-  // Update handleExport to actually trigger screenshot
-  const handleExportUpdated = useCallback(
+  // Handle export data - now accepts multiple selections
+  const handleExport = useCallback(
     async (dataTypes: string[]) => {
       try {
         setIsExporting(true);
@@ -271,18 +237,7 @@ export default function CrossSectionViewScreen() {
         setIsExporting(false);
       }
     },
-    [
-      blockModelData,
-      elevationData,
-      pitData,
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-      length,
-      projection,
-      triggerScreenshot,
-    ]
+    [blockModelData, elevationData, pitData, triggerScreenshot]
   );
 
   return (
@@ -331,7 +286,7 @@ export default function CrossSectionViewScreen() {
               </View>
             </View>
 
-            {/* Graph container with absolute positioned export button */}
+            {/* Graph container with export button */}
             <View style={styles.graphWithExportContainer}>
               {/* Cross Section WebView */}
               <View style={styles.graphContainer}>
@@ -373,7 +328,7 @@ export default function CrossSectionViewScreen() {
       <ExportDialog
         visible={exportDialogVisible}
         onCancel={handleExportCancel}
-        onExport={handleExportUpdated}
+        onExport={handleExport}
         isProcessing={isExporting}
       />
     </SafeAreaView>
