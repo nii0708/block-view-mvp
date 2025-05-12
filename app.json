@@ -7,7 +7,7 @@
     "icon": "./assets/images/res/mipmap-xxxhdpi/mine.lite.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },
@@ -17,7 +17,12 @@
         "backgroundImage": "./assets/images/res/mipmap-xxxhdpi/mine.lite_adaptive_back.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.ashecone.mine.lite"
+      "package": "com.ashecone.mine.lite",
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_MEDIA_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",

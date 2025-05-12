@@ -205,10 +205,7 @@ export const pickPDF = async (): Promise<PDFData | null> => {
  */
 export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
   try {
-    console.log(`Reading CSV file from URI: ${fileUri.substring(0, 50)}...`);
     const fileContent = await FileSystem.readAsStringAsync(fileUri);
-    console.log(`CSV file content length: ${fileContent.length} bytes`);
-    console.log(`CSV sample: ${fileContent.substring(0, 100)}...`);
 
     return new Promise((resolve, reject) => {
       Papa.parse(fileContent, {
@@ -224,16 +221,8 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
             return;
           }
 
-          console.log(
-            `Successfully parsed CSV with ${results.data.length} rows`
-          );
-          if (results.data.length > 0) {
-            console.log(`Sample CSV row:`, results.data[0]);
-          }
-
-          // Skip the first 3 rows for block model data (important!)
-          const typedData = results.data.slice(2) as CSVRow[];
-          resolve(typedData);
+          // Jangan skip di sini, biar skip di tempat yang panggil
+          resolve(results.data as CSVRow[]);
         },
         error: (error: Error) => {
           console.error("Error parsing CSV:", error);
@@ -339,21 +328,6 @@ export const parseLiDARFile = async (
 };
 
 /**
- * Convert PDF to base64 for WebView (if needed for display)
- */
-export const convertPDFToBase64 = async (pdfUri: string): Promise<string> => {
-  try {
-    const base64 = await FileSystem.readAsStringAsync(pdfUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    return base64;
-  } catch (error) {
-    console.error("Error converting PDF to base64:", error);
-    throw error;
-  }
-};
-
-/**
  * Save file information to local storage
  */
 export const saveFileInfo = async (
@@ -385,6 +359,41 @@ export const getFileInfo = async (): Promise<MiningDataFile[]> => {
 };
 
 /**
+ * Delete a mining data file by name
+ */
+export const deleteFileByName = async (fileName: string): Promise<boolean> => {
+  try {
+    const files = await getFileInfo();
+    const updatedFiles = files.filter((file) => file.name !== fileName);
+
+    if (files.length === updatedFiles.length) {
+      // No file was removed
+      return false;
+    }
+
+    return await saveFileInfo(updatedFiles);
+  } catch (error: any) {
+    console.error("Error deleting file:", error);
+    return false;
+  }
+};
+
+/**
+ * Convert PDF to base64 for WebView (if needed for display)
+ */
+export const convertPDFToBase64 = async (pdfUri: string): Promise<string> => {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(pdfUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return base64;
+  } catch (error) {
+    console.error("Error converting PDF to base64:", error);
+    throw error;
+  }
+};
+
+/**
  * Get PDF coordinates for a specific file
  */
 export const getPDFCoordinates = async (
@@ -402,26 +411,6 @@ export const getPDFCoordinates = async (
   } catch (error: any) {
     console.error("Error getting PDF coordinates:", error);
     return null;
-  }
-};
-
-/**
- * Delete a mining data file by name
- */
-export const deleteFileByName = async (fileName: string): Promise<boolean> => {
-  try {
-    const files = await getFileInfo();
-    const updatedFiles = files.filter((file) => file.name !== fileName);
-
-    if (files.length === updatedFiles.length) {
-      // No file was removed
-      return false;
-    }
-
-    return await saveFileInfo(updatedFiles);
-  } catch (error: any) {
-    console.error("Error deleting file:", error);
-    return false;
   }
 };
 

@@ -317,8 +317,9 @@ export default function TopDownViewScreen() {
             console.log("PDF coordinates:", coordinates);
             console.log("PDF center calculated:", pdfCenter);
 
-            // PERUBAHAN: Hapus setting map center ke PDF location
-            // Kita akan membiarkan block model menentukan center
+            // Update map center to PDF location immediately
+            setMapCenter(pdfCenter);
+            setMapZoom(14);
 
             // Use the processPDFForMapOverlay function with conversion flag
             const pdfResult = await processPDFForMapOverlay(
@@ -401,7 +402,7 @@ export default function TopDownViewScreen() {
 
       // Start processing block model data right away
       if (rawBlockModelData.length > 0) {
-        processBlockModelData(); // Pass flag to indicate if PDF center exists
+        processBlockModelData(pdfCenter !== null); // Pass flag to indicate if PDF center exists
       }
 
       // Load and parse elevation data if available
@@ -450,11 +451,11 @@ export default function TopDownViewScreen() {
 
       // Final map center and zoom setting
       // PDF center has priority, fallback to block model center
-      // if (pdfCenter) {
-      //   console.log("Setting map center to PDF center:", pdfCenter);
-      //   setMapCenter(pdfCenter);
-      //   setMapZoom(pdfZoom || 14);
-      // }
+      if (pdfCenter) {
+        console.log("Setting map center to PDF center:", pdfCenter);
+        setMapCenter(pdfCenter);
+        setMapZoom(pdfZoom || 14);
+      }
 
       setLoadingProgress(1.0);
 
@@ -497,7 +498,7 @@ export default function TopDownViewScreen() {
   }, []);
 
   // Process block model data to GeoJSON
-  const processBlockModelData = () => {
+  const processBlockModelData = (hasPDFCenter: boolean = false) => {
     try {
       setLoadingMessage("Converting block model data to GeoJSON...");
       setLoadingProgress(0.4);
@@ -548,13 +549,19 @@ export default function TopDownViewScreen() {
             resultForTopDown.geoJsonData.features.length
           );
 
-          // PERUBAHAN: Selalu gunakan block model center, hapus kondisional
-          console.log(
-            "Setting map center to block model center:",
-            resultForTopDown.mapCenter
-          );
-          setMapCenter(resultForTopDown.mapCenter);
-          setMapZoom(resultForTopDown.mapZoom);
+          // Only set block model center if NO PDF center exists
+          if (!hasPDFCenter && !hasPDFCoordinates) {
+            console.log(
+              "Setting map center to block model center:",
+              resultForTopDown.mapCenter
+            );
+            setMapCenter(resultForTopDown.mapCenter);
+            setMapZoom(resultForTopDown.mapZoom);
+          } else {
+            console.log(
+              "Keeping existing map center (PDF center has priority)"
+            );
+          }
 
           // Update legenda berdasarkan data yang ada
           updateRockTypeLegend(resultForTopDown.geoJsonData);
@@ -901,6 +908,7 @@ export default function TopDownViewScreen() {
   );
 
   // Render dropdown menu
+  // Render dropdown menu dengan style button seperti ExportDialog
   const renderDropdown = () => (
     <Modal
       transparent={true}
@@ -913,26 +921,51 @@ export default function TopDownViewScreen() {
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
             <View style={styles.dropdownContainer}>
               <TouchableOpacity
-                style={styles.dropdownItem}
+                style={[
+                  styles.dropdownItem,
+                  showBlockModel && styles.selectedDropdownItem,
+                ]}
                 onPress={toggleBlockModel}
               >
-                <Text style={styles.dropdownText}>
-                  {showBlockModel ? "✓" : " "} Block Model
-                </Text>
+                <MaterialIcons
+                  name={
+                    showBlockModel ? "check-box" : "check-box-outline-blank"
+                  }
+                  size={24}
+                  color="#198754"
+                />
+                <Text style={styles.dropdownText}>Block Model</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.dropdownItem} onPress={togglePit}>
-                <Text style={styles.dropdownText}>
-                  {showPit ? "✓" : " "} Pit Boundary
-                </Text>
+
+              <TouchableOpacity
+                style={[
+                  styles.dropdownItem,
+                  showPit && styles.selectedDropdownItem,
+                ]}
+                onPress={togglePit}
+              >
+                <MaterialIcons
+                  name={showPit ? "check-box" : "check-box-outline-blank"}
+                  size={24}
+                  color="#198754"
+                />
+                <Text style={styles.dropdownText}>Pit Boundary</Text>
               </TouchableOpacity>
+
               {pdfOverlayData && (
                 <TouchableOpacity
-                  style={styles.dropdownItem}
+                  style={[
+                    styles.dropdownItem,
+                    showPDF && styles.selectedDropdownItem,
+                  ]}
                   onPress={togglePDF}
                 >
-                  <Text style={styles.dropdownText}>
-                    {showPDF ? "✓" : " "} PDF Map
-                  </Text>
+                  <MaterialIcons
+                    name={showPDF ? "check-box" : "check-box-outline-blank"}
+                    size={24}
+                    color="#198754"
+                  />
+                  <Text style={styles.dropdownText}>PDF Map</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1291,32 +1324,39 @@ const styles = StyleSheet.create({
   },
   dropdownContainer: {
     backgroundColor: "white",
-    borderRadius: 8,
+    borderRadius: 12,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 4,
     },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowRadius: 8,
+    elevation: 8,
     position: "absolute",
     bottom: 120,
     right: 20,
-    width: "auto",
+    padding: 16,
+    minWidth: 180,
   },
   dropdownItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
     flexDirection: "row",
     alignItems: "center",
-    width: "auto",
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  selectedDropdownItem: {
+    backgroundColor: "rgba(25, 135, 84, 0.08)",
+    borderColor: "rgba(25, 135, 84, 0.2)",
   },
   dropdownText: {
-    fontSize: 15,
-    color: "#333",
-    marginLeft: 5,
+    fontSize: 16,
+    color: "#495057",
+    marginLeft: 12,
+    fontFamily: "Montserrat_400Regular",
   },
 });

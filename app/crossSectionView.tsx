@@ -74,10 +74,6 @@ export default function CrossSectionViewScreen() {
           dim_z: parseFloat(block.dim_z || block.height || 10),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
-          concentrate:
-            parseFloat(block.ni_ok) === -99
-              ? parseFloat(block.ni_ok)
-              : parseFloat(block.ni_ok || 0).toFixed(2),
         }));
 
         setBlockModelData(extractedBlocks);
