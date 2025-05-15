@@ -251,3 +251,89 @@ export function processBlockModelCSV(
     throw error;
   }
 }
+
+/**
+ * Create initial color mapping from rock types found in data
+ * @param rockTypes - Array of unique rock types
+ * @returns Object mapping rock types to colors with opacity
+ */
+export function createInitialColorMapping(rockTypes: string[]): {
+  [key: string]: { color: string; opacity: number };
+} {
+  const defaultColors = [
+    "#FF0000", // Red
+    "#00FF00", // Green
+    "#0000FF", // Blue
+    "#FFFF00", // Yellow
+    "#FF00FF", // Magenta
+    "#00FFFF", // Cyan
+    "#FFA500", // Orange
+    "#800080", // Purple
+    "#FFC0CB", // Pink
+    "#808080", // Gray
+    "#8B4513", // Brown
+    "#000000", // Black
+  ];
+
+  const mapping: { [key: string]: { color: string; opacity: number } } = {};
+
+  rockTypes.forEach((rockType, index) => {
+    mapping[rockType] = {
+      color: defaultColors[index % defaultColors.length],
+      opacity: 0.7,
+    };
+  });
+
+  return mapping;
+}
+
+/**
+ * Apply custom color mapping with opacity to GeoJSON features
+ * @param geoJsonData - The GeoJSON data to update
+ * @param colorMapping - The custom color mapping with opacity for rock types
+ * @returns Updated GeoJSON data with new colors and opacity
+ */
+export function applyColorMapping(
+  geoJsonData: any,
+  colorMapping: { [key: string]: { color: string; opacity: number } | string }
+): any {
+  if (!geoJsonData || !geoJsonData.features) {
+    return geoJsonData;
+  }
+
+  // Create a new GeoJSON object with updated colors and opacity
+  const updatedGeoJson = {
+    ...geoJsonData,
+    features: geoJsonData.features.map((feature: any) => {
+      if (feature.properties && feature.properties.rock) {
+        const mapping = colorMapping[feature.properties.rock];
+
+        // Handle both old format (string) and new format (object with color and opacity)
+        if (mapping) {
+          if (typeof mapping === "string") {
+            return {
+              ...feature,
+              properties: {
+                ...feature.properties,
+                color: mapping,
+                opacity: 0.7, // default opacity for backward compatibility
+              },
+            };
+          } else {
+            return {
+              ...feature,
+              properties: {
+                ...feature.properties,
+                color: mapping.color,
+                opacity: mapping.opacity,
+              },
+            };
+          }
+        }
+      }
+      return feature;
+    }),
+  };
+
+  return updatedGeoJson;
+}

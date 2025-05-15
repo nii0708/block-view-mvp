@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -10,7 +10,11 @@ import {
   Share,
   Platform,
 } from "react-native";
-import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
+import {
+  MaterialIcons,
+  MaterialCommunityIcons,
+  Ionicons,
+} from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -31,6 +35,19 @@ export default function CrossSectionViewScreen() {
   const length = parseFloat((params.length as string) || "0");
   const projection = params.projection as string;
 
+  const colorMappingParam = params.colorMapping as string;
+  const customColorMapping = useMemo(() => {
+    if (colorMappingParam) {
+      try {
+        return JSON.parse(colorMappingParam);
+      } catch (e) {
+        console.error("Error parsing color mapping:", e);
+        return {};
+      }
+    }
+    return {};
+  }, [colorMappingParam]);
+
   // State for loading and export dialog
   const [loading, setLoading] = useState(true);
   const [exportDialogVisible, setExportDialogVisible] = useState(false);
@@ -41,7 +58,7 @@ export default function CrossSectionViewScreen() {
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
 
-  // State for processed data counts
+  // NEW: State for processed data counts (what's actually displayed)
   const [displayedDataCounts, setDisplayedDataCounts] = useState({
     displayedBlocks: 0,
     displayedElevationPoints: 0,
@@ -51,13 +68,6 @@ export default function CrossSectionViewScreen() {
   // Get data from context
   const { fullBlockModelData, processedElevation, processedPitData } =
     useMiningData();
-
-  // Reference for WebView to handle screenshot
-  type CrossSectionWebViewRef = {
-    triggerScreenshot: () => void;
-  };
-
-  const webViewRef = useRef<CrossSectionWebViewRef>(null);
 
   // Load data on component mount
   useEffect(() => {
@@ -71,10 +81,6 @@ export default function CrossSectionViewScreen() {
 
       // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
-        console.log(
-          `Preparing ${fullBlockModelData.length} blocks for cross-section`
-        );
-
         // Direct mapping without filtering (WebView will handle filtering)
         const extractedBlocks = fullBlockModelData.map((block) => ({
           centroid_x: parseFloat(block.centroid_x || block.x || 0),
@@ -84,23 +90,25 @@ export default function CrossSectionViewScreen() {
           dim_y: parseFloat(block.dim_y || block.length || 10),
           dim_z: parseFloat(block.dim_z || block.height || 10),
           rock: block.rock || "unknown",
-          color: block.color || getRockColor(block.rock || "unknown"),
-          ni_ok: parseFloat(block.ni_ok || -99),
-          fe_ok: parseFloat(block.fe_ok || -99),
-          co_idw: parseFloat(block.co_idw || -99),
+          color: block.color || getRockColor(block.rock || "unknown"), // Use updated getRockColor
+          concentrate:
+            parseFloat(block.ni_ok) === -99
+              ? parseFloat(block.ni_ok)
+              : parseFloat(block.ni_ok || 0).toFixed(2),
         }));
 
         setBlockModelData(extractedBlocks);
-        console.log(`Passing ${extractedBlocks.length} blocks to WebView`);
       }
 
       // Process elevation data if available
       if (processedElevation && processedElevation.length > 0) {
+        // Direct mapping without filtering (WebView will handle filtering)
         setElevationData(processedElevation);
       }
 
       // Process pit data if available
       if (processedPitData?.features) {
+        // Direct mapping without filtering (WebView will handle filtering)
         setPitData(processedPitData.features);
       }
 
@@ -110,10 +118,25 @@ export default function CrossSectionViewScreen() {
       Alert.alert("Error", "Failed to load cross section data");
       setLoading(false);
     }
-  }, [fullBlockModelData, processedElevation, processedPitData]);
+  }, [
+    fullBlockModelData,
+    processedElevation,
+    processedPitData,
+    customColorMapping,
+  ]);
 
   // Helper function to get color for rock type
   const getRockColor = (rockType: string): string => {
+    const rockTypeKey = rockType.toLowerCase();
+
+    // Check if custom color mapping exists for this rock type
+    if (customColorMapping[rockTypeKey]) {
+      return (
+        customColorMapping[rockTypeKey].color || customColorMapping[rockTypeKey]
+      );
+    }
+
+    // Fallback to default colors
     const rockColors: { [key: string]: string } = {
       ore: "#b40c0d", // Red
       waste: "#606060", // Gray
@@ -123,17 +146,16 @@ export default function CrossSectionViewScreen() {
       unknown: "#CCCCCC", // Light gray
     };
 
-    return rockColors[rockType.toLowerCase()] || "#CCCCCC";
+    return rockColors[rockTypeKey] || "#CCCCCC";
   };
 
-  // Handler for processed data from WebView
+  // NEW: Handler for processed data from WebView
   const handleDataProcessed = useCallback(
     (data: {
       displayedBlocks: number;
       displayedElevationPoints: number;
       displayedPitPoints: number;
     }) => {
-      console.log("Received processed data counts:", data);
       setDisplayedDataCounts(data);
     },
     []
@@ -153,6 +175,51 @@ export default function CrossSectionViewScreen() {
   const handleExportCancel = useCallback(() => {
     setExportDialogVisible(false);
   }, []);
+
+  // Handle export data - now accepts multiple selections
+  const handleExport = useCallback(
+    async (dataTypes: string[]) => {
+      try {
+        setIsExporting(true);
+
+        // Process each selected export type
+        for (const dataType of dataTypes) {
+          if (dataType === "screenshot") {
+            // Handle screenshot - send request to WebView
+            // We'll create a ref for this - for now let's alert
+            Alert.alert(
+              "Screenshot",
+              "Screenshot feature will be implemented soon"
+            );
+          } else {
+            // Handle data exports
+            await exportDataType(dataType);
+          }
+        }
+
+        setIsExporting(false);
+        setExportDialogVisible(false);
+      } catch (error) {
+        console.error("Error exporting data:", error);
+        Alert.alert(
+          "Export Error",
+          "Failed to export the data. Please try again."
+        );
+        setIsExporting(false);
+      }
+    },
+    [
+      blockModelData,
+      elevationData,
+      pitData,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      length,
+      projection,
+    ]
+  );
 
   // Helper function to export a specific data type
   const exportDataType = async (dataType: string) => {
@@ -202,6 +269,9 @@ export default function CrossSectionViewScreen() {
     }
   };
 
+  // Reference for WebView to handle screenshot
+  const webViewRef = React.useRef<any>(null);
+
   // Function to trigger screenshot from WebView
   const triggerScreenshot = useCallback(() => {
     if (webViewRef.current) {
@@ -209,8 +279,27 @@ export default function CrossSectionViewScreen() {
     }
   }, []);
 
-  // Handle export data - now accepts multiple selections
-  const handleExport = useCallback(
+  // Add zoom handler functions
+  const handleZoomIn = useCallback(() => {
+    if (webViewRef.current) {
+      webViewRef.current.triggerZoom("in");
+    }
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    if (webViewRef.current) {
+      webViewRef.current.triggerZoom("out");
+    }
+  }, []);
+
+  const handleZoomReset = useCallback(() => {
+    if (webViewRef.current) {
+      webViewRef.current.triggerZoom("reset");
+    }
+  }, []);
+
+  // Update handleExport to actually trigger screenshot
+  const handleExportUpdated = useCallback(
     async (dataTypes: string[]) => {
       try {
         setIsExporting(true);
@@ -237,7 +326,18 @@ export default function CrossSectionViewScreen() {
         setIsExporting(false);
       }
     },
-    [blockModelData, elevationData, pitData, triggerScreenshot]
+    [
+      blockModelData,
+      elevationData,
+      pitData,
+      startLat,
+      startLng,
+      endLat,
+      endLng,
+      length,
+      projection,
+      triggerScreenshot,
+    ]
   );
 
   return (
@@ -286,7 +386,7 @@ export default function CrossSectionViewScreen() {
               </View>
             </View>
 
-            {/* Graph container with export button */}
+            {/* Graph container with absolute positioned export button */}
             <View style={styles.graphWithExportContainer}>
               {/* Cross Section WebView */}
               <View style={styles.graphContainer}>
@@ -302,7 +402,34 @@ export default function CrossSectionViewScreen() {
                   lineLength={length}
                   sourceProjection={projection}
                   onDataProcessed={handleDataProcessed}
+                  customColorMapping={customColorMapping}
                 />
+              </View>
+
+              {/* Zoom Controls - Now at React Native layer */}
+              <View style={styles.zoomControlsContainer}>
+                <TouchableOpacity
+                  style={styles.zoomButton}
+                  onPress={handleZoomIn}
+                >
+                  <Text style={styles.zoomButtonText}>+</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.zoomButton}
+                  onPress={handleZoomOut}
+                >
+                  <Text style={styles.zoomButtonText}>−</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.zoomButton}
+                  onPress={handleZoomReset}
+                >
+                  <Text style={[styles.zoomButtonText, { fontSize: 18 }]}>
+                    ⟲
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               {/* Export Button */}
@@ -328,7 +455,7 @@ export default function CrossSectionViewScreen() {
       <ExportDialog
         visible={exportDialogVisible}
         onCancel={handleExportCancel}
-        onExport={handleExport}
+        onExport={handleExportUpdated}
         isProcessing={isExporting}
       />
     </SafeAreaView>
@@ -417,5 +544,33 @@ const styles = StyleSheet.create({
     color: "#333",
     fontWeight: "500",
     marginLeft: 16,
+  },
+  zoomControlsContainer: {
+    position: "absolute",
+    top: 20,
+    right: 16,
+    zIndex: 1000,
+    backgroundColor: "transparent",
+  },
+  zoomButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: "white",
+    borderRadius: 5,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 5,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    borderWidth: 1,
+    borderColor: "#ccc",
+  },
+  zoomButtonText: {
+    fontSize: 20,
+    fontWeight: "normal",
+    color: "#333",
   },
 });

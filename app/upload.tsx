@@ -44,7 +44,7 @@ export default function UploadScreen() {
     try {
       const file = await FileService.pickCSV();
       if (file) {
-        console.log("Selected CSV file:", file);
+        // console.log("Selected CSV file:", file);
 
         // Validasi file sebelum diterima
         const fileExtension = file.name.split(".").pop()?.toLowerCase();
@@ -68,7 +68,7 @@ export default function UploadScreen() {
     try {
       const file = await FileService.pickLiDAR();
       if (file) {
-        console.log("Selected Lidar file:", file);
+        // console.log("Selected Lidar file:", file);
 
         // Validasi file sebelum diterima
         const fileExtension = file.name.split(".").pop()?.toLowerCase();
@@ -89,7 +89,7 @@ export default function UploadScreen() {
     try {
       const file = await FileService.pickLiDAR();
       if (file) {
-        console.log("Selected Elevation file:", file);
+        // console.log("Selected Elevation file:", file);
 
         // Validasi file sebelum diterima
         const fileExtension = file.name.split(".").pop()?.toLowerCase();
@@ -116,7 +116,7 @@ export default function UploadScreen() {
     try {
       const pdfData = await FileService.pickPDF();
       if (pdfData) {
-        console.log("Selected PDF file:", pdfData.fileName);
+        // console.log("Selected PDF file:", pdfData.fileName);
 
         // Validasi file sebelum diterima
         const fileExtension = pdfData.fileName.split(".").pop()?.toLowerCase();

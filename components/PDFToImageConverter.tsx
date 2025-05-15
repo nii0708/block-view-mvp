@@ -45,7 +45,7 @@ const ExpoFriendlyPDFConverter: React.FC<ExpoFriendlyPDFConverterProps> = ({
       } else if (message.type === "error") {
         onError(message.message);
       } else if (message.type === "log") {
-        console.log("PDF Converter:", message.message);
+        // console.log("PDF Converter:", message.message);
       }
     } catch (error) {
       console.error("Error parsing message:", error);
@@ -220,10 +220,10 @@ const ExpoFriendlyPDFConverter: React.FC<ExpoFriendlyPDFConverterProps> = ({
           onError("Failed to load PDF converter");
         }}
         onLoadEnd={() => {
-          console.log("WebView loaded successfully");
+          // console.log("WebView loaded successfully");
         }}
         onLoadStart={() => {
-          console.log("WebView starting to load...");
+          // console.log("WebView starting to load...");
         }}
       />
     </View>
