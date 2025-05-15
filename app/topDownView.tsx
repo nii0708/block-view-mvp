@@ -960,6 +960,7 @@ export default function TopDownViewScreen() {
                 useCrosshairForDrawing={true}
                 lineColor="#CFE625"
                 pdfOverlayData={showPDF ? pdfOverlayData : null}
+                enableGeolocation={true}
               />
 
               <View style={styles.crosshair}>

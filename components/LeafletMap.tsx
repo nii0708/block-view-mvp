@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { View, StyleSheet, ActivityIndicator, Text } from "react-native";
 import { WebView } from "react-native-webview";
+import * as Location from "expo-location";
 
 interface LeafletMapProps {
   onMapPress?: (point: any) => void;
@@ -24,6 +25,15 @@ interface LeafletMapProps {
     center: [number, number];
     zoom: number;
   } | null;
+  onLocationUpdate?: (location: {
+    lat: number;
+    lng: number;
+    accuracy: number;
+    timestamp: number;
+  }) => void;
+  onLocationError?: (error: { message: string; code: number }) => void;
+  onGeolocationControlReady?: (toggleFunc: () => void) => void;
+  enableGeolocation?: boolean;
 }
 
 interface GeoJSONFeature {
@@ -55,6 +65,10 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   useCrosshairForDrawing = true,
   lineColor = "#CFE625",
   pdfOverlayData = null,
+  onLocationUpdate,
+  onLocationError,
+  onGeolocationControlReady,
+  enableGeolocation = false,
 }) => {
   const [loading, setLoading] = useState(true);
   const webViewRef = useRef<WebView>(null);
@@ -66,6 +80,19 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
 
   // Keep track of processed points to avoid duplicate processing
   const processedPointsRef = useRef<string[]>([]);
+  const locationSubscriptions = useRef<{ [key: string]: any }>({}).current;
+
+  // Add cleanup effect
+  useEffect(() => {
+    return () => {
+      // Clean up any location subscriptions when component unmounts
+      Object.values(locationSubscriptions).forEach((subscription: any) => {
+        if (subscription && subscription.remove) {
+          subscription.remove();
+        }
+      });
+    };
+  }, []);
 
   // Filter pit data berdasarkan range elevasi
   const getFilteredPitData = () => {
@@ -186,6 +213,99 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     }
   }, [onAddPointFromCrosshair, addPointFromCrosshair, mapIsReady]);
 
+  // Function to toggle location tracking
+  const toggleLocationTracking = useCallback(() => {
+    if (mapIsReady && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`
+        (function() {
+          try {
+            toggleLocationTracking();
+            return true;
+          } catch (error) {
+            console.error("Error toggling location tracking:", error);
+          }
+        })();
+      `);
+    }
+  }, [mapIsReady]);
+
+  // Expose the toggleLocationTracking function to parent component
+  useEffect(() => {
+    if (onGeolocationControlReady && mapIsReady) {
+      onGeolocationControlReady(toggleLocationTracking);
+    }
+  }, [toggleLocationTracking, mapIsReady, onGeolocationControlReady]);
+
+  const geolocationBridgeScript = `
+(function() {
+  // Override getCurrentPosition
+  navigator.geolocation.getCurrentPosition = (success, error, options) => {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ 
+      type: 'getCurrentPosition', 
+      options: options 
+    }));
+
+    window.addEventListener('message', function geolocationResponseHandler(e) {
+      let eventData = {};
+      try {
+        eventData = JSON.parse(e.data);
+      } catch (err) {
+        console.error('Error parsing geolocation response', err);
+        return;
+      }
+
+      if (eventData.type === 'currentPosition') {
+        window.removeEventListener('message', geolocationResponseHandler);
+        success(eventData.data);
+      } else if (eventData.type === 'currentPositionError') {
+        window.removeEventListener('message', geolocationResponseHandler);
+        error(eventData.data);
+      }
+    });
+  };
+
+  // Override watchPosition
+  navigator.geolocation.watchPosition = (success, error, options) => {
+    const watchId = Date.now().toString();
+    
+    window.ReactNativeWebView.postMessage(JSON.stringify({ 
+      type: 'watchPosition', 
+      watchId: watchId,
+      options: options 
+    }));
+
+    window.addEventListener('message', function watchPositionHandler(e) {
+      let eventData = {};
+      try {
+        eventData = JSON.parse(e.data);
+      } catch (err) {
+        console.error('Error parsing watch position response', err);
+        return;
+      }
+
+      if (eventData.type === 'watchPosition' && eventData.watchId === watchId) {
+        success(eventData.data);
+      } else if (eventData.type === 'watchPositionError' && eventData.watchId === watchId) {
+        error(eventData.data);
+      } else if (eventData.type === 'clearWatch' && eventData.watchId === watchId) {
+        window.removeEventListener('message', watchPositionHandler);
+      }
+    });
+    
+    return watchId;
+  };
+
+  // Override clearWatch
+  navigator.geolocation.clearWatch = (watchId) => {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ 
+      type: 'clearWatch', 
+      watchId: watchId 
+    }));
+  };
+})();
+true;
+`;
+
   // HTML content with improved Leaflet map and PDF overlay support
   const htmlContent = `
     <!DOCTYPE html>
@@ -276,6 +396,43 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           border: 2px solid #fff;
           box-shadow: 0 0 5px rgba(0,0,0,0.5);
         }
+
+        /* Location button styling */
+        .location-button {
+          position: absolute;
+          bottom: 24px;
+          right: 10px;
+          z-index: 1000;
+          background: white;
+          border-radius: 4px;
+          border: 2px solid rgba(0,0,0,0.2);
+          background-clip: padding-box;
+          width: 34px;
+          height: 34px;
+          cursor: pointer;
+          text-align: center;
+          line-height: 30px;
+        }
+        .location-button:hover {
+          background-color: #f4f4f4;
+        }
+        .location-icon {
+          width: 18px;
+          height: 18px;
+          margin-top: 8px;
+        }
+        .accuracy-circle {
+          fill: #4285F4;
+          fill-opacity: 0.15;
+          stroke: #4285F4;
+          stroke-width: 1;
+          stroke-opacity: 0.4;
+        }
+        .location-dot {
+          fill: #4285F4;
+          stroke: white;
+          stroke-width: 2;
+        }
         
         /* PDF overlay styles */
         .pdf-overlay {
@@ -290,6 +447,11 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     <body>
       <div id="map"></div>
       <div id="loading">Loading map...</div>
+      <div id="location-button" class="location-button">
+        <svg class="location-icon" viewBox="0 0 24 24">
+          <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+        </svg>
+      </div>
       
       <!-- Include Leaflet JS -->
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -311,10 +473,16 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         // PDF layer reference
         let pdfLayer = null;
         
+        // Geolocation variables  
+        let locationMarker = null;
+        let accuracyCircle = null;
+        let isWatchingLocation = false;
+        let locationWatchId = null;
+        
         // Prevent multiple updates by tracking state
         let lastUpdateState = "";
         let processingUpdate = false;
-        
+
         // Initialize map
         function initMap() {
           try {
@@ -362,6 +530,13 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
             };
             
             L.control.layers(baseLayers).addTo(map);
+            
+            // Setup geolocation button
+            document.getElementById('location-button').addEventListener('click', toggleLocationTracking);
+            
+            // Register geolocation event handlers
+            map.on('locationfound', onLocationFound);
+            map.on('locationerror', onLocationError);
             
             // Hide loading indicator
             document.getElementById('loading').style.display = 'none';
@@ -421,6 +596,141 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           } catch (error) {
             console.error('Error initializing map:', error);
           }
+        }
+
+        // Geolocation functions
+        function toggleLocationTracking() {
+          if (isWatchingLocation) {
+            stopLocationWatch();
+          } else {
+            startLocationWatch();
+          }
+        }
+
+        function startLocationWatch() {
+          // Clear any existing markers
+          if (locationMarker) {
+            map.removeLayer(locationMarker);
+            locationMarker = null;
+          }
+          if (accuracyCircle) {
+            map.removeLayer(accuracyCircle);
+            accuracyCircle = null;
+          }
+          
+          // Start watching with high accuracy
+          isWatchingLocation = true;
+          document.getElementById('location-button').style.backgroundColor = '#e6e6ff';
+          
+          // Use Leaflet's locate method with watch option
+          map.locate({
+            watch: true,
+            setView: true,
+            maxZoom: 16,
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          });
+          
+          console.log('Started location tracking');
+          
+          // Inform React Native that location tracking has started
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'locationTrackingStarted'
+          }));
+        }
+
+        function stopLocationWatch() {
+          isWatchingLocation = false;
+          document.getElementById('location-button').style.backgroundColor = 'white';
+          
+          // Stop watching location
+          map.stopLocate();
+          
+          // Keep the marker but change its appearance to indicate tracking stopped
+          if (locationMarker) {
+            locationMarker.setStyle({
+              fillColor: '#aaa',
+              color: '#888'
+            });
+          }
+          
+          console.log('Stopped location tracking');
+          
+          // Inform React Native that location tracking has stopped
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'locationTrackingStopped'
+          }));
+        }
+
+        function onLocationFound(e) {
+          const radius = e.accuracy;
+          const latlng = e.latlng;
+          
+          console.log('Location found:', latlng, 'accuracy:', radius);
+          
+          // Remove previous markers
+          if (locationMarker) {
+            map.removeLayer(locationMarker);
+          }
+          if (accuracyCircle) {
+            map.removeLayer(accuracyCircle);
+          }
+          
+          // Create accuracy circle
+          accuracyCircle = L.circle(latlng, {
+            radius: radius,
+            weight: 1,
+            color: '#4285F4',
+            fillColor: '#4285F4',
+            fillOpacity: 0.15,
+            className: 'accuracy-circle'
+          }).addTo(map);
+          
+          // Create marker for the user's location
+          locationMarker = L.circleMarker(latlng, {
+            radius: 8,
+            weight: 2,
+            color: '#fff',
+            fillColor: '#4285F4',
+            fillOpacity: 1,
+            className: 'location-dot'
+          }).addTo(map);
+          
+          // Only set view on first location or when accuracy improves significantly
+          if (!locationMarker || e.accuracy < radius * 0.8) {
+            map.setView(latlng, map.getZoom());
+          }
+          
+          // Send location to React Native
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'locationUpdate',
+            data: {
+              lat: latlng.lat,
+              lng: latlng.lng,
+              accuracy: radius,
+              timestamp: e.timestamp || Date.now()
+            }
+          }));
+        }
+
+        function onLocationError(e) {
+          console.error('Location error:', e.message);
+          
+          // Stop watching location
+          stopLocationWatch();
+          
+          // Send error to React Native
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'locationError',
+            data: {
+              message: e.message,
+              code: e.code || 0
+            }
+          }));
+          
+          // Show error as alert
+          alert('Error getting location: ' + e.message);
         }
         
         // Function to add point from crosshair - IMPROVED
@@ -543,29 +853,29 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
               
               if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
                 geoJsonLayer = L.geoJSON(data.geoJsonData, {
-  style: function(feature) {
-    return {
-      fillColor: feature.properties.color || '#3388ff',
-      weight: 1,
-      opacity: 0.7,
-      color: 'black',
-      fillOpacity: feature.properties.opacity || 0.7  // Use opacity from properties
-    };
-  },
-  onEachFeature: function(feature, layer) {
-    if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
-      const props = feature.properties;
-      const popupContent = \`
-        <div>
-          <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
-          <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}<br>
-          <strong>Opacity:</strong> \${props.opacity ? Math.round(props.opacity * 100) : 70}%
-        </div>
-      \`;
-      layer.bindPopup(popupContent);
-    }
-  }
-}).addTo(map);
+                  style: function(feature) {
+                    return {
+                      fillColor: feature.properties.color || '#3388ff',
+                      weight: 1,
+                      opacity: 0.7,
+                      color: 'black',
+                      fillOpacity: feature.properties.opacity || 0.7  // Use opacity from properties
+                    };
+                  },
+                  onEachFeature: function(feature, layer) {
+                    if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
+                      const props = feature.properties;
+                      const popupContent = \`
+                        <div>
+                          <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
+                          <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}<br>
+                          <strong>Opacity:</strong> \${props.opacity ? Math.round(props.opacity * 100) : 70}%
+                        </div>
+                      \`;
+                      layer.bindPopup(popupContent);
+                    }
+                  }
+                }).addTo(map);
               }
             } else if (data.geoJsonData === null) {
               // Remove the layer if data is null
@@ -616,80 +926,80 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
             
             // Handle PDF overlay - SIMPLIFIED VERSION
             if (data.pdfOverlayData) {
-          if (pdfLayer) {
-            map.removeLayer(pdfLayer);
-            pdfLayer = null;
-          }
-          
-          if (data.pdfOverlayData.bounds) {
-            if (data.pdfOverlayData.imageBase64) {
-              // Ada image base64, tampilkan sebagai image overlay dengan opacity penuh
-              console.log('Adding PDF as image overlay with full opacity...');
-              
-              // Gunakan format image yang benar
-              const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
-              
-              pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
-                opacity: 1.0, // Full opacity, no transparency
-                interactive: true,
-                className: 'pdf-overlay',
-                attribution: 'PDF Map'
-              }).addTo(map);
-              
-              pdfLayer.bindPopup(
-                '<div class="pdf-popup">' +
-                '<strong>PDF Map</strong><br>' +
-                'Geospatial PDF Overlay<br>' +
-                '<small>Click to see full extent</small>' +
-                '</div>'
-              );
-              
-              console.log('PDF image overlay created successfully with full opacity');
-              
-              // Auto-fit bounds for PDF if it's the primary data
-              if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
-                console.log('Fitting PDF bounds...');
-                const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
-                map.fitBounds(pdfBounds, { 
-                  padding: [20, 20],
-                  maxZoom: data.pdfOverlayData.zoom || 14
-                });
+              if (pdfLayer) {
+                map.removeLayer(pdfLayer);
+                pdfLayer = null;
               }
-            } else {
-              // Belum ada image, tampilkan sebagai marker sementara
-              console.log('Adding PDF as marker (processing)...');
               
-              const pdfCenter = [
-                (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
-                (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
-              ];
-              
-              const pdfMarker = L.marker(pdfCenter, {
-                icon: L.divIcon({
-                  className: 'pdf-processing-marker',
-                  html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
-                  iconSize: [120, 30],
-                  iconAnchor: [60, 15]
-                })
-              }).addTo(map)
-              .bindPopup(
-                '<div class="pdf-popup">' +
-                '<strong>PDF Location</strong><br>' +
-                'Converting to image...<br>' +
-                '<small>Please wait</small>' +
-                '</div>'
-              );
-              
-              pdfLayer = pdfMarker;
-              console.log('PDF processing marker created at:', pdfCenter);
-              
-              // Center map on PDF location if no other data
-              if (!data.skipFitBounds) {
-                map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
+              if (data.pdfOverlayData.bounds) {
+                if (data.pdfOverlayData.imageBase64) {
+                  // Ada image base64, tampilkan sebagai image overlay dengan opacity penuh
+                  console.log('Adding PDF as image overlay with full opacity...');
+                  
+                  // Gunakan format image yang benar
+                  const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
+                  
+                  pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
+                    opacity: 1.0, // Full opacity, no transparency
+                    interactive: true,
+                    className: 'pdf-overlay',
+                    attribution: 'PDF Map'
+                  }).addTo(map);
+                  
+                  pdfLayer.bindPopup(
+                    '<div class="pdf-popup">' +
+                    '<strong>PDF Map</strong><br>' +
+                    'Geospatial PDF Overlay<br>' +
+                    '<small>Click to see full extent</small>' +
+                    '</div>'
+                  );
+                  
+                  console.log('PDF image overlay created successfully with full opacity');
+                  
+                  // Auto-fit bounds for PDF if it's the primary data
+                  if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
+                    console.log('Fitting PDF bounds...');
+                    const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+                    map.fitBounds(pdfBounds, { 
+                      padding: [20, 20],
+                      maxZoom: data.pdfOverlayData.zoom || 14
+                    });
+                  }
+                } else {
+                  // Belum ada image, tampilkan sebagai marker sementara
+                  console.log('Adding PDF as marker (processing)...');
+                  
+                  const pdfCenter = [
+                    (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
+                    (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
+                  ];
+                  
+                  const pdfMarker = L.marker(pdfCenter, {
+                    icon: L.divIcon({
+                      className: 'pdf-processing-marker',
+                      html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
+                      iconSize: [120, 30],
+                      iconAnchor: [60, 15]
+                    })
+                  }).addTo(map)
+                  .bindPopup(
+                    '<div class="pdf-popup">' +
+                    '<strong>PDF Location</strong><br>' +
+                    'Converting to image...<br>' +
+                    '<small>Please wait</small>' +
+                    '</div>'
+                  );
+                  
+                  pdfLayer = pdfMarker;
+                  console.log('PDF processing marker created at:', pdfCenter);
+                  
+                  // Center map on PDF location if no other data
+                  if (!data.skipFitBounds) {
+                    map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
+                  }
+                }
               }
             }
-          }
-        }
             
             // Only fit bounds once on initial load, not on updates
             if (!data.skipFitBounds) {
@@ -843,7 +1153,136 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     try {
       const message = JSON.parse(event.nativeEvent.data);
 
-      if (message.type === "mapReady") {
+      if (message.type === "getCurrentPosition") {
+        // Use Expo Location instead of React Native's geolocation API
+        (async () => {
+          let { status } = await Location.requestForegroundPermissionsAsync();
+
+          if (status !== "granted") {
+            // Send error back to WebView
+            webViewRef.current?.injectJavaScript(`
+              window.postMessage(JSON.stringify({
+                type: 'currentPositionError',
+                data: { code: 1, message: 'Permission to access location was denied' }
+              }), '*');
+            `);
+            return;
+          }
+
+          try {
+            const location = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.High,
+              ...message.options,
+            });
+
+            // Format the location to match the geolocation API format
+            const formattedPosition = {
+              coords: {
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+                altitude: location.coords.altitude,
+                accuracy: location.coords.accuracy,
+                altitudeAccuracy: location.coords.altitudeAccuracy,
+                heading: location.coords.heading,
+                speed: location.coords.speed,
+              },
+              timestamp: location.timestamp,
+            };
+
+            // Send position back to WebView
+            webViewRef.current?.injectJavaScript(`
+              window.postMessage(JSON.stringify({
+                type: 'currentPosition',
+                data: ${JSON.stringify(formattedPosition)}
+              }), '*');
+            `);
+          } catch (error: any) {
+            // Send error back to WebView
+            webViewRef.current?.injectJavaScript(`
+              window.postMessage(JSON.stringify({
+                type: 'currentPositionError',
+                data: { code: 2, message: 'Error getting location: ${error.message}' }
+              }), '*');
+            `);
+          }
+        })();
+      } else if (message.type === "watchPosition") {
+        // Watch position using Expo Location API
+        (async () => {
+          let { status } = await Location.requestForegroundPermissionsAsync();
+
+          if (status !== "granted") {
+            webViewRef.current?.injectJavaScript(`
+              window.postMessage(JSON.stringify({
+                type: 'watchPositionError',
+                watchId: '${message.watchId}',
+                data: { code: 1, message: 'Permission to access location was denied' }
+              }), '*');
+            `);
+            return;
+          }
+
+          try {
+            const watchId = await Location.watchPositionAsync(
+              {
+                accuracy: Location.Accuracy.High,
+                distanceInterval: 1, // minimum change (in meters) to trigger an update
+                timeInterval: 5000, // minimum time to wait between updates in ms
+                ...message.options,
+              },
+              (location) => {
+                // Format the location to match the geolocation API format
+                const formattedPosition = {
+                  coords: {
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude,
+                    altitude: location.coords.altitude,
+                    accuracy: location.coords.accuracy,
+                    altitudeAccuracy: location.coords.altitudeAccuracy,
+                    heading: location.coords.heading,
+                    speed: location.coords.speed,
+                  },
+                  timestamp: location.timestamp,
+                };
+
+                webViewRef.current?.injectJavaScript(`
+                  window.postMessage(JSON.stringify({
+                    type: 'watchPosition',
+                    watchId: '${message.watchId}',
+                    data: ${JSON.stringify(formattedPosition)}
+                  }), '*');
+                `);
+              }
+            );
+
+            // Store the subscription for later cleanup
+            locationSubscriptions[message.watchId] = watchId;
+          } catch (error: any) {
+            webViewRef.current?.injectJavaScript(`
+              window.postMessage(JSON.stringify({
+                type: 'watchPositionError',
+                watchId: '${message.watchId}',
+                data: { code: 2, message: 'Error watching location: ${error.message}' }
+              }), '*');
+            `);
+          }
+        })();
+      } else if (message.type === "clearWatch") {
+        // Remove the location subscription
+        const subscription = locationSubscriptions[message.watchId];
+        if (subscription) {
+          subscription.remove();
+          delete locationSubscriptions[message.watchId];
+        }
+
+        // Notify the WebView that the watch has been cleared
+        webViewRef.current?.injectJavaScript(`
+          window.postMessage(JSON.stringify({
+            type: 'clearWatch',
+            watchId: '${message.watchId}'
+          }), '*');
+        `);
+      } else if (message.type === "mapReady") {
         setLoading(false);
         setMapIsReady(true);
         if (onMapReady) {
@@ -871,6 +1310,10 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
           processedPointsRef.current.push(lineKey);
           onMapPress(message.data);
         }
+      } else if (message.type === "locationUpdate" && onLocationUpdate) {
+        onLocationUpdate(message.data);
+      } else if (message.type === "locationError" && onLocationError) {
+        onLocationError(message.data);
       }
     } catch (error) {
       console.error("Error parsing WebView message:", error);
@@ -884,6 +1327,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         source={{ html: htmlContent }}
         style={styles.webview}
         onMessage={handleMessage}
+        injectedJavaScriptBeforeContentLoaded={geolocationBridgeScript}
         javaScriptEnabled={true}
         domStorageEnabled={true}
         startInLoadingState={true}
@@ -892,6 +1336,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
         androidLayerType="hardware"
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
+        geolocationEnabled={enableGeolocation}
         onError={(syntheticEvent) => {
           console.error("WebView error:", syntheticEvent.nativeEvent);
         }}
