@@ -37,15 +37,19 @@ export default function UploadScreen() {
   const [dialogVisible, setDialogVisible] = useState(false);
   const [isProcessingInDialog, setIsProcessingInDialog] = useState(false);
 
+  // Combined tooltip message untuk semua file types
   const tooltipMessage =
-    "Please ensure your CSV file meets the mandatory requirements: it must contain at least four columns with valid numeric data and LIDAR data is in a valid .str format with polygon-based surface details and a recognized structure. Any deviation from these specifications could cause processing errors or rejection.";
+    "File format specifications:\n" +
+    "• Block Model: CSV format (Surpac or Vulcan compatible)\n" +
+    "• Elevation Data: STR or DXF format with surface topography\n" +
+    "• Pit Boundary: STR or DXF format defining excavation limits\n" +
+    "• Geospatial Map: PDF format for visual reference and spatial context\n\n" +
+    "You can create a file with either a Geospatial Map alone or a combination of Block Model + Elevation Data.";
 
   const handleBlockModelUpload = async () => {
     try {
       const file = await FileService.pickCSV();
       if (file) {
-        // console.log("Selected CSV file:", file);
-
         // Validasi file sebelum diterima
         const fileExtension = file.name.split(".").pop()?.toLowerCase();
         if (fileExtension !== "csv") {
@@ -68,40 +72,14 @@ export default function UploadScreen() {
     try {
       const file = await FileService.pickLiDAR();
       if (file) {
-        // console.log("Selected Lidar file:", file);
-
         // Validasi file sebelum diterima
         const fileExtension = file.name.split(".").pop()?.toLowerCase();
-        if (fileExtension !== "str") {
-          Alert.alert("Invalid File", "Please select a valid STR file");
+        if (fileExtension !== "str" && fileExtension !== "dxf") {
+          Alert.alert("Invalid File", "Please select a valid STR or DXF file");
           return;
         }
 
         setLidarFile(file);
-      }
-    } catch (error) {
-      console.error("Error picking lidar file:", error);
-      Alert.alert("Error", "Failed to select lidar file. Please try again.");
-    }
-  };
-
-  const handleElevationUpload = async () => {
-    try {
-      const file = await FileService.pickLiDAR();
-      if (file) {
-        // console.log("Selected Elevation file:", file);
-
-        // Validasi file sebelum diterima
-        const fileExtension = file.name.split(".").pop()?.toLowerCase();
-        if (fileExtension !== "str") {
-          Alert.alert(
-            "Invalid File",
-            "Please select a valid STR file for elevation data"
-          );
-          return;
-        }
-
-        setElevationFile(file);
       }
     } catch (error) {
       console.error("Error picking elevation file:", error);
@@ -112,12 +90,35 @@ export default function UploadScreen() {
     }
   };
 
+  const handleElevationUpload = async () => {
+    try {
+      const file = await FileService.pickLiDAR();
+      if (file) {
+        // Validasi file sebelum diterima
+        const fileExtension = file.name.split(".").pop()?.toLowerCase();
+        if (fileExtension !== "str" && fileExtension !== "dxf") {
+          Alert.alert(
+            "Invalid File",
+            "Please select a valid STR or DXF file for pit boundary"
+          );
+          return;
+        }
+
+        setElevationFile(file);
+      }
+    } catch (error) {
+      console.error("Error picking pit boundary file:", error);
+      Alert.alert(
+        "Error",
+        "Failed to select pit boundary file. Please try again."
+      );
+    }
+  };
+
   const handleGeospatialMapUpload = async () => {
     try {
       const pdfData = await FileService.pickPDF();
       if (pdfData) {
-        // console.log("Selected PDF file:", pdfData.fileName);
-
         // Validasi file sebelum diterima
         const fileExtension = pdfData.fileName.split(".").pop()?.toLowerCase();
         if (fileExtension !== "pdf") {
@@ -142,11 +143,36 @@ export default function UploadScreen() {
   };
 
   const handleCreateFile = () => {
-    // Periksa apakah file mandatory sudah diupload
-    if (!blockModelFile || !lidarFile) {
+    const hasPDF = !!orthophotoFile;
+    const hasBlockModel = !!blockModelFile;
+    const hasElevation = !!lidarFile;
+
+    // Check for invalid combinations
+    if (hasBlockModel && !hasElevation) {
+      Alert.alert(
+        "Elevation Data Required",
+        "When uploading a Block Model, you must also upload Elevation Data. Please upload both files to proceed."
+      );
+      return;
+    }
+
+    if (hasElevation && !hasBlockModel) {
+      Alert.alert(
+        "Block Model Required",
+        "When uploading Elevation Data, you must also upload Block Model. Please upload both files to proceed."
+      );
+      return;
+    }
+
+    // Check if minimum requirements are met
+    const hasValidCombination =
+      (hasPDF && !hasBlockModel && !hasElevation) ||
+      (hasBlockModel && hasElevation);
+
+    if (!hasValidCombination) {
       Alert.alert(
         "Upload Required",
-        "Please upload the mandatory files first."
+        "Please upload either a Geospatial Map PDF alone or both Block Model and Elevation Data together."
       );
       return;
     }
@@ -170,41 +196,37 @@ export default function UploadScreen() {
     setIsProcessingInDialog(true);
 
     try {
-      // Kita memastikan blockModelFile dan lidarFile tidak null
-      if (!blockModelFile || !lidarFile) {
-        Alert.alert("Error", "Block model and LiDAR files are required.");
-        setIsProcessingInDialog(false);
-        return;
+      // Validate Block Model file if present
+      if (blockModelFile) {
+        try {
+          await FileService.parseCSVFile(blockModelFile.uri);
+        } catch (error) {
+          console.error("Error parsing block model file:", error);
+          Alert.alert(
+            "Error",
+            "The block model file format is invalid. Please check the file and try again."
+          );
+          setIsProcessingInDialog(false);
+          return;
+        }
       }
 
-      // Attempt to parse/verify the CSV file
-      try {
-        await FileService.parseCSVFile(blockModelFile.uri);
-      } catch (error) {
-        console.error("Error parsing block model file:", error);
-        Alert.alert(
-          "Error",
-          "The block model file format is invalid. Please check the file and try again."
-        );
-        setIsProcessingInDialog(false);
-        return;
-      }
-
-      // Attempt to parse/verify the LiDAR file
-      try {
-        await FileService.parseLiDARFile(lidarFile.uri);
-      } catch (error) {
-        console.error("Error parsing LiDAR file:", error);
-        Alert.alert(
-          "Error",
-          "The LiDAR file format is invalid. Please check the file and try again."
-        );
-        setIsProcessingInDialog(false);
-        return;
+      // Validate Elevation file if present
+      if (lidarFile) {
+        try {
+          await FileService.parseLiDARFile(lidarFile.uri);
+        } catch (error) {
+          console.error("Error parsing elevation file:", error);
+          Alert.alert(
+            "Error",
+            "The elevation file format is invalid. Please check the file and try again."
+          );
+          setIsProcessingInDialog(false);
+          return;
+        }
       }
 
       // Kumpulkan informasi file yang akan disimpan
-      // PDF coordinates akan diproses nanti di topDownView
       const fileData: FileService.MiningDataFile = {
         name: fileName,
         date: new Date().toISOString(),
@@ -260,59 +282,71 @@ export default function UploadScreen() {
     }
   };
 
+  // Determine if Create File button should be enabled
+  // Complex logic to handle file dependencies
+  const hasOnlyPDF = !!orthophotoFile && !blockModelFile && !lidarFile;
+  const hasBothBlockAndElevation = !!blockModelFile && !!lidarFile;
+  const hasEitherBlockOrElevation = !!blockModelFile || !!lidarFile;
+
+  // Button is enabled only if:
+  // 1. ONLY PDF exists (without Block Model or Elevation)
+  // 2. BOTH Block Model AND Elevation exist (with or without other files)
+  // If either Block Model OR Elevation exists, both must exist
+  const isCreateFileEnabled =
+    hasOnlyPDF || (hasEitherBlockOrElevation && hasBothBlockAndElevation);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
       {/* Content */}
       <View style={styles.content}>
-        {/* Container Mandatory dengan header */}
-        <View style={styles.mandatoryContainer}>
-          <View style={styles.mandatoryHeader}>
-            <Text style={styles.mandatoryText}>Mandatory</Text>
-            <InfoTooltip message={tooltipMessage} />
-          </View>
-          {/* Tombol upload di dalam container mandatory */}
-          <UploadButton
-            title="Upload Block Model .csv"
-            icon={<MaterialIcons name="description" size={24} color="#555" />}
-            onPress={handleBlockModelUpload}
-          />
-          {blockModelFile && (
-            <View style={styles.fileIndicator}>
-              <Text style={styles.fileName}>{blockModelFile.name}</Text>
-            </View>
-          )}
-          <UploadButton
-            title="Upload Elevation Data .str"
-            icon={<Feather name="layers" size={24} color="#555" />}
-            onPress={handleLidarUpload}
-          />
-          {lidarFile && (
-            <View style={styles.fileIndicator}>
-              <Text style={styles.fileName}>{lidarFile.name}</Text>
-            </View>
-          )}
-          <UploadButton
-            title="Upload Pit Boundary .str"
-            icon={<MaterialIcons name="terrain" size={24} color="#555" />}
-            onPress={handleElevationUpload}
-          />
-          {elevationFile && (
-            <View style={styles.fileIndicator}>
-              <Text style={styles.fileName}>{elevationFile.name}</Text>
-            </View>
-          )}
+        {/* Section header with tooltip */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Mining Data Files</Text>
+          <InfoTooltip message={tooltipMessage} />
         </View>
 
-        {/* Tombol upload untuk PDF */}
+        {/* Upload buttons */}
         <UploadButton
-          title="Upload Geospatial Map .pdf"
+          title="Upload Block Model"
+          icon={<MaterialIcons name="description" size={24} color="#555" />}
+          onPress={handleBlockModelUpload}
+        />
+        {blockModelFile && (
+          <View style={styles.fileIndicator}>
+            <Text style={styles.fileName}>{blockModelFile.name}</Text>
+          </View>
+        )}
+
+        <UploadButton
+          title="Upload Elevation Data"
+          icon={<Feather name="layers" size={24} color="#555" />}
+          onPress={handleLidarUpload}
+        />
+        {lidarFile && (
+          <View style={styles.fileIndicator}>
+            <Text style={styles.fileName}>{lidarFile.name}</Text>
+          </View>
+        )}
+
+        <UploadButton
+          title="Upload Pit Boundary"
+          icon={<MaterialIcons name="terrain" size={24} color="#555" />}
+          onPress={handleElevationUpload}
+        />
+        {elevationFile && (
+          <View style={styles.fileIndicator}>
+            <Text style={styles.fileName}>{elevationFile.name}</Text>
+          </View>
+        )}
+
+        <UploadButton
+          title="Upload Geospatial Map"
           icon={
             <MaterialCommunityIcons name="map-outline" size={24} color="#555" />
           }
           onPress={handleGeospatialMapUpload}
-          style={{ marginTop: 20 }}
         />
         {orthophotoFile && (
           <View style={styles.fileIndicator}>
@@ -324,10 +358,10 @@ export default function UploadScreen() {
         <TouchableOpacity
           style={[
             styles.createButton,
-            (!blockModelFile || !lidarFile) && styles.disabledButton,
+            !isCreateFileEnabled && styles.disabledButton,
           ]}
           onPress={handleCreateFile}
-          disabled={!blockModelFile || !lidarFile}
+          disabled={!isCreateFileEnabled}
         >
           <Text style={styles.createButtonText}>Create File</Text>
         </TouchableOpacity>
@@ -356,31 +390,15 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     justifyContent: "center",
   },
-  mandatoryContainer: {
-    backgroundColor: "#F5F5F5",
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  tooltipPosition: {
-    position: "absolute",
-    right: 5,
-    top: 0,
-  },
-  mandatoryHeader: {
+  sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 30,
     position: "relative",
   },
-  mandatoryText: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 20,
     fontWeight: "600",
     color: "#000",
     textAlign: "center",
@@ -412,7 +430,10 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   disabledButton: {
-    opacity: 0.7,
+    backgroundColor: "#D3D3D3",
+    opacity: 0.6,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   createButtonText: {
     fontSize: 16,
