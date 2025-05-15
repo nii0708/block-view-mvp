@@ -136,6 +136,10 @@ export default function TopDownViewScreen() {
   const [addPointFunc, setAddPointFunc] = useState<(() => void) | null>(null);
   const mountedRef = useRef(true);
 
+  // File data states
+  const [hasBlockModelData, setHasBlockModelData] = useState(false);
+  const [hasElevationData, setHasElevationData] = useState(false);
+
   // Context
   const {
     setProcessedBlockModel,
@@ -283,6 +287,7 @@ export default function TopDownViewScreen() {
             setFullBlockModelData(rawBlockModelData);
             setGeoJsonData(resultForTopDown.geoJsonData);
             setProcessedBlockModel(resultForCrossSection.geoJsonData);
+            setHasBlockModelData(true);
 
             // Update map center only if no PDF
             if (!pdfLoaded && mounted) {
@@ -328,7 +333,7 @@ export default function TopDownViewScreen() {
               setElevationData(processedElev);
               setProcessedElevation(processedElev);
             }
-
+            setHasElevationData(true);
             setLoadingProgress(0.8);
           } catch (error) {
             console.error("Error processing elevation data:", error);
@@ -583,9 +588,25 @@ export default function TopDownViewScreen() {
   }, [addPointFunc, coordinates, selectedPoints]);
 
   const handleCreateCrossSection = useCallback(() => {
-    if (selectedPoints.length !== 2) return;
+    // Cek apakah ada 2 titik
+    if (selectedPoints.length !== 2) {
+      Alert.alert(
+        "Error",
+        "Please select exactly 2 points to create a cross section"
+      );
+      return;
+    }
 
-    // Convert custom color mapping to simple format for URL params
+    // Cek apakah ada data block model dan elevation
+    if (!hasBlockModelData || !hasElevationData) {
+      Alert.alert(
+        "Data Required",
+        "Block Model and Elevation data are required to create a cross section. Please upload both files first."
+      );
+      return;
+    }
+
+    // Lanjutkan dengan create cross section seperti biasa
     const colorMappingString = JSON.stringify(customColorMapping);
 
     router.push({
@@ -599,7 +620,7 @@ export default function TopDownViewScreen() {
         elevation: elevation.toString(),
         fileName: String(fileName),
         projection: sourceProjection,
-        colorMapping: colorMappingString, // Add color mapping
+        colorMapping: colorMappingString,
       },
     });
   }, [
@@ -608,20 +629,50 @@ export default function TopDownViewScreen() {
     elevation,
     fileName,
     sourceProjection,
-    customColorMapping, // Add to dependencies
+    customColorMapping,
+    hasBlockModelData,
+    hasElevationData,
     router,
   ]);
 
   const toggleRulerMode = useCallback(() => {
-    setIsCreateLineMode((prev) => !prev);
-    setSelectedPoints([]);
-    setLineLength(0);
-    processedMessagesRef.current.clear();
-  }, []);
+    // Jika user mengaktifkan ruler mode tapi data tidak lengkap, beri warning
+    if (!isCreateLineMode && (!hasBlockModelData || !hasElevationData)) {
+      Alert.alert(
+        "Notice",
+        "Block Model and Elevation data are required to create cross sections. You can still draw lines for measurement.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Continue",
+            onPress: () => {
+              setIsCreateLineMode(true);
+              setSelectedPoints([]);
+              setLineLength(0);
+              processedMessagesRef.current.clear();
+            },
+          },
+        ]
+      );
+    } else {
+      setIsCreateLineMode((prev) => !prev);
+      setSelectedPoints([]);
+      setLineLength(0);
+      processedMessagesRef.current.clear();
+    }
+  }, [isCreateLineMode, hasBlockModelData, hasElevationData]);
 
   const toggleDropdown = useCallback(() => {
+    // Only show dropdown if there's at least one option available
+    const hasAnyOption = hasBlockModelData || pitGeoJsonData || pdfOverlayData;
+
+    if (!hasAnyOption) {
+      Alert.alert("No Data", "No layers available to toggle");
+      return;
+    }
+
     setShowDropdown((prev) => !prev);
-  }, []);
+  }, [hasBlockModelData, pitGeoJsonData, pdfOverlayData]);
 
   const toggleBlockModel = useCallback(() => {
     setShowBlockModel((prev) => !prev);
@@ -656,29 +707,36 @@ export default function TopDownViewScreen() {
     );
   };
 
-  const renderRockTypeLegend = () => (
-    <View style={styles.legendContainer}>
-      <Text style={styles.legendTitle}>Rock Types:</Text>
-      <View style={styles.legendItems}>
-        {Object.entries(rockTypeLegend).map(([rockType, config]) => (
-          <View key={rockType} style={styles.legendItem}>
-            <View
-              style={[
-                styles.legendColor,
-                {
-                  backgroundColor: config.color,
-                  opacity: config.opacity,
-                },
-              ]}
-            />
-            <Text style={styles.legendText}>
-              {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
-            </Text>
-          </View>
-        ))}
+  const renderRockTypeLegend = () => {
+    // Only render legend if there's block model data
+    if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.legendContainer}>
+        <Text style={styles.legendTitle}>Rock Types:</Text>
+        <View style={styles.legendItems}>
+          {Object.entries(rockTypeLegend).map(([rockType, config]) => (
+            <View key={rockType} style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendColor,
+                  {
+                    backgroundColor: config.color,
+                    opacity: config.opacity,
+                  },
+                ]}
+              />
+              <Text style={styles.legendText}>
+                {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+              </Text>
+            </View>
+          ))}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderCreateLineInputs = () => (
     <View style={styles.createLineInputs}>
@@ -723,37 +781,61 @@ export default function TopDownViewScreen() {
     </View>
   );
 
-  const renderCreateLineButtons = () => (
-    <View style={styles.createLineButtons}>
-      <View style={styles.actionButtonsRow}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleUndo}>
-          <Text style={styles.actionButtonText}>Undo</Text>
-        </TouchableOpacity>
+  const renderCreateLineButtons = () => {
+    const hasRequiredData = hasBlockModelData && hasElevationData;
+    const canCreateSection = selectedPoints.length === 2 && hasRequiredData;
+
+    let buttonText = "Create Cross Section";
+    if (!hasRequiredData) {
+      buttonText = "Create Cross Section (Data Required)";
+    }
+
+    return (
+      <View style={styles.createLineButtons}>
+        <View style={styles.actionButtonsRow}>
+          <TouchableOpacity style={styles.actionButton} onPress={handleUndo}>
+            <Text style={styles.actionButtonText}>Undo</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.actionButton,
+              selectedPoints.length >= 2 && styles.disabledActionButton,
+            ]}
+            onPress={handleAddPoint}
+            disabled={selectedPoints.length >= 2}
+          >
+            <Text style={styles.actionButtonText}>Add point</Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[
-            styles.actionButton,
-            selectedPoints.length >= 2 && styles.disabledActionButton,
+            styles.createSectionButton,
+            !canCreateSection && styles.disabledSectionButton,
           ]}
-          onPress={handleAddPoint}
-          disabled={selectedPoints.length >= 2}
+          onPress={handleCreateCrossSection}
+          disabled={!canCreateSection}
         >
-          <Text style={styles.actionButtonText}>Add point</Text>
+          <Text
+            style={[
+              styles.createSectionButtonText,
+              !canCreateSection && styles.disabledButtonText,
+            ]}
+          >
+            {buttonText}
+          </Text>
         </TouchableOpacity>
-      </View>
 
-      <TouchableOpacity
-        style={[
-          styles.createSectionButton,
-          selectedPoints.length !== 2 && styles.disabledSectionButton,
-        ]}
-        onPress={handleCreateCrossSection}
-        disabled={selectedPoints.length !== 2}
-      >
-        <Text style={styles.createSectionButtonText}>Create Cross Section</Text>
-      </TouchableOpacity>
-    </View>
-  );
+        {selectedPoints.length === 2 &&
+          (!hasBlockModelData || !hasElevationData) && (
+            <Text style={styles.warningText}>
+              Block Model and Elevation data required for cross section
+            </Text>
+          )}
+      </View>
+    );
+  };
 
   const renderDropdown = () => (
     <Modal
@@ -766,38 +848,45 @@ export default function TopDownViewScreen() {
         <View style={styles.dropdownBackdrop}>
           <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
             <View style={styles.dropdownContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.dropdownItem,
-                  showBlockModel && styles.selectedDropdownItem,
-                ]}
-                onPress={toggleBlockModel}
-              >
-                <MaterialIcons
-                  name={
-                    showBlockModel ? "check-box" : "check-box-outline-blank"
-                  }
-                  size={24}
-                  color="#198754"
-                />
-                <Text style={styles.dropdownText}>Block Model</Text>
-              </TouchableOpacity>
+              {/* Only show Block Model option if data exists */}
+              {hasBlockModelData && (
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownItem,
+                    showBlockModel && styles.selectedDropdownItem,
+                  ]}
+                  onPress={toggleBlockModel}
+                >
+                  <MaterialIcons
+                    name={
+                      showBlockModel ? "check-box" : "check-box-outline-blank"
+                    }
+                    size={24}
+                    color="#198754"
+                  />
+                  <Text style={styles.dropdownText}>Block Model</Text>
+                </TouchableOpacity>
+              )}
 
-              <TouchableOpacity
-                style={[
-                  styles.dropdownItem,
-                  showPit && styles.selectedDropdownItem,
-                ]}
-                onPress={togglePit}
-              >
-                <MaterialIcons
-                  name={showPit ? "check-box" : "check-box-outline-blank"}
-                  size={24}
-                  color="#198754"
-                />
-                <Text style={styles.dropdownText}>Pit Boundary</Text>
-              </TouchableOpacity>
+              {/* Only show Pit Boundary option if data exists */}
+              {pitGeoJsonData && (
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownItem,
+                    showPit && styles.selectedDropdownItem,
+                  ]}
+                  onPress={togglePit}
+                >
+                  <MaterialIcons
+                    name={showPit ? "check-box" : "check-box-outline-blank"}
+                    size={24}
+                    color="#198754"
+                  />
+                  <Text style={styles.dropdownText}>Pit Boundary</Text>
+                </TouchableOpacity>
+              )}
 
+              {/* Only show PDF Map option if data exists */}
               {pdfOverlayData && (
                 <TouchableOpacity
                   style={[
@@ -815,17 +904,19 @@ export default function TopDownViewScreen() {
                 </TouchableOpacity>
               )}
 
-              {/* Add Block Colours option */}
-              <TouchableOpacity
-                style={styles.dropdownItem}
-                onPress={() => {
-                  setShowDropdown(false);
-                  setShowColorPicker(true);
-                }}
-              >
-                <MaterialIcons name="palette" size={24} color="#198754" />
-                <Text style={styles.dropdownText}>Block Colours</Text>
-              </TouchableOpacity>
+              {/* Only show Block Colours option if block model data exists */}
+              {hasBlockModelData && (
+                <TouchableOpacity
+                  style={styles.dropdownItem}
+                  onPress={() => {
+                    setShowDropdown(false);
+                    setShowColorPicker(true);
+                  }}
+                >
+                  <MaterialIcons name="palette" size={24} color="#198754" />
+                  <Text style={styles.dropdownText}>Block Colours</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -947,7 +1038,7 @@ export default function TopDownViewScreen() {
   );
 }
 
-// Styles remain the same as original
+// Styles with responsive fixes
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1103,8 +1194,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
+  // FIXED STYLES FOR RESPONSIVE LAYOUT
   controlsContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 15, // Reduced from 20
     marginTop: 10,
   },
   coordinatesContainer: {
@@ -1113,6 +1205,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 15,
     paddingVertical: 10,
+    paddingHorizontal: 0, // Remove horizontal padding
   },
   rulerButton: {
     width: 40,
@@ -1121,6 +1214,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: 0, // Ensure no extra margin
   },
   layersButton: {
     width: 40,
@@ -1129,22 +1223,25 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 0, // Ensure no extra margin
   },
   coordinatesDisplay: {
     backgroundColor: "#f0f0f0",
-    paddingHorizontal: 20,
+    paddingHorizontal: 15, // Reduced from 20
     paddingVertical: 10,
     borderRadius: 25,
     marginHorizontal: 10,
     alignItems: "center",
     alignSelf: "center",
-    minWidth: 280,
+    flex: 1, // Make it flexible
+    maxWidth: 300, // Set max width instead of min
   },
   coordinatesText: {
-    fontSize: 15,
+    fontSize: 14, // Slightly smaller font
     color: "#333",
     fontFamily: "Montserrat_500Medium",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3, // Reduced letter spacing
+    textAlign: "center", // Center text
   },
   legendContainer: {
     backgroundColor: "#f9f9f9",
@@ -1228,5 +1325,15 @@ const styles = StyleSheet.create({
     borderTopColor: "#E9ECEF",
     marginTop: 8,
     paddingTop: 12,
+  },
+  warningText: {
+    fontSize: 12,
+    color: "#FF6B6B",
+    textAlign: "center",
+    marginTop: 10,
+    fontStyle: "italic",
+  },
+  disabledButtonText: {
+    color: "#999",
   },
 });
