@@ -200,8 +200,9 @@ export default function TopDownViewScreen() {
                 await FileService.extractPDFCoordinatesNative(
                   file.files.orthophoto.uri
                 );
+              
               coordinates = nativeResult.coordinates;
-
+              console.log('coordinates :', coordinates)
               if (coordinates) {
                 file.files.pdfCoordinates = coordinates;
                 const files = await FileService.getFileInfo();

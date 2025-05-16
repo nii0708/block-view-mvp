@@ -24,7 +24,7 @@ export const processPDFForMapOverlay = async (
         coordinates.bottomLeft.lat,
         coordinates.bottomRight.lat,
       ];
-
+      console.log('coordinates : ', coordinates)
       const lngs = [
         coordinates.topLeft.lng,
         coordinates.topRight.lng,
@@ -42,6 +42,7 @@ export const processPDFForMapOverlay = async (
         [minLat, minLng],
         [maxLat, maxLng],
       ];
+      console.log('bounds : ', bounds)
 
       // Calculate center
       const centerLat = (minLat + maxLat) / 2;

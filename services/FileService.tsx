@@ -2,6 +2,8 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import Papa from "papaparse";
 
+import { PDFDocument, PDFName } from 'pdf-lib';
+
 export interface FileInfo {
   name: string;
   uri: string;
@@ -474,105 +476,73 @@ export const extractPDFCoordinatesNative = async (
     // Decode base64 to search for metadata
     const binaryStr = atob(pdfBase64);
 
-    // Extract VP (viewport) arrays and their BBox and GPTS data
-    const vpPattern = /\/VP\s*\[((?:[^[\]]+|\[[^\]]*\])*)\]/g;
-    let vpMatch;
-    let maxAreaBBox = 0;
-    let selectedBBox: number[] = [];
-    let selectedGPTS: number[] = [];
+    // NEW
+    const uint8Array = Uint8Array.from(binaryStr, c => c.charCodeAt(0));
+    const pdfDoc = await PDFDocument.load(uint8Array);
+    console.log('pdfDoc : ',pdfDoc)
+    const context = pdfDoc.context;
+    const catalog = pdfDoc.catalog;
+    const pagesRef = catalog.get(PDFName.of('Pages'));
+    const pagesDict = context.lookup(pagesRef);
+    const kidsArray = pagesDict.get(PDFName.of('Kids'));
+    const firstKidRef = kidsArray.get(0);
+    const firstKid = context.lookup(firstKidRef);
+    const mediaBox = firstKid.get(PDFName.of('MediaBox')).array.map(el => el.numberValue);
 
-    while ((vpMatch = vpPattern.exec(binaryStr)) !== null) {
-      const vpContent = vpMatch[1];
+    const VP_array = firstKid.get(PDFName.of('VP')).array;
+    console.log('mediaBox pdf-lib : ', mediaBox)
+    console.log('VP_array pdf-lib : ', VP_array)
+    
 
-      // Extract BBox from this VP
-      const bboxPattern = /\/BBox\s*\[([^\]]+)\]/;
-      const bboxMatch = bboxPattern.exec(vpContent);
+    let areaBBOXMax = 0;
+    let bboxList = [];
+    let gptsList = [];
 
-      if (bboxMatch) {
-        const bboxValues = bboxMatch[1]
-          .trim()
-          .split(/\s+/)
-          .map(Number)
-          .filter((num) => !isNaN(num));
+    for (let i = 0; i < VP_array.length; i++) {
+      const item = VP_array[i];
+      const BBOX = item.get(PDFName.of('BBox')).array.map(el => el.numberValue);
+      const areaBBOX = Math.abs(BBOX[2] - BBOX[0]) * Math.abs(BBOX[1] - BBOX[3]);
 
-        if (bboxValues.length === 4) {
-          // Calculate area of this BBox
-          const areaBBox =
-            Math.abs(bboxValues[2] - bboxValues[0]) *
-            Math.abs(bboxValues[3] - bboxValues[1]);
+      if (areaBBOX > areaBBOXMax) {
+        areaBBOXMax = areaBBOX;
+        const Measure = item.get(PDFName.of('Measure'));
+        const MeasureDict = context.lookup(Measure);
+        const GPT = MeasureDict.get(PDFName.of('GPTS')).array.map(el => el.numberValue);
 
-          // Find Measure dictionary and GPTS in this VP
-          const measurePattern = /\/Measure\s*<<(.*?)>>/s;
-          const measureMatch = measurePattern.exec(vpContent);
+        const lat = GPT.filter((_, i) => i % 2 === 0);
+        const lon = GPT.filter((_, i) => i % 2 === 1);
+        const xs = BBOX.filter((_, i) => i % 2 === 0);
+        const ys = BBOX.filter((_, i) => i % 2 === 1);
 
-          if (measureMatch && areaBBox > maxAreaBBox) {
-            const measureContent = measureMatch[1];
-            const gptsPattern = /\/GPTS\s*\[([^\]]+)\]/;
-            const gptsMatch = gptsPattern.exec(measureContent);
+        const maxLon = Math.max(...lon);
+        const minLon = Math.min(...lon);
+        const maxLat = Math.max(...lat);
+        const minLat = Math.min(...lat);
+        const maxXs = Math.max(...xs);
+        const minXs = Math.min(...xs);
+        const maxYs = Math.max(...ys);
+        const minYs = Math.min(...ys);
 
-            if (gptsMatch) {
-              const gptsValues = gptsMatch[1]
-                .trim()
-                .split(/\s+/)
-                .map(Number)
-                .filter((num) => !isNaN(num));
-
-              if (gptsValues.length >= 8) {
-                // Need at least 4 coordinate pairs
-                maxAreaBBox = areaBBox;
-                selectedBBox = bboxValues;
-                selectedGPTS = gptsValues;
-                console.log("Found larger BBox area:", areaBBox);
-                console.log("BBox:", bboxValues);
-                console.log("GPTS:", gptsValues);
-              }
-            }
-          }
-        }
+        bboxList = [minXs, minYs, maxXs, maxYs];
+        gptsList = [minLon, minLat, maxLon, maxLat];
       }
     }
 
-    // If we found valid GPTS and BBox data
-    if (selectedGPTS.length >= 8 && selectedBBox.length === 4) {
-      // Extract MediaBox for reference
-      const mediaBoxPattern = /\/MediaBox\s*\[([^\]]+)\]/;
-      const mediaBoxMatch = mediaBoxPattern.exec(binaryStr);
-      let mediaBox = [0, 0, 612, 792]; // Default letter size
+    const dLon = gptsList[2] - gptsList[0];
+    const dLat = gptsList[3] - gptsList[1];
+    const dX = Math.abs(bboxList[2] - bboxList[0]);
+    const dY = Math.abs(bboxList[3] - bboxList[1]);
+    const gradY = dLat / dY;
+    const gradX = dLon / dX;
 
-      if (mediaBoxMatch) {
-        mediaBox = mediaBoxMatch[1]
-          .trim()
-          .split(/\s+/)
-          .map(Number)
-          .filter((num) => !isNaN(num));
-      }
+    const left = gptsList[0] - gradX * bboxList[0];
+    const right = gptsList[2] + gradX * (mediaBox[2] - bboxList[2]);
+    const upper = gptsList[3] + gradY * Math.abs(mediaBox[3] - bboxList[3]);
+    const bottom = gptsList[1] - gradY * bboxList[1];
 
-      // Calculate the coordinates similar to your Node.js script
-      // Separate lat/lon values (GPTS alternates lat,lng,lat,lng...)
-      const lat = selectedGPTS.filter((_, index) => index % 2 === 0);
-      const lon = selectedGPTS.filter((_, index) => index % 2 === 1);
+    // END
 
-      // Get min/max values
-      const minLat = Math.min(...lat);
-      const maxLat = Math.max(...lat);
-      const minLon = Math.min(...lon);
-      const maxLon = Math.max(...lon);
-
-      // Calculate gradients for extrapolation
-      const dLat = maxLat - minLat;
-      const dLon = maxLon - minLon;
-      const dX = Math.abs(selectedBBox[2] - selectedBBox[0]);
-      const dY = Math.abs(selectedBBox[3] - selectedBBox[1]);
-
-      const gradY = dLat / dY;
-      const gradX = dLon / dX;
-
-      // Extrapolate to map corners using the gradients
-      const left = minLon - gradX * selectedBBox[0];
-      const right = maxLon + gradX * (mediaBox[2] - selectedBBox[2]);
-      const upper = maxLat + gradY * Math.abs(mediaBox[3] - selectedBBox[3]);
-      const bottom = minLat - gradY * selectedBBox[1];
-
+    if (true) {
       console.log("Calculated map bounds:", { left, bottom, right, upper });
 
       // Create coordinates object
@@ -581,7 +551,8 @@ export const extractPDFCoordinatesNative = async (
         topRight: { lat: upper, lng: right },
         bottomLeft: { lat: bottom, lng: left },
         bottomRight: { lat: bottom, lng: right },
-        raw: selectedGPTS.join(" "),
+        // raw: selectedGPTS.join(" "),
+        raw: gptsList
       };
 
       return {
