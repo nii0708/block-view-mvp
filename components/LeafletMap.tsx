@@ -839,7 +839,6 @@ true;
           }
         }
         
-        // Update map with GeoJSON data and PDF overlay (SIMPLIFIED)
         async function updateMapData(data) {
           try {
             console.log("updateMapData called", data);
@@ -924,7 +923,6 @@ true;
               }
             }
             
-            // Handle PDF overlay - SIMPLIFIED VERSION
             if (data.pdfOverlayData) {
               if (pdfLayer) {
                 map.removeLayer(pdfLayer);
@@ -998,6 +996,12 @@ true;
                     map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
                   }
                 }
+              }
+            } else {
+              if (pdfLayer) {
+                console.log('Removing PDF layer due to toggle off');
+                map.removeLayer(pdfLayer);
+                pdfLayer = null;
               }
             }
             
