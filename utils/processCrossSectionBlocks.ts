@@ -265,9 +265,7 @@ export function processCrossSectionBlocks(
             elevation: z,
             rock: block.rock || "unknown",
             color: block.color,
-            ni_ok: block.ni_ok,
-            fe_ok: block.fe_ok,
-            co_idw: block.co_idw,
+            concentrate: block.concentrate,
           });
         }
       }
