@@ -49,7 +49,6 @@ export const blockModelToGeoJSON = (
         // GeoJSON uses [longitude, latitude] tapi Leaflet expects [latitude, longitude]
         const coords = firstFeature.geometry.coordinates[0][0];
         mapCenter = [coords[1], coords[0]];
-        console.log("Setting map center to:", mapCenter);
       }
     }
 

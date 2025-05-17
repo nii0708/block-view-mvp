@@ -149,7 +149,6 @@ export const useFileDataProcessing = ({
         }
       });
     } catch (error) {
-      console.error("Error scheduling block model processing:", error);
       // Even on error, continue and update loading state
       updateState({
         loadingProgress: 0.6,

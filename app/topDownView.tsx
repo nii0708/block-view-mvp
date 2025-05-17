@@ -278,11 +278,6 @@ export default function TopDownViewScreen() {
               false // all blocks for cross-section
             );
 
-            console.log("Block model processed:", {
-              topDown: resultForTopDown.geoJsonData.features.length,
-              crossSection: resultForCrossSection.geoJsonData.features.length,
-            });
-
             // Set all block model related states
             setBlockModelData(rawBlockModelData);
             setFullBlockModelData(rawBlockModelData);
@@ -349,9 +344,9 @@ export default function TopDownViewScreen() {
           try {
             const rawPitData = await FileService.parseLiDARFile(
               file.files.pit.uri,
-              { maxPoints: 10000 }
+              // { maxPoints: 10000 }
             );
-
+            // console.log('rawPitData : ', rawPitData)
             if (!mounted) return;
 
             // Process pit data immediately

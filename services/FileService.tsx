@@ -2,7 +2,8 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import Papa from "papaparse";
 
-import { PDFDocument, PDFName } from 'pdf-lib';
+import DxfParser from "dxf-parser";
+import { PDFDocument, PDFName } from "pdf-lib";
 
 export interface FileInfo {
   name: string;
@@ -119,19 +120,13 @@ export const pickFile = async (
     });
 
     if (result.canceled) {
-      console.log("Document picking was canceled");
       return null;
     }
 
     // Return the first asset if available
     if (result.assets && result.assets.length > 0) {
       const file = result.assets[0] as FileInfo;
-      console.log("Selected file details:", {
-        name: file.name,
-        type: file.type,
-        mimeType: file.mimeType,
-        uri: file.uri.substring(0, 50) + "...", // Log partial URI for debugging
-      });
+
       return file;
     }
 
@@ -157,15 +152,11 @@ export const pickCSV = async (): Promise<FileInfo | null> => {
 
   // If that doesn't work, try with all file types and filter by extension
   if (!file) {
-    console.log(
-      "Specific CSV MIME types didn't work, trying with any file type"
-    );
     file = await pickFile("*/*");
 
     if (file) {
       // Check if the file has a .csv extension
       if (!file.name.toLowerCase().endsWith(".csv")) {
-        console.log(`File ${file.name} is not a CSV file`);
         alert("Please select a CSV file (with .csv extension)");
         return null;
       }
@@ -184,15 +175,11 @@ export const pickLiDAR = async (): Promise<FileInfo | null> => {
 
   // If that doesn't work, try with all file types and filter by extension
   if (!file) {
-    console.log(
-      "Specific STR MIME types didn't work, trying with any file type"
-    );
     file = await pickFile("*/*");
 
     if (file) {
       // Check if the file has a .str extension
       if (!file.name.toLowerCase().endsWith(".str")) {
-        console.log(`File ${file.name} is not an STR file`);
         alert("Please select an STR file (with .str extension)");
         return null;
       }
@@ -211,9 +198,6 @@ export const pickSVG = async (): Promise<FileInfo | null> => {
 
   // If that doesn't work, try with all file types and filter by extension
   if (!file) {
-    console.log(
-      "Specific SVG MIME types didn't work, trying with any file type"
-    );
     file = await pickFile("*/*");
 
     if (file) {
@@ -280,6 +264,7 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
  * Parse an STR file (LiDAR data) and return the parsed data
  * Added options for sampling to reduce data size
  */
+
 export const parseLiDARFile = async (
   fileUri: string,
   options: {
@@ -288,80 +273,138 @@ export const parseLiDARFile = async (
   } = {}
 ): Promise<LiDARPoint[]> => {
   try {
-    // console.log(`Reading STR file from URI: ${fileUri.substring(0, 50)}...`);
+    const getFileExtension = (uri: string): string | null => {
+      const match = uri.match(/\.([a-zA-Z0-9]+)$/);
+      return match ? match[1].toLowerCase() : null;
+    };
     const fileContent = await FileSystem.readAsStringAsync(fileUri);
-    // console.log(`STR file content length: ${fileContent.length} bytes`);
-    // console.log(`STR sample: ${fileContent.substring(0, 100)}...`);
+    const extension = getFileExtension(fileUri);
 
-    return new Promise((resolve, reject) => {
-      Papa.parse(fileContent, {
-        header: false,
-        skipEmptyLines: true,
-        dynamicTyping: true,
-        complete: (results) => {
-          if (results.errors && results.errors.length > 0) {
-            console.error("STR parsing errors:", results.errors);
-            reject(
-              new Error(`Error parsing STR file: ${results.errors[0].message}`)
+    if (extension === "str") {
+      return new Promise((resolve, reject) => {
+        Papa.parse(fileContent, {
+          header: false,
+          skipEmptyLines: true,
+          dynamicTyping: true,
+          complete: (results) => {
+            if (results.errors && results.errors.length > 0) {
+              console.error("STR parsing errors:", results.errors);
+              reject(
+                new Error(
+                  `Error parsing STR file: ${results.errors[0].message}`
+                )
+              );
+              return;
+            }
+
+            console.log(
+              `Successfully parsed STR with ${results.data.length} rows`
             );
+            if (results.data.length > 0) {
+              console.log(`Sample STR row:`, results.data[0]);
+            }
+
+            // Skip header row and process data rows
+            const dataRows = results.data.slice(1) as LiDARRow[];
+
+            // Apply sampling if requested
+            let processedRows = dataRows;
+
+            // If maxPoints is specified, calculate appropriate sampling rate
+            if (options.maxPoints && dataRows.length > options.maxPoints) {
+              const sampleRate = Math.ceil(dataRows.length / options.maxPoints);
+              console.log(
+                `Data has ${dataRows.length} points, sampling every ${sampleRate}th point to get ~${options.maxPoints} points`
+              );
+              processedRows = dataRows.filter(
+                (_, index) => index % sampleRate === 0
+              );
+            }
+            // Otherwise if sampleRate is specified, use that
+            else if (options.sampleRate && options.sampleRate > 1) {
+              const rate = options.sampleRate; // Create a local constant to satisfy TypeScript
+              console.log(`Sampling every ${rate}th point`);
+              processedRows = dataRows.filter((_, index) => index % rate === 0);
+            }
+
+            // Process each row into the required format
+            const processedData = processedRows
+              .filter((row: LiDARRow) => {
+                // Ensure row has enough columns
+                return Array.isArray(row) && row.length >= 4;
+              })
+              .map((row: LiDARRow) => {
+                return {
+                  id: parseInt(String(row[0])) || 1,
+                  lat: parseFloat(String(row[1])) || 0,
+                  lon: parseFloat(String(row[2])) || 0,
+                  z: parseFloat(String(row[3])) || 0,
+                  desc: row.length >= 5 ? String(row[4]) : "",
+                };
+              });
+
+            resolve(processedData);
+          },
+          error: (error: Error) => {
+            console.error("Error parsing STR file:", error);
+            reject(error);
+          },
+        });
+      });
+    } else if (extension === "dxf") {
+      return new Promise((resolve, reject) => {
+        try {
+          const parser = new DxfParser();
+          const dxf = parser.parseSync(fileContent);
+
+          if (!dxf || !dxf.entities) {
+            reject(new Error("Invalid DXF file or no entities found"));
             return;
           }
 
-          console.log(
-            `Successfully parsed STR with ${results.data.length} rows`
-          );
-          if (results.data.length > 0) {
-            console.log(`Sample STR row:`, results.data[0]);
-          }
+          // Use type assertion to tell TypeScript that entities have vertices
+          const data = (dxf.entities as any[]).map((e) => {
+            // Add null check for entity and vertices
+            if (e && e.vertices && Array.isArray(e.vertices)) {
+              return e.vertices;
+            }
+            return []; // Return empty array for entities without vertices
+          });
 
-          // Skip header row and process data rows
-          const dataRows = results.data.slice(1) as LiDARRow[];
+          // Create closed polygons by adding first vertex to the end of each entity's vertices
+          const closedData = data.map((vertices) => {
+            if (vertices.length > 0) {
+              // Create a new array with all existing vertices plus the first one repeated at the end
+              return [...vertices, vertices[0]];
+            }
+            return vertices;
+          });
 
-          // Apply sampling if requested
-          let processedRows = dataRows;
-
-          // If maxPoints is specified, calculate appropriate sampling rate
-          if (options.maxPoints && dataRows.length > options.maxPoints) {
-            const sampleRate = Math.ceil(dataRows.length / options.maxPoints);
-            console.log(
-              `Data has ${dataRows.length} points, sampling every ${sampleRate}th point to get ~${options.maxPoints} points`
-            );
-            processedRows = dataRows.filter(
-              (_, index) => index % sampleRate === 0
-            );
-          }
-          // Otherwise if sampleRate is specified, use that
-          else if (options.sampleRate && options.sampleRate > 1) {
-            const rate = options.sampleRate; // Create a local constant to satisfy TypeScript
-            console.log(`Sampling every ${rate}th point`);
-            processedRows = dataRows.filter((_, index) => index % rate === 0);
-          }
-
-          // Process each row into the required format
-          const processedData = processedRows
-            .filter((row: LiDARRow) => {
-              // Ensure row has enough columns
-              return Array.isArray(row) && row.length >= 4;
-            })
-            .map((row: LiDARRow) => {
+          // Process the data with closed polygons - fixing property names to match LiDARPoint interface
+          const processedData: LiDARPoint[] = closedData
+            .flat()
+            .map((vertex, index) => {
+              // Make sure all properties exist and match LiDARPoint interface
               return {
-                id: parseInt(String(row[0])) || 1,
-                lat: parseFloat(String(row[1])) || 0,
-                lon: parseFloat(String(row[2])) || 0,
-                z: parseFloat(String(row[3])) || 0,
-                desc: row.length >= 5 ? String(row[4]) : "",
+                id: vertex.handle || index, // Use handle if available, otherwise use index
+                lat: vertex.y || 0, // Note: x and y are swapped as per your original code
+                lon: vertex.x || 0, // 'lon' not 'long' to match LiDARPoint
+                z: vertex.z || 0,
+                desc: "", // Add required desc property
               };
             });
 
-          console.log(`Processed ${processedData.length} LiDAR points`);
           resolve(processedData);
-        },
-        error: (error: Error) => {
-          console.error("Error parsing STR file:", error);
+        } catch (error) {
+          console.error("Error parsing DXF:", error);
           reject(error);
-        },
+        }
       });
-    });
+    } else {
+      console.log("Not compatible extension:", extension);
+      // Return empty array for incompatible extensions
+      return Promise.resolve([]);
+    }
   } catch (error: any) {
     console.error("Error reading file:", error);
     throw error;
@@ -477,82 +520,138 @@ export const extractPDFCoordinatesNative = async (
     const binaryStr = atob(pdfBase64);
 
     // NEW
-    const uint8Array = Uint8Array.from(binaryStr, c => c.charCodeAt(0));
+    const uint8Array = Uint8Array.from(binaryStr, (c) => c.charCodeAt(0));
     const pdfDoc = await PDFDocument.load(uint8Array);
-    console.log('pdfDoc : ',pdfDoc)
+
+    // Get context and catalog with null checks
     const context = pdfDoc.context;
     const catalog = pdfDoc.catalog;
-    const pagesRef = catalog.get(PDFName.of('Pages'));
+
+    // Handle getting pages with null checks and proper type assertions
+    // Use type assertion for PDFDict to ensure get method is available
+    const pagesRef = (catalog as any).get(PDFName.of("Pages"));
+    if (!pagesRef) {
+      throw new Error("Pages reference not found in PDF");
+    }
+
     const pagesDict = context.lookup(pagesRef);
-    const kidsArray = pagesDict.get(PDFName.of('Kids'));
+    if (!pagesDict) {
+      throw new Error("Pages dictionary not found");
+    }
+
+    // Use type assertion to ensure get method is available
+    const kidsArray = (pagesDict as any).get(PDFName.of("Kids"));
+    if (!kidsArray || !kidsArray.size) {
+      throw new Error("No kids/pages found in PDF");
+    }
+
     const firstKidRef = kidsArray.get(0);
     const firstKid = context.lookup(firstKidRef);
-    const mediaBox = firstKid.get(PDFName.of('MediaBox')).array.map(el => el.numberValue);
+    if (!firstKid) {
+      throw new Error("First page not found");
+    }
 
-    const VP_array = firstKid.get(PDFName.of('VP')).array;
-    console.log('mediaBox pdf-lib : ', mediaBox)
-    console.log('VP_array pdf-lib : ', VP_array)
-    
+    // Safe access to MediaBox with proper type handling
+    const mediaBoxObj = (firstKid as any).get(PDFName.of("MediaBox"));
+    if (!mediaBoxObj || !mediaBoxObj.array) {
+      throw new Error("MediaBox not found or invalid");
+    }
+    const mediaBox = mediaBoxObj.array.map((el: any) => el.numberValue);
 
+    // Safe access to VP with proper type handling
+    const vpObj = (firstKid as any).get(PDFName.of("VP"));
+    if (!vpObj || !vpObj.array) {
+      throw new Error("VP not found or invalid");
+    }
+    console.log("vpObj : ", vpObj);
+    const VP_array = vpObj.array;
+    console.log("VP_array : ", VP_array);
     let areaBBOXMax = 0;
-    let bboxList = [];
-    let gptsList = [];
-
+    let bboxList: number[] = [];
+    let gptsList: number[] = [];
+    console.log("VP_array.size : ", VP_array.length);
+    // Process the VP array safely
     for (let i = 0; i < VP_array.length; i++) {
       const item = VP_array[i];
-      const BBOX = item.get(PDFName.of('BBox')).array.map(el => el.numberValue);
-      const areaBBOX = Math.abs(BBOX[2] - BBOX[0]) * Math.abs(BBOX[1] - BBOX[3]);
+      if (!item) continue;
+
+      // Safe access to BBox
+      const bboxObj = (item as any).get(PDFName.of("BBox"));
+      if (!bboxObj || !bboxObj.array) continue;
+
+      const BBOX = bboxObj.array.map((el: any) => el.numberValue);
+      const areaBBOX =
+        Math.abs(BBOX[2] - BBOX[0]) * Math.abs(BBOX[1] - BBOX[3]);
+      console.log("areaBBOX : ", areaBBOX);
 
       if (areaBBOX > areaBBOXMax) {
         areaBBOXMax = areaBBOX;
-        const Measure = item.get(PDFName.of('Measure'));
-        const MeasureDict = context.lookup(Measure);
-        const GPT = MeasureDict.get(PDFName.of('GPTS')).array.map(el => el.numberValue);
+        console.log("areaBBOXMax : ", areaBBOXMax);
 
-        const lat = GPT.filter((_, i) => i % 2 === 0);
-        const lon = GPT.filter((_, i) => i % 2 === 1);
-        const xs = BBOX.filter((_, i) => i % 2 === 0);
-        const ys = BBOX.filter((_, i) => i % 2 === 1);
+        // Safe access to Measure
+        const measureObj = (item as any).get(PDFName.of("Measure"));
+        if (!measureObj) continue;
 
-        const maxLon = Math.max(...lon);
-        const minLon = Math.min(...lon);
-        const maxLat = Math.max(...lat);
-        const minLat = Math.min(...lat);
-        const maxXs = Math.max(...xs);
-        const minXs = Math.min(...xs);
-        const maxYs = Math.max(...ys);
-        const minYs = Math.min(...ys);
+        const MeasureDict = context.lookup(measureObj);
+        if (!MeasureDict) continue;
 
-        bboxList = [minXs, minYs, maxXs, maxYs];
-        gptsList = [minLon, minLat, maxLon, maxLat];
+        // Safe access to GPTS
+        const gptsObj = (MeasureDict as any).get(PDFName.of("GPTS"));
+        if (!gptsObj || !gptsObj.array) continue;
+
+        const GPT = gptsObj.array.map((el: any) => el.numberValue);
+
+        // Calculate coordinates with explicit typing
+        const lat = GPT.filter((_: any, i: number) => i % 2 === 0);
+        const lon = GPT.filter((_: any, i: number) => i % 2 === 1);
+        const xs = BBOX.filter((_: any, i: number) => i % 2 === 0);
+        const ys = BBOX.filter((_: any, i: number) => i % 2 === 1);
+
+        // Only proceed if we have enough data
+        if (
+          lat.length > 0 &&
+          lon.length > 0 &&
+          xs.length > 0 &&
+          ys.length > 0
+        ) {
+          const maxLon = Math.max(...lon);
+          const minLon = Math.min(...lon);
+          const maxLat = Math.max(...lat);
+          const minLat = Math.min(...lat);
+          const maxXs = Math.max(...xs);
+          const minXs = Math.min(...xs);
+          const maxYs = Math.max(...ys);
+          const minYs = Math.min(...ys);
+
+          bboxList = [minXs, minYs, maxXs, maxYs];
+          gptsList = [minLon, minLat, maxLon, maxLat];
+        }
       }
     }
 
-    const dLon = gptsList[2] - gptsList[0];
-    const dLat = gptsList[3] - gptsList[1];
-    const dX = Math.abs(bboxList[2] - bboxList[0]);
-    const dY = Math.abs(bboxList[3] - bboxList[1]);
-    const gradY = dLat / dY;
-    const gradX = dLon / dX;
+    // Only proceed with calculation if we have valid data
+    if (gptsList.length === 4 && bboxList.length === 4) {
+      const dLon = gptsList[2] - gptsList[0];
+      const dLat = gptsList[3] - gptsList[1];
+      const dX = Math.abs(bboxList[2] - bboxList[0]);
+      const dY = Math.abs(bboxList[3] - bboxList[1]);
+      const gradY = dLat / dY;
+      const gradX = dLon / dX;
 
-    const left = gptsList[0] - gradX * bboxList[0];
-    const right = gptsList[2] + gradX * (mediaBox[2] - bboxList[2]);
-    const upper = gptsList[3] + gradY * Math.abs(mediaBox[3] - bboxList[3]);
-    const bottom = gptsList[1] - gradY * bboxList[1];
+      const left = gptsList[0] - gradX * bboxList[0];
+      const right = gptsList[2] + gradX * (mediaBox[2] - bboxList[2]);
+      const upper = gptsList[3] + gradY * Math.abs(mediaBox[3] - bboxList[3]);
+      const bottom = gptsList[1] - gradY * bboxList[1];
 
-    // END
-
-    if (true) {
       console.log("Calculated map bounds:", { left, bottom, right, upper });
 
-      // Create coordinates object
+      // Create coordinates object - convert number[] to string for raw property
       const coordinates: PDFCoordinates = {
         topLeft: { lat: upper, lng: left },
         topRight: { lat: upper, lng: right },
         bottomLeft: { lat: bottom, lng: left },
         bottomRight: { lat: bottom, lng: right },
-        // raw: selectedGPTS.join(" "),
-        raw: gptsList
+        raw: gptsList.join(" "), // Convert array to string to match PDFCoordinates type
       };
 
       return {
@@ -560,7 +659,7 @@ export const extractPDFCoordinatesNative = async (
         imageBase64: pdfBase64,
       };
     } else {
-      // Fall back to existing method if no VP with GPTS found
+      // Fall back to regex pattern matching method
       console.log(
         "No valid VP with GPTS found, falling back to original method"
       );

@@ -35,7 +35,6 @@ export const processPitDataToGeoJSON = (
     );
 
     // Print first few data points for debugging
-    console.log("Sample pit data points:", cleanData.slice(0, 3));
 
     // PERUBAHAN KRITIS: Fungsi konversi koordinat yang benar
     const convertToWGS84 = (x: number | string, y: number | string) => {
@@ -195,10 +194,7 @@ export const processPitDataToGeoJSON = (
       lineStrings.length > 0 &&
       lineStrings[0].geometry.coordinates.length > 0
     ) {
-      console.log(
-        "First feature coordinates sample:",
-        lineStrings[0].geometry.coordinates.slice(0, 3)
-      );
+
     }
 
     return pitGeoJson;
