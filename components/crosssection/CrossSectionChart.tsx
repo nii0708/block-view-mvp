@@ -59,11 +59,11 @@ const CrossSectionChart: React.FC<CrossSectionChartProps> = ({
         // Format block model data for WebView consumption
         const blocks = blockModelData.map((block) => ({
           distance: 0, // Will be calculated in WebView
-          width: parseFloat(block.dim_x || block.width || 10),
-          height: parseFloat(block.dim_z || block.height || 10),
-          elevation: parseFloat(block.centroid_z || block.z || 0),
-          x: parseFloat(block.centroid_x || block.x || 0),
-          y: parseFloat(block.centroid_y || block.y || 0),
+          width: parseFloat(block.dim_x || block.width || block.xinc || 10),
+          height: parseFloat(block.dim_z || block.height || block.zinc || 10),
+          elevation: parseFloat(block.centroid_z || block.z || block.Z || 0),
+          x: parseFloat(block.centroid_x || block.x || block.X || 0),
+          y: parseFloat(block.centroid_y || block.y || block.Y || 0),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
         }));

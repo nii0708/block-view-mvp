@@ -38,7 +38,7 @@ interface CrossSectionWebViewProps {
   blockModelData: any[];
   elevationData: any[];
   pitData: any[];
-  attributeViewing: any[]
+  attributeViewing: any[];
   lineLength: number;
   sourceProjection: string;
   onDataProcessed?: (data: {
@@ -311,11 +311,11 @@ const CrossSectionWebView = forwardRef<any, CrossSectionWebViewProps>(
           // Format block model data for WebView consumption
           const blocks = blockModelData.map((block) => ({
             distance: 0, // Will be calculated in WebView
-            width: parseFloat(block.dim_x || block.width || 12.5),
-            height: parseFloat(block.dim_z || block.height || 1),
-            elevation: parseFloat(block.centroid_z || block.z || 0),
-            x: parseFloat(block.centroid_x || block.x || 0),
-            y: parseFloat(block.centroid_y || block.y || 0),
+            width: parseFloat(block.width || block.dim_x || block.xinc || 12.5),
+            height: parseFloat(block.height || block.dim_z || block.zinc || 1),
+            elevation: parseFloat(block.centroid_z || block.z || block.Z || 0),
+            x: parseFloat(block.centroid_x || block.x || block.X || 0),
+            y: parseFloat(block.centroid_y || block.y || block.Y || 0),
             rock: block.rock || "unknown",
             color: block.color || getRockColor(block.rock || "unknown"),
             concentrate: parseFloat(block.concentrate || -99),

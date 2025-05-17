@@ -365,11 +365,11 @@ export function generateD3Html(
       if (!block.centroid_z && !block.z && !block.elevation) continue;
       
       // Get coordinates
-      const x = parseFloat(block.centroid_x || block.x || 0);
-      const y = parseFloat(block.centroid_y || block.y || 0);
-      const z = parseFloat(block.centroid_z || block.z || block.elevation || 0);
-      const width = parseFloat(block.dim_x || block.width || 10);
-      const height = parseFloat(block.dim_z || block.height || 10);
+      const x = parseFloat(block.centroid_x || block.x || block.X ||0);
+      const y = parseFloat(block.centroid_y || block.y || block.Y ||0);
+      const z = parseFloat(block.centroid_z || block.z || block.Z || block.elevation || 0);
+      const width = parseFloat(block.dim_x || block.xinc || block.width || 10);
+      const height = parseFloat(block.dim_z || block.zinc || block.height || 10);
       
       // Buat polygon untuk blok
       // Half width/height untuk membuat polygon dari titik pusat

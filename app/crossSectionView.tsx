@@ -60,7 +60,9 @@ export default function CrossSectionViewScreen() {
   const [blockModelData, setBlockModelData] = useState<any[]>([]);
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
-  const [processedAttribute, setProcessedAttributeViewing] = useState<any[]>([]);
+  const [processedAttribute, setProcessedAttributeViewing] = useState<any[]>(
+    []
+  );
   const [selectedAttribute, setSelectedAttribute] = useState("ni_ok"); // Default to ni_ok
   const [attributeModalVisible, setAttributeModalVisible] = useState(false);
 
@@ -72,8 +74,12 @@ export default function CrossSectionViewScreen() {
   });
 
   // Get data from context
-  const { fullBlockModelData, processedElevation, processedPitData, processedAttributeViewing } =
-    useMiningData();
+  const {
+    fullBlockModelData,
+    processedElevation,
+    processedPitData,
+    processedAttributeViewing,
+  } = useMiningData();
 
   // Load data on component mount
   useEffect(() => {
@@ -85,18 +91,18 @@ export default function CrossSectionViewScreen() {
     try {
       setLoading(true);
 
-      console.log("attribute viewing", processedAttributeViewing)
+      console.log("attribute viewing", processedAttributeViewing);
 
       // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
         // Direct mapping without filtering (WebView will handle filtering)
         const extractedBlocks = fullBlockModelData.map((block) => ({
-          centroid_x: parseFloat(block.centroid_x || block.x || 0),
-          centroid_y: parseFloat(block.centroid_y || block.y || 0),
-          centroid_z: parseFloat(block.centroid_z || block.z || 0),
-          dim_x: parseFloat(block.dim_x || block.width || 10),
-          dim_y: parseFloat(block.dim_y || block.length || 10),
-          dim_z: parseFloat(block.dim_z || block.height || 10),
+          centroid_x: parseFloat(block.centroid_x || block.x || block.X || 0),
+          centroid_y: parseFloat(block.centroid_y || block.y || block.Y || 0),
+          centroid_z: parseFloat(block.centroid_z || block.z || block.Z || 0),
+          dim_x: parseFloat(block.dim_x || block.xinc || block.width || 12.5),
+          dim_y: parseFloat(block.dim_y || block.yinc || block.length || 12.5),
+          dim_z: parseFloat(block.dim_z || block.zinc || block.height || 1),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"), // Use updated getRockColor
           concentrate:
@@ -105,7 +111,7 @@ export default function CrossSectionViewScreen() {
               : parseFloat(block[selectedAttribute] || 0).toFixed(2),
         }));
 
-        console.log("extractedBlocks", extractedBlocks[0])
+        console.log("extractedBlocks", extractedBlocks[0]);
 
         setBlockModelData(extractedBlocks);
       }
@@ -139,7 +145,7 @@ export default function CrossSectionViewScreen() {
     processedPitData,
     processedAttributeViewing,
     customColorMapping,
-    selectedAttribute
+    selectedAttribute,
   ]);
 
   // Helper function to get color for rock type
@@ -182,9 +188,9 @@ export default function CrossSectionViewScreen() {
   const openAttributeModal = useCallback(() => {
     setAttributeModalVisible(true);
   }, []);
-  
+
   // Function to handle attribute selection
-  const handleAttributeSelect = useCallback((attribute : any) => {
+  const handleAttributeSelect = useCallback((attribute: any) => {
     setSelectedAttribute(attribute);
     setAttributeModalVisible(false);
   }, []);
@@ -335,26 +341,31 @@ export default function CrossSectionViewScreen() {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Concentration Attribute</Text>
-            <Text style={styles.modalSubtitle}>
-              Current: <Text style={styles.selectedAttribute}>{selectedAttribute}</Text>
+            <Text style={styles.modalTitle}>
+              Select Concentration Attribute
             </Text>
-            
+            <Text style={styles.modalSubtitle}>
+              Current:{" "}
+              <Text style={styles.selectedAttribute}>{selectedAttribute}</Text>
+            </Text>
+
             <ScrollView style={styles.attributeList}>
-              {processedAttributeViewing && processedAttributeViewing.map((attribute: any, index: any) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.attributeItem,
-                    selectedAttribute === attribute && styles.selectedAttributeItem
-                  ]}
-                  onPress={() => handleAttributeSelect(attribute)}
-                >
-                  <Text style={styles.attributeText}>{attribute}</Text>
-                </TouchableOpacity>
-              ))}
+              {processedAttributeViewing &&
+                processedAttributeViewing.map((attribute: any, index: any) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.attributeItem,
+                      selectedAttribute === attribute &&
+                        styles.selectedAttributeItem,
+                    ]}
+                    onPress={() => handleAttributeSelect(attribute)}
+                  >
+                    <Text style={styles.attributeText}>{attribute}</Text>
+                  </TouchableOpacity>
+                ))}
             </ScrollView>
-            
+
             <TouchableOpacity
               style={styles.closeButton}
               onPress={() => setAttributeModalVisible(false)}
@@ -408,7 +419,12 @@ export default function CrossSectionViewScreen() {
                 <Text style={styles.infoLabel}>Concentration:</Text>
                 <TouchableOpacity onPress={openAttributeModal}>
                   <Text style={styles.attributeSelectButton}>
-                    {selectedAttribute} <MaterialIcons name="arrow-drop-down" size={16} color="#007AFF" />
+                    {selectedAttribute}{" "}
+                    <MaterialIcons
+                      name="arrow-drop-down"
+                      size={16}
+                      color="#007AFF"
+                    />
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -613,17 +629,17 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
   },
   modalContent: {
-    width: '80%',
-    maxHeight: '70%',
-    backgroundColor: 'white',
+    width: "80%",
+    maxHeight: "70%",
+    backgroundColor: "white",
     borderRadius: 10,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
@@ -631,20 +647,20 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
   modalSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginBottom: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
   selectedAttribute: {
-    fontWeight: 'bold',
-    color: '#007AFF',
+    fontWeight: "bold",
+    color: "#007AFF",
   },
   attributeList: {
     maxHeight: 400,
@@ -653,32 +669,32 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: "#eee",
   },
   selectedAttributeItem: {
-    backgroundColor: '#f0f8ff',
+    backgroundColor: "#f0f8ff",
   },
   attributeText: {
     fontSize: 16,
-    color: '#333',
+    color: "#333",
   },
   closeButton: {
     marginTop: 16,
     paddingVertical: 12,
     borderRadius: 5,
-    backgroundColor: '#f0f0f0',
-    alignItems: 'center',
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
   },
   closeButtonText: {
     fontSize: 16,
-    color: '#333',
-    fontWeight: '500',
+    color: "#333",
+    fontWeight: "500",
   },
   attributeSelectButton: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-    flexDirection: 'row',
-    alignItems: 'center',
+    color: "#007AFF",
+    fontWeight: "500",
+    flexDirection: "row",
+    alignItems: "center",
   },
 });

@@ -215,8 +215,8 @@ export function processCrossSectionBlocks(
       const x = parseFloat(block.centroid_x || block.x || 0);
       const y = parseFloat(block.centroid_y || block.y || 0);
       const z = parseFloat(block.centroid_z || block.z || block.elevation || 0);
-      const width = parseFloat(block.dim_x || block.width || 12.5);
-      const height = parseFloat(block.dim_z || block.height || 1);
+      const width = parseFloat(block.dim_x || block.xinc || block.width || 12.5);
+      const height = parseFloat(block.dim_z || block.zinc || block.height || 1);
 
       // Create polygon for the block
       // Half width/height to create polygon from center point

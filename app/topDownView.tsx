@@ -259,7 +259,7 @@ export default function TopDownViewScreen() {
               file.files.blockModel.uri
             );
             const rawBlockModelData = csvData.slice(3);
-
+            console.log("rawBlockModelData", rawBlockModelData.length);
             const sampleBlock = rawBlockModelData[0];
             const processedAttributes =
               extractBlockModelAttributes(sampleBlock);
@@ -285,7 +285,7 @@ export default function TopDownViewScreen() {
             setFullBlockModelData(rawBlockModelData);
             setGeoJsonData(resultForTopDown.geoJsonData);
             setProcessedBlockModel(resultForCrossSection.geoJsonData);
-            setProcessedAttributeViewing(processedAttributes); 
+            setProcessedAttributeViewing(processedAttributes);
             setHasBlockModelData(true);
 
             // Update map center only if no PDF

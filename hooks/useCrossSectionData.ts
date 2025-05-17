@@ -52,9 +52,9 @@ export const useCrossSectionData = ({
           centroid_x: parseFloat(block.centroid_x || block.x || 0),
           centroid_y: parseFloat(block.centroid_y || block.y || 0),
           centroid_z: parseFloat(block.centroid_z || block.z || 0),
-          dim_x: parseFloat(block.dim_x || block.width || 10),
-          dim_y: parseFloat(block.dim_y || block.length || 10),
-          dim_z: parseFloat(block.dim_z || block.height || 10),
+          dim_x: parseFloat(block.dim_x || block.xinc ||block.width || 10),
+          dim_y: parseFloat(block.dim_y || block.yinc ||block.length || 10),
+          dim_z: parseFloat(block.dim_z || block.zinc ||block.height || 10),
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"),
         }));

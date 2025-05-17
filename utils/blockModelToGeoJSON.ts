@@ -20,9 +20,9 @@ export const blockModelToGeoJSON = (
       centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
       centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
       centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
-      dim_x: row.dim_x || row.width || row.block_size || 10,
-      dim_y: row.dim_y || row.length || row.block_size || 10,
-      dim_z: row.dim_z || row.height || row.block_size || 10,
+      dim_x: row.xinc || row.dim_x || row.width || row.block_size || 10,
+      dim_y: row.yinc || row.dim_y || row.length || row.block_size || 10,
+      dim_z: row.zinc || row.dim_z || row.height || row.block_size || 10,
       rock: row.rock || row.rock_type || row.material || "Unknown",
     }));
 

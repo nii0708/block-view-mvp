@@ -245,8 +245,19 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
           // }
 
           // Skip the first 3 rows for block model data (important!)
-          const typedData = results.data.slice(2) as CSVRow[];
-          resolve(typedData);
+
+          const match = Object.values(
+            results.data[0] as Record<string, unknown>
+          ).includes("Variable descriptions:");
+          if (match) {
+            console.log("pass1 : ", results.data[10]);
+            const typedData = results.data.slice(3) as CSVRow[];
+            resolve(typedData);
+          } else {
+            console.log("pass2 : ", results.data[10]);
+            const typedData = results.data as CSVRow[];
+            resolve(typedData);
+          }
         },
         error: (error: Error) => {
           console.error("Error parsing CSV:", error);
