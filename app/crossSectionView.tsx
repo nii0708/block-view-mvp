@@ -9,6 +9,9 @@ import {
   Alert,
   Share,
   Platform,
+  Modal,
+  FlatList,
+  ScrollView,
 } from "react-native";
 import {
   MaterialIcons,
@@ -57,6 +60,9 @@ export default function CrossSectionViewScreen() {
   const [blockModelData, setBlockModelData] = useState<any[]>([]);
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [pitData, setPitData] = useState<any[]>([]);
+  const [processedAttribute, setProcessedAttributeViewing] = useState<any[]>([]);
+  const [selectedAttribute, setSelectedAttribute] = useState("ni_ok"); // Default to ni_ok
+  const [attributeModalVisible, setAttributeModalVisible] = useState(false);
 
   // NEW: State for processed data counts (what's actually displayed)
   const [displayedDataCounts, setDisplayedDataCounts] = useState({
@@ -66,18 +72,20 @@ export default function CrossSectionViewScreen() {
   });
 
   // Get data from context
-  const { fullBlockModelData, processedElevation, processedPitData } =
+  const { fullBlockModelData, processedElevation, processedPitData, processedAttributeViewing } =
     useMiningData();
 
   // Load data on component mount
   useEffect(() => {
     loadCrossSectionData();
-  }, []);
+  }, [selectedAttribute]);
 
   // Load and filter data for cross-section
   const loadCrossSectionData = useCallback(async () => {
     try {
       setLoading(true);
+
+      console.log("attribute viewing", processedAttributeViewing)
 
       // First, check if we have block model data
       if (fullBlockModelData && fullBlockModelData.length > 0) {
@@ -92,10 +100,12 @@ export default function CrossSectionViewScreen() {
           rock: block.rock || "unknown",
           color: block.color || getRockColor(block.rock || "unknown"), // Use updated getRockColor
           concentrate:
-            parseFloat(block.ni_ok) === -99
-              ? parseFloat(block.ni_ok)
-              : parseFloat(block.ni_ok || 0).toFixed(2),
+            parseFloat(block[selectedAttribute]) === -99
+              ? parseFloat(block[selectedAttribute])
+              : parseFloat(block[selectedAttribute] || 0).toFixed(2),
         }));
+
+        console.log("extractedBlocks", extractedBlocks[0])
 
         setBlockModelData(extractedBlocks);
       }
@@ -112,6 +122,11 @@ export default function CrossSectionViewScreen() {
         setPitData(processedPitData.features);
       }
 
+      if (processedAttributeViewing) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        setProcessedAttributeViewing(processedAttributeViewing);
+      }
+
       setLoading(false);
     } catch (error) {
       console.error("Error loading cross section data:", error);
@@ -122,7 +137,9 @@ export default function CrossSectionViewScreen() {
     fullBlockModelData,
     processedElevation,
     processedPitData,
+    processedAttributeViewing,
     customColorMapping,
+    selectedAttribute
   ]);
 
   // Helper function to get color for rock type
@@ -161,6 +178,17 @@ export default function CrossSectionViewScreen() {
     []
   );
 
+  // Function to open attribute selection modal
+  const openAttributeModal = useCallback(() => {
+    setAttributeModalVisible(true);
+  }, []);
+  
+  // Function to handle attribute selection
+  const handleAttributeSelect = useCallback((attribute : any) => {
+    setSelectedAttribute(attribute);
+    setAttributeModalVisible(false);
+  }, []);
+
   // Handle home button
   const handleHome = useCallback(() => {
     router.push("/");
@@ -175,51 +203,6 @@ export default function CrossSectionViewScreen() {
   const handleExportCancel = useCallback(() => {
     setExportDialogVisible(false);
   }, []);
-
-  // Handle export data - now accepts multiple selections
-  const handleExport = useCallback(
-    async (dataTypes: string[]) => {
-      try {
-        setIsExporting(true);
-
-        // Process each selected export type
-        for (const dataType of dataTypes) {
-          if (dataType === "screenshot") {
-            // Handle screenshot - send request to WebView
-            // We'll create a ref for this - for now let's alert
-            Alert.alert(
-              "Screenshot",
-              "Screenshot feature will be implemented soon"
-            );
-          } else {
-            // Handle data exports
-            await exportDataType(dataType);
-          }
-        }
-
-        setIsExporting(false);
-        setExportDialogVisible(false);
-      } catch (error) {
-        console.error("Error exporting data:", error);
-        Alert.alert(
-          "Export Error",
-          "Failed to export the data. Please try again."
-        );
-        setIsExporting(false);
-      }
-    },
-    [
-      blockModelData,
-      elevationData,
-      pitData,
-      startLat,
-      startLng,
-      endLat,
-      endLng,
-      length,
-      projection,
-    ]
-  );
 
   // Helper function to export a specific data type
   const exportDataType = async (dataType: string) => {
@@ -329,6 +312,7 @@ export default function CrossSectionViewScreen() {
     [
       blockModelData,
       elevationData,
+      processedAttribute,
       pitData,
       startLat,
       startLng,
@@ -339,6 +323,49 @@ export default function CrossSectionViewScreen() {
       triggerScreenshot,
     ]
   );
+
+  // Add attribute selection modal component
+  const renderAttributeModal = () => {
+    return (
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={attributeModalVisible}
+        onRequestClose={() => setAttributeModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Concentration Attribute</Text>
+            <Text style={styles.modalSubtitle}>
+              Current: <Text style={styles.selectedAttribute}>{selectedAttribute}</Text>
+            </Text>
+            
+            <ScrollView style={styles.attributeList}>
+              {processedAttributeViewing && processedAttributeViewing.map((attribute: any, index: any) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.attributeItem,
+                    selectedAttribute === attribute && styles.selectedAttributeItem
+                  ]}
+                  onPress={() => handleAttributeSelect(attribute)}
+                >
+                  <Text style={styles.attributeText}>{attribute}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setAttributeModalVisible(false)}
+            >
+              <Text style={styles.closeButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -376,6 +403,15 @@ export default function CrossSectionViewScreen() {
                 <Text style={styles.infoLabel}>Length:</Text>
                 <Text style={styles.infoValue}>{length.toFixed(1)} meters</Text>
               </View>
+              {/* New row to show and select attribute */}
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Concentration:</Text>
+                <TouchableOpacity onPress={openAttributeModal}>
+                  <Text style={styles.attributeSelectButton}>
+                    {selectedAttribute} <MaterialIcons name="arrow-drop-down" size={16} color="#007AFF" />
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Displayed Data:</Text>
                 <Text style={styles.infoValue}>
@@ -399,6 +435,7 @@ export default function CrossSectionViewScreen() {
                   blockModelData={blockModelData}
                   elevationData={elevationData}
                   pitData={pitData}
+                  attributeViewing={processedAttribute}
                   lineLength={length}
                   sourceProjection={projection}
                   onDataProcessed={handleDataProcessed}
@@ -458,6 +495,7 @@ export default function CrossSectionViewScreen() {
         onExport={handleExportUpdated}
         isProcessing={isExporting}
       />
+      {renderAttributeModal()}
     </SafeAreaView>
   );
 }
@@ -572,5 +610,75 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "normal",
     color: "#333",
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    maxHeight: '70%',
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  selectedAttribute: {
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  attributeList: {
+    maxHeight: 400,
+  },
+  attributeItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  selectedAttributeItem: {
+    backgroundColor: '#f0f8ff',
+  },
+  attributeText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  closeButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 5,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  attributeSelectButton: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });

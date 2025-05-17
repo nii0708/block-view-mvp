@@ -25,15 +25,12 @@ import LoadingScreen from "../components/LoadingScreen";
 import LeafletMap from "../components/LeafletMap";
 import { blockModelToGeoJSON } from "../utils/blockModelToGeoJSON";
 import { processPitDataToGeoJSON } from "../utils/processPitData";
-import {
-  addPointToLine,
-  pointsToGeoJSONLine,
-  calculateLineDistance,
-} from "../utils/lineDrawerUtils";
+import { calculateLineDistance } from "../utils/lineDrawerUtils";
 import {
   processElevationData,
   createBoundingBoxFromBlockModel,
 } from "../utils/elevationUtils";
+import { extractBlockModelAttributes } from "@/utils/attributeExtraction";
 import { useMiningData } from "../context/MiningDataContext";
 import { processPDFForMapOverlay } from "../utils/pdfToImageOverlay";
 import { applyColorMapping } from "../utils/blockModelUtils";
@@ -146,6 +143,7 @@ export default function TopDownViewScreen() {
     setProcessedElevation,
     setProcessedPitData,
     setFullBlockModelData,
+    setProcessedAttributeViewing,
     clearData,
   } = useMiningData();
 
@@ -200,9 +198,9 @@ export default function TopDownViewScreen() {
                 await FileService.extractPDFCoordinatesNative(
                   file.files.orthophoto.uri
                 );
-              
+
               coordinates = nativeResult.coordinates;
-              console.log('coordinates :', coordinates)
+              console.log("coordinates :", coordinates);
               if (coordinates) {
                 file.files.pdfCoordinates = coordinates;
                 const files = await FileService.getFileInfo();
@@ -262,6 +260,10 @@ export default function TopDownViewScreen() {
             );
             const rawBlockModelData = csvData.slice(3);
 
+            const sampleBlock = rawBlockModelData[0];
+            const processedAttributes =
+              extractBlockModelAttributes(sampleBlock);
+
             if (!mounted) return;
 
             // Process block model immediately
@@ -283,6 +285,7 @@ export default function TopDownViewScreen() {
             setFullBlockModelData(rawBlockModelData);
             setGeoJsonData(resultForTopDown.geoJsonData);
             setProcessedBlockModel(resultForCrossSection.geoJsonData);
+            setProcessedAttributeViewing(processedAttributes); 
             setHasBlockModelData(true);
 
             // Update map center only if no PDF
@@ -343,7 +346,7 @@ export default function TopDownViewScreen() {
 
           try {
             const rawPitData = await FileService.parseLiDARFile(
-              file.files.pit.uri,
+              file.files.pit.uri
               // { maxPoints: 10000 }
             );
             // console.log('rawPitData : ', rawPitData)

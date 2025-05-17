@@ -6,6 +6,7 @@ interface MiningDataContextType {
   processedBlockModel: any | null;
   processedElevation: any[] | null;
   processedPitData: any | null;
+  processedAttributeViewing: any | null;
 
   // Full block model data (all elevations)
   fullBlockModelData: any[] | null;
@@ -15,6 +16,7 @@ interface MiningDataContextType {
   setProcessedElevation: (data: any[]) => void;
   setProcessedPitData: (data: any) => void;
   setFullBlockModelData: (data: any[]) => void;
+  setProcessedAttributeViewing: (data: any) => void;
 
   clearData: () => void;
 }
@@ -42,11 +44,17 @@ export const MiningDataProvider: React.FC<{ children: ReactNode }> = ({
     null
   );
 
+  // attribute viewing
+  const [processedAttributeViewing, setProcessedAttributeViewing] = useState<any | null>(
+    null
+  )
+
   const clearData = () => {
     setProcessedBlockModel(null);
     setProcessedElevation(null);
     setProcessedPitData(null);
     setFullBlockModelData(null);
+    setProcessedAttributeViewing(null);
   };
 
   return (
@@ -56,11 +64,13 @@ export const MiningDataProvider: React.FC<{ children: ReactNode }> = ({
         processedElevation,
         processedPitData,
         fullBlockModelData,
+        processedAttributeViewing,
         setProcessedBlockModel,
         setProcessedElevation,
         setProcessedPitData,
         setFullBlockModelData,
-        clearData,
+        setProcessedAttributeViewing,
+        clearData
       }}
     >
       {children}

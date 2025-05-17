@@ -38,6 +38,7 @@ interface CrossSectionWebViewProps {
   blockModelData: any[];
   elevationData: any[];
   pitData: any[];
+  attributeViewing: any[]
   lineLength: number;
   sourceProjection: string;
   onDataProcessed?: (data: {
@@ -60,6 +61,7 @@ const CrossSectionWebView = forwardRef<any, CrossSectionWebViewProps>(
       blockModelData,
       elevationData,
       pitData,
+      attributeViewing,
       lineLength,
       sourceProjection,
       onDataProcessed,
