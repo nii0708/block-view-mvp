@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Modal,
   View,
@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import { MaterialIcons } from "@expo/vector-icons";
-
+import { useMiningData } from "../context/MiningDataContext";
 interface ColorPickerDialogProps {
   visible: boolean;
   onClose: () => void;
@@ -19,6 +19,7 @@ interface ColorPickerDialogProps {
   }) => void;
   rockTypes: { [key: string]: { color: string; opacity: number } };
   currentColors: { [key: string]: { color: string; opacity: number } };
+  pickingAttributes?: { [key: string]: string[] };
 }
 
 const predefinedColors = [
@@ -48,54 +49,82 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
   onColorChange,
   rockTypes,
   currentColors,
+  pickingAttributes,
 }) => {
   const [colorMapping, setColorMapping] = useState<{
     [key: string]: { color: string; opacity: number };
   }>({});
-  const [selectedRockType, setSelectedRockType] = useState<string>("");
-  const [showRockTypeDropdown, setShowRockTypeDropdown] = useState(false);
+  const [selectedAttributeType, setSelectedAttributeType] = useState<string>("");
+  const [selectedAttribute, setSelectedAttribute] = useState<string>("");
+  const [showAttributeTypeDropdown, setShowAttributeTypeDropdown] = useState(false);
+  const [showAttributeDropdown, setShowAttributeDropdown] = useState(false);
+  // Add a ref to track previous attribute type to prevent unnecessary updates
+  const prevAttributeTypeRef = useRef<string | null>(null);
+
+  const { setPickedAttribute } = useMiningData(); // this is the context
 
   useEffect(() => {
     setColorMapping(currentColors);
-    // Set first rock type as default selected
-    const rockTypeKeys = Object.keys(rockTypes);
-    if (rockTypeKeys.length > 0 && !selectedRockType) {
-      setSelectedRockType(rockTypeKeys[0]);
+    // Set first attribute type as default selected
+    if (pickingAttributes) {
+      const attributeTypes = Object.keys(pickingAttributes);
+      if (attributeTypes.length > 0 && !selectedAttributeType) {
+        setSelectedAttributeType(attributeTypes[0]);
+        // Set first attribute as default
+        if (pickingAttributes[attributeTypes[0]].length > 0) {
+          setSelectedAttribute(pickingAttributes[attributeTypes[0]][0]);
+        }
+      }
     }
-  }, [currentColors, rockTypes]);
+  }, [currentColors, pickingAttributes, selectedAttributeType]);
 
-  // Function to check if a color is already used by another rock type
-  const isColorUsed = (color: string, currentRockType: string) => {
+  // Update the picked attribute in context when the attribute type changes
+  useEffect(() => {
+    if (pickingAttributes && selectedAttributeType) {
+      // Only update if the attribute type has changed
+      if (prevAttributeTypeRef.current !== selectedAttributeType) {
+        const selectedPickedAttribute = {
+          [selectedAttributeType]: pickingAttributes[selectedAttributeType]
+        };
+        setPickedAttribute(selectedPickedAttribute);
+        // Update the ref to the current attribute type
+        prevAttributeTypeRef.current = selectedAttributeType;
+      }
+    }
+  }, [pickingAttributes, selectedAttributeType, setPickedAttribute]);
+
+  // Function to check if a color is already used by another attribute
+  const isColorUsed = (color: string, currentAttribute: string) => {
     return Object.entries(colorMapping).some(
-      ([rockType, mapping]) =>
-        rockType !== currentRockType && mapping.color === color
+      ([attribute, mapping]) =>
+        attribute !== currentAttribute && mapping.color === color
     );
   };
 
   const handleColorSelect = (color: string) => {
-    if (!selectedRockType) return;
+    if (!selectedAttribute) return;
 
-    // Check if color is already used by another rock type
-    if (isColorUsed(color, selectedRockType)) {
+    // Check if color is already used by another attribute
+    if (isColorUsed(color, selectedAttribute)) {
       // Optionally, you can show an alert or toast message here
       return;
     }
 
-    const currentOpacity = colorMapping[selectedRockType]?.opacity || 0.7;
+    const currentOpacity = colorMapping[selectedAttribute]?.opacity || 0.7;
     const newMapping = {
       ...colorMapping,
-      [selectedRockType]: { color, opacity: currentOpacity },
+      [selectedAttribute]: { color, opacity: currentOpacity },
     };
     setColorMapping(newMapping);
   };
 
   const handleOpacityChange = (opacity: number) => {
-    if (!selectedRockType) return;
+    if (!selectedAttribute) return;
 
-    const currentColor = colorMapping[selectedRockType]?.color || "#808080";
+    const currentColor = colorMapping[selectedAttribute]?.color || "#808080";
     const newMapping = {
       ...colorMapping,
-      [selectedRockType]: { color: currentColor, opacity },
+      [selectedAttribute]: { color: currentColor, opacity },
     };
     setColorMapping(newMapping);
   };
@@ -109,7 +138,22 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
     setColorMapping(currentColors);
   };
 
-  const rockTypeList = Object.keys(rockTypes);
+  // Get all attributes from all attribute types for the mapping list
+  const getAllAttributes = () => {
+    if (!pickingAttributes) return Object.keys(rockTypes);
+    
+    let allAttributes: string[] = [];
+    Object.values(pickingAttributes).forEach(attributes => {
+      allAttributes = [...allAttributes, ...attributes];
+    });
+    return [...new Set(allAttributes)]; // Remove duplicates
+  };
+
+  const attributeTypeList = pickingAttributes ? Object.keys(pickingAttributes) : [];
+  const attributeList = selectedAttributeType && pickingAttributes 
+    ? pickingAttributes[selectedAttributeType] || []
+    : [];
+  const allAttributes = getAllAttributes();
 
   return (
     <Modal
@@ -126,49 +170,102 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
         <View style={styles.modalContent}>
           <View style={styles.modalInner}>
             <View style={styles.header}>
-              <Text style={styles.title}>Block Colours</Text>
+              <Text style={styles.title}>Attribute Colours</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                 <MaterialIcons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
-            {/* Rock Type Selector */}
+            {/* Attribute Type Selector */}
             <View style={styles.selectorSection}>
-              <Text style={styles.sectionLabel}>Select Rock Type:</Text>
+              <Text style={styles.sectionLabel}>Select attribute type:</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
-                onPress={() => setShowRockTypeDropdown(!showRockTypeDropdown)}
+                onPress={() => setShowAttributeTypeDropdown(!showAttributeTypeDropdown)}
               >
                 <Text style={styles.dropdownButtonText}>
-                  {selectedRockType.charAt(0).toUpperCase() +
-                    selectedRockType.slice(1)}
+                  {selectedAttributeType ? 
+                    (selectedAttributeType.charAt(0).toUpperCase() + selectedAttributeType.slice(1)) :
+                    "Select an attribute type"}
                 </Text>
                 <MaterialIcons
                   name={
-                    showRockTypeDropdown ? "arrow-drop-up" : "arrow-drop-down"
+                    showAttributeTypeDropdown ? "arrow-drop-up" : "arrow-drop-down"
                   }
                   size={24}
                   color="#666"
                 />
               </TouchableOpacity>
 
-              {showRockTypeDropdown && (
+              {showAttributeTypeDropdown && attributeTypeList.length > 0 && (
                 <View style={styles.dropdownMenu}>
-                  {rockTypeList.map((rockType) => (
+                  {attributeTypeList.map((attrType) => (
                     <TouchableOpacity
-                      key={rockType}
+                      key={attrType}
                       style={[
                         styles.dropdownItem,
-                        selectedRockType === rockType &&
+                        selectedAttributeType === attrType &&
                           styles.selectedDropdownItem,
                       ]}
                       onPress={() => {
-                        setSelectedRockType(rockType);
-                        setShowRockTypeDropdown(false);
+                        setSelectedAttributeType(attrType);
+                        setShowAttributeTypeDropdown(false);
+                        // Reset selected attribute and set first attribute as default
+                        if (pickingAttributes && pickingAttributes[attrType].length > 0) {
+                          setSelectedAttribute(pickingAttributes[attrType][0]);
+                        } else {
+                          setSelectedAttribute("");
+                        }
                       }}
                     >
                       <Text style={styles.dropdownItemText}>
-                        {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+                        {attrType.charAt(0).toUpperCase() + attrType.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Attribute Selector */}
+            <View style={styles.selectorSection}>
+              <Text style={styles.sectionLabel}>Select attribute:</Text>
+              <TouchableOpacity
+                style={styles.dropdownButton}
+                onPress={() => setShowAttributeDropdown(!showAttributeDropdown)}
+                disabled={!selectedAttributeType || attributeList.length === 0}
+              >
+                <Text style={styles.dropdownButtonText}>
+                  {selectedAttribute ? 
+                    (selectedAttribute.charAt(0).toUpperCase() + selectedAttribute.slice(1)) :
+                    "Select an attribute"}
+                </Text>
+                <MaterialIcons
+                  name={
+                    showAttributeDropdown ? "arrow-drop-up" : "arrow-drop-down"
+                  }
+                  size={24}
+                  color="#666"
+                />
+              </TouchableOpacity>
+
+              {showAttributeDropdown && attributeList.length > 0 && (
+                <View style={styles.dropdownMenu}>
+                  {attributeList.map((attr) => (
+                    <TouchableOpacity
+                      key={attr}
+                      style={[
+                        styles.dropdownItem,
+                        selectedAttribute === attr &&
+                          styles.selectedDropdownItem,
+                      ]}
+                      onPress={() => {
+                        setSelectedAttribute(attr);
+                        setShowAttributeDropdown(false);
+                      }}
+                    >
+                      <Text style={styles.dropdownItemText}>
+                        {attr.charAt(0).toUpperCase() + attr.slice(1)}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -178,12 +275,12 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
 
             {/* Color Palette */}
             <View style={styles.colorSection}>
-              <Text style={styles.sectionLabel}>Choose Color:</Text>
+              <Text style={styles.sectionLabel}>Choose attribute color:</Text>
               <View style={styles.colorPalette}>
                 {predefinedColors.map((color) => {
-                  const isUsed = isColorUsed(color, selectedRockType);
+                  const isUsed = isColorUsed(color, selectedAttribute);
                   const isSelected =
-                    colorMapping[selectedRockType]?.color === color;
+                    colorMapping[selectedAttribute]?.color === color;
 
                   return (
                     <TouchableOpacity
@@ -195,7 +292,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
                         isUsed && styles.usedColor,
                       ]}
                       onPress={() => !isUsed && handleColorSelect(color)}
-                      disabled={isUsed}
+                      disabled={isUsed || !selectedAttribute}
                     >
                       {isSelected && (
                         <MaterialIcons name="check" size={16} color="#fff" />
@@ -215,7 +312,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
               <View style={styles.opacityControl}>
                 <Text style={styles.opacityValue}>
                   {Math.round(
-                    (colorMapping[selectedRockType]?.opacity || 0.7) * 100
+                    (colorMapping[selectedAttribute]?.opacity || 0.7) * 100
                   )}
                   %
                 </Text>
@@ -223,43 +320,44 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
                   style={styles.opacitySlider}
                   minimumValue={0.1}
                   maximumValue={1}
-                  value={colorMapping[selectedRockType]?.opacity || 0.7}
+                  value={colorMapping[selectedAttribute]?.opacity || 0.7}
                   onValueChange={handleOpacityChange}
                   minimumTrackTintColor="#CFE625"
                   maximumTrackTintColor="#ddd"
                   thumbTintColor="#CFE625"
+                  disabled={!selectedAttribute}
                 />
               </View>
             </View>
 
             {/* Current Mappings List */}
             <View style={styles.mappingSection}>
-              <Text style={styles.sectionLabel}>Current Color Mappings:</Text>
+              <Text style={styles.sectionLabel}>Current attribute color mappings:</Text>
               <View style={styles.mappingListContainer}>
                 <ScrollView
                   style={styles.mappingList}
                   showsVerticalScrollIndicator={true}
                   nestedScrollEnabled={true}
                 >
-                  {rockTypeList.map((rockType) => (
-                    <View key={rockType} style={styles.mappingItem}>
+                  {allAttributes.map((attr) => (
+                    <View key={attr} style={styles.mappingItem}>
                       <View style={styles.mappingInfo}>
                         <Text style={styles.mappingText}>
-                          {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+                          {attr.charAt(0).toUpperCase() + attr.slice(1)}
                         </Text>
                         <View
                           style={[
                             styles.mappingColor,
                             {
                               backgroundColor:
-                                colorMapping[rockType]?.color || "#ccc",
-                              opacity: colorMapping[rockType]?.opacity || 0.7,
+                                colorMapping[attr]?.color || "#ccc",
+                              opacity: colorMapping[attr]?.opacity || 0.7,
                             },
                           ]}
                         />
                         <Text style={styles.mappingOpacity}>
                           {Math.round(
-                            (colorMapping[rockType]?.opacity || 0.7) * 100
+                            (colorMapping[attr]?.opacity || 0.7) * 100
                           )}
                           %
                         </Text>

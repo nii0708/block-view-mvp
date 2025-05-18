@@ -250,11 +250,9 @@ export const parseCSVFile = async (fileUri: string): Promise<CSVRow[]> => {
             results.data[0] as Record<string, unknown>
           ).includes("Variable descriptions:");
           if (match) {
-            console.log("pass1 : ", results.data[10]);
             const typedData = results.data.slice(3) as CSVRow[];
             resolve(typedData);
           } else {
-            console.log("pass2 : ", results.data[10]);
             const typedData = results.data as CSVRow[];
             resolve(typedData);
           }

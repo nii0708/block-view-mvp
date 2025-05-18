@@ -30,6 +30,7 @@ import {
   processElevationData,
   createBoundingBoxFromBlockModel,
 } from "../utils/elevationUtils";
+import { getStringFieldsWithUniqueValues } from "@/utils/filterColumnString";
 import { extractBlockModelAttributes } from "@/utils/attributeExtraction";
 import { useMiningData } from "../context/MiningDataContext";
 import { processPDFForMapOverlay } from "../utils/pdfToImageOverlay";
@@ -80,6 +81,7 @@ export default function TopDownViewScreen() {
   const [pitGeoJsonData, setPitGeoJsonData] = useState<any>(null);
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [elevationRange, setElevationRange] = useState({ min: 0, max: 4000 });
+  const [pickingAttributes, setPickingAttributes] = useState<Record<string, string[]>>({});
 
   // Create line states
   const [isCreateLineMode, setIsCreateLineMode] = useState(false);
@@ -145,7 +147,10 @@ export default function TopDownViewScreen() {
     setFullBlockModelData,
     setProcessedAttributeViewing,
     clearData,
+    pickedAttribute,
   } = useMiningData();
+
+  // console.log("attributes berubah ubah", pickedAttribute);
 
   // Main data loading effect - SEQUENTIAL
   useEffect(() => {
@@ -193,14 +198,12 @@ export default function TopDownViewScreen() {
             let coordinates = file.files.pdfCoordinates;
 
             if (!coordinates) {
-              console.log("Extracting PDF coordinates...");
               const nativeResult =
                 await FileService.extractPDFCoordinatesNative(
                   file.files.orthophoto.uri
                 );
 
               coordinates = nativeResult.coordinates;
-              console.log("coordinates :", coordinates);
               if (coordinates) {
                 file.files.pdfCoordinates = coordinates;
                 const files = await FileService.getFileInfo();
@@ -259,7 +262,6 @@ export default function TopDownViewScreen() {
               file.files.blockModel.uri
             );
             const rawBlockModelData = csvData.slice(3);
-            console.log("rawBlockModelData", rawBlockModelData.length);
             const sampleBlock = rawBlockModelData[0];
             const processedAttributes =
               extractBlockModelAttributes(sampleBlock);
@@ -267,7 +269,6 @@ export default function TopDownViewScreen() {
             if (!mounted) return;
 
             // Process block model immediately
-            console.log("Processing block model data...");
             const resultForTopDown = blockModelToGeoJSON(
               rawBlockModelData,
               sourceProjection,
@@ -287,6 +288,9 @@ export default function TopDownViewScreen() {
             setProcessedBlockModel(resultForCrossSection.geoJsonData);
             setProcessedAttributeViewing(processedAttributes);
             setHasBlockModelData(true);
+
+            const filteredAttributes = getStringFieldsWithUniqueValues(rawBlockModelData)
+            setPickingAttributes(filteredAttributes);
 
             // Update map center only if no PDF
             if (!pdfLoaded && mounted) {
@@ -349,7 +353,6 @@ export default function TopDownViewScreen() {
               file.files.pit.uri
               // { maxPoints: 10000 }
             );
-            // console.log('rawPitData : ', rawPitData)
             if (!mounted) return;
 
             // Process pit data immediately
@@ -500,7 +503,6 @@ export default function TopDownViewScreen() {
 
   const handlePdfImageReady = useCallback(
     (imageBase64: string) => {
-      console.log("PDF converted successfully");
       if (pdfOverlayData) {
         setPdfOverlayData((prev) =>
           prev
@@ -707,14 +709,16 @@ export default function TopDownViewScreen() {
   };
 
   const renderRockTypeLegend = () => {
-    // Only render legend if there's block model data
-    if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
-      return null;
-    }
+  // Only render legend if there's block model data
+  if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
+    return null;
+  }
 
+  // If no pickedAttribute data is available, render the original legend
+  if (!pickedAttribute || Object.keys(pickedAttribute).length === 0) {
     return (
       <View style={styles.legendContainer}>
-        <Text style={styles.legendTitle}>Rock Types:</Text>
+        <Text style={styles.legendTitle}>Attributes:</Text>
         <View style={styles.legendItems}>
           {Object.entries(rockTypeLegend).map(([rockType, config]) => (
             <View key={rockType} style={styles.legendItem}>
@@ -735,8 +739,40 @@ export default function TopDownViewScreen() {
         </View>
       </View>
     );
-  };
+  }
 
+  // Render the grouped legend based on pickedAttribute
+  return (
+    <View style={styles.legendContainer}>
+      <Text style={styles.legendTitle}>Attributes:</Text>
+      {Object.entries(pickedAttribute).map(([attributeType, attributes]) => (
+        <View key={attributeType} style={styles.attributeGroup}>
+          <Text style={styles.attributeGroupTitle}>
+            {attributeType.charAt(0).toUpperCase() + attributeType.slice(1)}:
+          </Text>
+          <View style={styles.legendItems}>
+            {attributes.map((attribute) => (
+              <View key={attribute} style={styles.legendItem}>
+                <View
+                  style={[
+                    styles.legendColor,
+                    {
+                      backgroundColor: rockTypeLegend[attribute]?.color || "#ccc",
+                      opacity: rockTypeLegend[attribute]?.opacity || 0.7,
+                    },
+                  ]}
+                />
+                <Text style={styles.legendText}>
+                  {attribute.charAt(0).toUpperCase() + attribute.slice(1)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+};
   const renderCreateLineInputs = () => (
     <View style={styles.createLineInputs}>
       <View style={styles.inputRow}>
@@ -913,7 +949,7 @@ export default function TopDownViewScreen() {
                   }}
                 >
                   <MaterialIcons name="palette" size={24} color="#198754" />
-                  <Text style={styles.dropdownText}>Block Colours</Text>
+                  <Text style={styles.dropdownText}>Attribute Colours</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1031,6 +1067,7 @@ export default function TopDownViewScreen() {
             ? customColorMapping
             : rockTypeLegend
         }
+        pickingAttributes={pickingAttributes}
       />
 
       {renderDropdown()}
@@ -1053,6 +1090,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
   },
+  attributeGroup: {
+  marginBottom: 10,
+},
+attributeGroupTitle: {
+  fontSize: 14,
+  fontWeight: "600",
+  marginBottom: 5,
+  color: "#333",
+},
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",
