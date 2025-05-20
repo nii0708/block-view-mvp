@@ -17,6 +17,7 @@ interface ColorPickerDialogProps {
   onColorChange: (colorMapping: {
     [key: string]: { color: string; opacity: number };
   }) => void;
+  onAttributeChange?: (attributeKey: string) => void;
   rockTypes: { [key: string]: { color: string; opacity: number } };
   currentColors: { [key: string]: { color: string; opacity: number } };
   pickingAttributes?: { [key: string]: string[] };
@@ -48,15 +49,18 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
   onClose,
   onColorChange,
   rockTypes,
+  onAttributeChange,
   currentColors,
   pickingAttributes,
 }) => {
   const [colorMapping, setColorMapping] = useState<{
     [key: string]: { color: string; opacity: number };
   }>({});
-  const [selectedAttributeType, setSelectedAttributeType] = useState<string>("");
+  const [selectedAttributeType, setSelectedAttributeType] =
+    useState<string>("");
   const [selectedAttribute, setSelectedAttribute] = useState<string>("");
-  const [showAttributeTypeDropdown, setShowAttributeTypeDropdown] = useState(false);
+  const [showAttributeTypeDropdown, setShowAttributeTypeDropdown] =
+    useState(false);
   const [showAttributeDropdown, setShowAttributeDropdown] = useState(false);
   // Add a ref to track previous attribute type to prevent unnecessary updates
   const prevAttributeTypeRef = useRef<string | null>(null);
@@ -84,7 +88,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       // Only update if the attribute type has changed
       if (prevAttributeTypeRef.current !== selectedAttributeType) {
         const selectedPickedAttribute = {
-          [selectedAttributeType]: pickingAttributes[selectedAttributeType]
+          [selectedAttributeType]: pickingAttributes[selectedAttributeType],
         };
         setPickedAttribute(selectedPickedAttribute);
         // Update the ref to the current attribute type
@@ -99,6 +103,35 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       ([attribute, mapping]) =>
         attribute !== currentAttribute && mapping.color === color
     );
+  };
+
+  // In ColorPickerDialog.tsx
+  const handleAttributeTypeSelect = (attrType: string) => {
+    console.log("🔴 handleAttributeTypeSelect called with:", attrType);
+    setSelectedAttributeType(attrType);
+    setShowAttributeTypeDropdown(false);
+
+    // Reset selected attribute and set first attribute as default
+    if (pickingAttributes && pickingAttributes[attrType].length > 0) {
+      const newAttribute = pickingAttributes[attrType][0];
+      setSelectedAttribute(newAttribute);
+    } else {
+      setSelectedAttribute("");
+    }
+
+    // Update the context
+    if (pickingAttributes) {
+      const selectedPickedAttribute = {
+        [attrType]: pickingAttributes[attrType],
+      };
+      setPickedAttribute(selectedPickedAttribute);
+    }
+
+    // CRITICAL: Call the callback to update the map
+    if (onAttributeChange) {
+      console.log("🔴 Calling onAttributeChange with:", attrType);
+      onAttributeChange(attrType);
+    }
   };
 
   const handleColorSelect = (color: string) => {
@@ -130,7 +163,18 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
   };
 
   const handleApply = () => {
+    console.log("🔄 Applying color changes:", colorMapping);
+
+    // 1. Apply color changes
     onColorChange(colorMapping);
+
+    // 2. Also apply attribute changes if needed
+    if (onAttributeChange && selectedAttributeType) {
+      console.log("🔄 Updating attribute to:", selectedAttributeType);
+      onAttributeChange(selectedAttributeType);
+    }
+
+    // 3. Close the dialog
     onClose();
   };
 
@@ -141,18 +185,21 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
   // Get all attributes from all attribute types for the mapping list
   const getAllAttributes = () => {
     if (!pickingAttributes) return Object.keys(rockTypes);
-    
+
     let allAttributes: string[] = [];
-    Object.values(pickingAttributes).forEach(attributes => {
+    Object.values(pickingAttributes).forEach((attributes) => {
       allAttributes = [...allAttributes, ...attributes];
     });
     return [...new Set(allAttributes)]; // Remove duplicates
   };
 
-  const attributeTypeList = pickingAttributes ? Object.keys(pickingAttributes) : [];
-  const attributeList = selectedAttributeType && pickingAttributes 
-    ? pickingAttributes[selectedAttributeType] || []
+  const attributeTypeList = pickingAttributes
+    ? Object.keys(pickingAttributes)
     : [];
+  const attributeList =
+    selectedAttributeType && pickingAttributes
+      ? pickingAttributes[selectedAttributeType] || []
+      : [];
   const allAttributes = getAllAttributes();
 
   return (
@@ -181,16 +228,21 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
               <Text style={styles.sectionLabel}>Select attribute type:</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
-                onPress={() => setShowAttributeTypeDropdown(!showAttributeTypeDropdown)}
+                onPress={() =>
+                  setShowAttributeTypeDropdown(!showAttributeTypeDropdown)
+                }
               >
                 <Text style={styles.dropdownButtonText}>
-                  {selectedAttributeType ? 
-                    (selectedAttributeType.charAt(0).toUpperCase() + selectedAttributeType.slice(1)) :
-                    "Select an attribute type"}
+                  {selectedAttributeType
+                    ? selectedAttributeType.charAt(0).toUpperCase() +
+                      selectedAttributeType.slice(1)
+                    : "Select an attribute type"}
                 </Text>
                 <MaterialIcons
                   name={
-                    showAttributeTypeDropdown ? "arrow-drop-up" : "arrow-drop-down"
+                    showAttributeTypeDropdown
+                      ? "arrow-drop-up"
+                      : "arrow-drop-down"
                   }
                   size={24}
                   color="#666"
@@ -207,16 +259,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
                         selectedAttributeType === attrType &&
                           styles.selectedDropdownItem,
                       ]}
-                      onPress={() => {
-                        setSelectedAttributeType(attrType);
-                        setShowAttributeTypeDropdown(false);
-                        // Reset selected attribute and set first attribute as default
-                        if (pickingAttributes && pickingAttributes[attrType].length > 0) {
-                          setSelectedAttribute(pickingAttributes[attrType][0]);
-                        } else {
-                          setSelectedAttribute("");
-                        }
-                      }}
+                      onPress={() => handleAttributeTypeSelect(attrType)} // ONLY use this function!
                     >
                       <Text style={styles.dropdownItemText}>
                         {attrType.charAt(0).toUpperCase() + attrType.slice(1)}
@@ -236,9 +279,10 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
                 disabled={!selectedAttributeType || attributeList.length === 0}
               >
                 <Text style={styles.dropdownButtonText}>
-                  {selectedAttribute ? 
-                    (selectedAttribute.charAt(0).toUpperCase() + selectedAttribute.slice(1)) :
-                    "Select an attribute"}
+                  {selectedAttribute
+                    ? selectedAttribute.charAt(0).toUpperCase() +
+                      selectedAttribute.slice(1)
+                    : "Select an attribute"}
                 </Text>
                 <MaterialIcons
                   name={
@@ -332,7 +376,9 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
 
             {/* Current Mappings List */}
             <View style={styles.mappingSection}>
-              <Text style={styles.sectionLabel}>Current attribute color mappings:</Text>
+              <Text style={styles.sectionLabel}>
+                Current attribute color mappings:
+              </Text>
               <View style={styles.mappingListContainer}>
                 <ScrollView
                   style={styles.mappingList}

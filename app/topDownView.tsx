@@ -37,6 +37,9 @@ import { processPDFForMapOverlay } from "../utils/pdfToImageOverlay";
 import { applyColorMapping } from "../utils/blockModelUtils";
 import PDFToImageConverter from "@/components/PDFToImageConverter";
 import ColorPickerDialog from "../components/ColorPickerDialog";
+
+const DEBUG = true;
+
 // Get screen dimensions
 const windowWidth = Dimensions.get("window").width;
 
@@ -81,7 +84,9 @@ export default function TopDownViewScreen() {
   const [pitGeoJsonData, setPitGeoJsonData] = useState<any>(null);
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [elevationRange, setElevationRange] = useState({ min: 0, max: 4000 });
-  const [pickingAttributes, setPickingAttributes] = useState<Record<string, string[]>>({});
+  const [pickingAttributes, setPickingAttributes] = useState<
+    Record<string, string[]>
+  >({});
 
   // Create line states
   const [isCreateLineMode, setIsCreateLineMode] = useState(false);
@@ -97,26 +102,68 @@ export default function TopDownViewScreen() {
 
   // Color state
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [selectedAttributeKey, setSelectedAttributeKey] = useState("rock");
   const [customColorMapping, setCustomColorMapping] = useState<{
-    [key: string]: { color: string; opacity: number };
+    [attributeKey: string]: {
+      [value: string]: { color: string; opacity: number };
+    };
   }>({});
 
   const handleColorChange = useCallback(
     (newColorMapping: {
       [key: string]: { color: string; opacity: number };
     }) => {
-      setCustomColorMapping(newColorMapping);
+      // 1. Simpan mapping warna baru untuk attributeKey saat ini
+      setCustomColorMapping((prev) => ({
+        ...prev,
+        [selectedAttributeKey]: newColorMapping, // Simpan berdasarkan atribut
+      }));
 
-      // Apply new colors to existing GeoJSON data
-      if (geoJsonData) {
-        const updatedGeoJson = applyColorMapping(geoJsonData, newColorMapping);
+      console.log(
+        "🎨 New color mapping for",
+        selectedAttributeKey,
+        ":",
+        newColorMapping
+      );
+
+      // 2. Force update legend
+      setRockTypeLegend(newColorMapping);
+
+      // 3. Apply ke GeoJSON jika sudah ada data
+      if (geoJsonData && geoJsonData.features?.length > 0) {
+        console.log("🎨 Applying color mapping to GeoJSON");
+
+        // Clone GeoJSON untuk menghindari mutasi
+        const updatedGeoJson = {
+          ...geoJsonData,
+          features: geoJsonData.features.map(
+            (feature: { properties: { [key: string]: any } }) => {
+              // Cari atribut value yang sesuai dari feature
+              const featureValue = feature.properties[selectedAttributeKey];
+
+              // Jika ada mapping untuk nilai ini, terapkan warna
+              if (featureValue && newColorMapping[featureValue]) {
+                return {
+                  ...feature,
+                  properties: {
+                    ...feature.properties,
+                    color: newColorMapping[featureValue].color,
+                    opacity: newColorMapping[featureValue].opacity,
+                    _updatedBy: "colorPicker",
+                    _attributeKey: selectedAttributeKey, // Tambahkan ini untuk tracking
+                  },
+                };
+              }
+              return feature;
+            }
+          ),
+        };
+
+        // Update GeoJSON
         setGeoJsonData(updatedGeoJson);
       }
-
-      // Update rock type legend
-      setRockTypeLegend(newColorMapping);
     },
-    [geoJsonData]
+    [geoJsonData, selectedAttributeKey]
   );
 
   // Toggle visibility states
@@ -272,7 +319,7 @@ export default function TopDownViewScreen() {
             const resultForTopDown = blockModelToGeoJSON(
               rawBlockModelData,
               sourceProjection,
-              true // top elevation only for display
+              true
             );
 
             const resultForCrossSection = blockModelToGeoJSON(
@@ -289,7 +336,8 @@ export default function TopDownViewScreen() {
             setProcessedAttributeViewing(processedAttributes);
             setHasBlockModelData(true);
 
-            const filteredAttributes = getStringFieldsWithUniqueValues(rawBlockModelData)
+            const filteredAttributes =
+              getStringFieldsWithUniqueValues(rawBlockModelData);
             setPickingAttributes(filteredAttributes);
 
             // Update map center only if no PDF
@@ -425,6 +473,93 @@ export default function TopDownViewScreen() {
     };
   }, [fileName]);
 
+  const handleAttributeChange = useCallback(
+    (attributeKey: string) => {
+      console.log("🚨 handleAttributeChange called with:", attributeKey);
+
+      setSelectedAttributeKey(attributeKey);
+      setLoadingMessage(`Updating view with attribute: ${attributeKey}...`);
+      setLoading(true);
+
+      try {
+        if (blockModelData.length > 0) {
+          // Find actual attribute key
+          const normalizedKey = attributeKey.toLowerCase();
+          const actualKey =
+            Object.keys(blockModelData[0]).find(
+              (key) => key.toLowerCase() === normalizedKey
+            ) || attributeKey;
+
+          // PENTING: Ambil colorMapping spesifik untuk attributeKey ini
+          const attrColorMapping = customColorMapping[actualKey] || {};
+
+          console.log(
+            "⚡ Using color mapping for",
+            actualKey,
+            ":",
+            attrColorMapping
+          );
+
+          // Kirim warna custom untuk attribute ini
+          const result = blockModelToGeoJSON(
+            blockModelData,
+            sourceProjection,
+            true,
+            actualKey,
+            attrColorMapping // Warna untuk atribut ini saja
+          );
+
+          // Reset GeoJSON dan update
+          setGeoJsonData(null);
+
+          // PENTING: Tambahkan kode berikut untuk memastikan warna diterapkan dengan benar
+          requestAnimationFrame(() => {
+            // Buat salinan GeoJSON untuk memastikan tidak ada mutasi yang tidak diinginkan
+            const updatedGeoJson = JSON.parse(
+              JSON.stringify(result.geoJsonData)
+            );
+
+            // Terapkan warna secara manual ke setiap feature sesuai dengan atribut saat ini
+            if (updatedGeoJson.features && updatedGeoJson.features.length > 0) {
+              updatedGeoJson.features = updatedGeoJson.features.map(
+                (feature: { properties: { [key: string]: any } }) => {
+                  // Dapatkan nilai atribut dari feature
+                  const value = feature.properties[actualKey];
+
+                  // Cari warna yang sesuai untuk nilai ini pada atribut saat ini
+                  if (value && attrColorMapping[value]) {
+                    return {
+                      ...feature,
+                      properties: {
+                        ...feature.properties,
+                        color: attrColorMapping[value].color,
+                        opacity: attrColorMapping[value].opacity || 0.7,
+                        _attributeKey: actualKey, // Tambahkan ini untuk tracking
+                      },
+                    };
+                  }
+
+                  return feature;
+                }
+              );
+            }
+
+            // Update GeoJSON dengan warna yang telah diterapkan secara manual
+            setGeoJsonData(updatedGeoJson);
+            updateRockTypeLegend(updatedGeoJson);
+            setLoading(false);
+          });
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("⚡ Error updating attribute view:", error);
+        setLoading(false);
+      }
+    },
+    [blockModelData, sourceProjection, customColorMapping]
+  );
+
   // Back handler
   useEffect(() => {
     const backHandler = BackHandler.addEventListener(
@@ -455,16 +590,23 @@ export default function TopDownViewScreen() {
   const updateRockTypeLegend = (geoJsonData: any) => {
     if (!geoJsonData || !geoJsonData.features) return;
 
-    const rockTypes = new Set<string>();
+    const currentAttributeKey = selectedAttributeKey || "rock";
+    const attributeValues = new Set<string>();
     const colorsAndOpacity: {
       [key: string]: { color: string; opacity: number };
     } = {};
 
+    // Ekstrak semua nilai atribut dan warnanya
     geoJsonData.features.forEach((feature: any) => {
-      if (feature.properties && feature.properties.rock) {
-        rockTypes.add(feature.properties.rock);
+      if (
+        feature.properties &&
+        feature.properties[currentAttributeKey] !== undefined
+      ) {
+        const value = feature.properties[currentAttributeKey];
+        attributeValues.add(value);
+
         if (feature.properties.color) {
-          colorsAndOpacity[feature.properties.rock] = {
+          colorsAndOpacity[value] = {
             color: feature.properties.color,
             opacity: feature.properties.opacity || 0.7,
           };
@@ -472,13 +614,26 @@ export default function TopDownViewScreen() {
       }
     });
 
+    // Buat legend baru
     const newLegend: { [key: string]: { color: string; opacity: number } } = {};
-    rockTypes.forEach((rockType) => {
-      // Hanya ambil dari data yang ada, tidak ada hardcoded
-      newLegend[rockType] = colorsAndOpacity[rockType] || {
-        color: "#3388ff",
-        opacity: 0.7,
-      };
+
+    // Prioritaskan warna dari customColorMapping untuk atribut ini
+    const attributeColors = customColorMapping[currentAttributeKey] || {};
+
+    attributeValues.forEach((value) => {
+      if (attributeColors[value]) {
+        // Gunakan warna dari customColorMapping untuk atribut ini
+        newLegend[value] = attributeColors[value];
+      } else if (colorsAndOpacity[value]) {
+        // Atau gunakan warna dari GeoJSON
+        newLegend[value] = colorsAndOpacity[value];
+      } else {
+        // Fallback
+        newLegend[value] = {
+          color: "#3388ff",
+          opacity: 0.7,
+        };
+      }
     });
 
     setRockTypeLegend(newLegend);
@@ -709,70 +864,144 @@ export default function TopDownViewScreen() {
   };
 
   const renderRockTypeLegend = () => {
-  // Only render legend if there's block model data
-  if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
-    return null;
-  }
+    // Hanya render legend jika ada block model data
+    if (!hasBlockModelData) {
+      return null;
+    }
 
-  // If no pickedAttribute data is available, render the original legend
-  if (!pickedAttribute || Object.keys(pickedAttribute).length === 0) {
-    return (
-      <View style={styles.legendContainer}>
-        <Text style={styles.legendTitle}>Attributes:</Text>
-        <View style={styles.legendItems}>
-          {Object.entries(rockTypeLegend).map(([rockType, config]) => (
-            <View key={rockType} style={styles.legendItem}>
-              <View
-                style={[
-                  styles.legendColor,
-                  {
-                    backgroundColor: config.color,
-                    opacity: config.opacity,
-                  },
-                ]}
-              />
-              <Text style={styles.legendText}>
-                {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  }
+    // Definisikan fungsi isColorObject di awal fungsi agar tersedia di seluruh fungsi
+    function isColorObject(
+      value: any
+    ): value is { color: string; opacity: number } {
+      return (
+        typeof value === "object" &&
+        value !== null &&
+        "color" in value &&
+        typeof value.color === "string"
+      );
+    }
 
-  // Render the grouped legend based on pickedAttribute
-  return (
-    <View style={styles.legendContainer}>
-      <Text style={styles.legendTitle}>Attributes:</Text>
-      {Object.entries(pickedAttribute).map(([attributeType, attributes]) => (
-        <View key={attributeType} style={styles.attributeGroup}>
-          <Text style={styles.attributeGroupTitle}>
-            {attributeType.charAt(0).toUpperCase() + attributeType.slice(1)}:
-          </Text>
+    // Gunakan atribut yang aktif
+    const currentAttributeKey = selectedAttributeKey || "rock";
+
+    // Cek jika tidak ada rockTypeLegend atau customColorMapping
+    if (
+      Object.keys(rockTypeLegend).length === 0 &&
+      Object.keys(customColorMapping).length === 0
+    ) {
+      return null;
+    }
+
+    // PENTING: Prioritaskan customColorMapping sebagai sumber utama warna
+    const colorSource =
+      Object.keys(customColorMapping).length > 0
+        ? customColorMapping
+        : { [currentAttributeKey]: rockTypeLegend }; // Ubah ini untuk format yang konsisten
+
+    // Jika tidak ada data context, render legend normal
+    if (!pickedAttribute || Object.keys(pickedAttribute).length === 0) {
+      return (
+        <View style={styles.legendContainer}>
+          {/* Hapus label "Attributes:" yang berlebihan */}
+          <Text style={styles.legendSubtitle}>{currentAttributeKey}:</Text>
           <View style={styles.legendItems}>
-            {attributes.map((attribute) => (
-              <View key={attribute} style={styles.legendItem}>
-                <View
-                  style={[
-                    styles.legendColor,
-                    {
-                      backgroundColor: rockTypeLegend[attribute]?.color || "#ccc",
-                      opacity: rockTypeLegend[attribute]?.opacity || 0.7,
-                    },
-                  ]}
-                />
-                <Text style={styles.legendText}>
-                  {attribute.charAt(0).toUpperCase() + attribute.slice(1)}
-                </Text>
-              </View>
-            ))}
+            {/* Akses data dengan cara yang benar */}
+            {Object.entries(colorSource[currentAttributeKey] || {}).map(
+              ([value, configData]) => {
+                // Set nilai default
+                let backgroundColor = "#ccc";
+                let opacityValue = 0.7;
+
+                // Gunakan type guard untuk memeriksa format
+                if (isColorObject(configData)) {
+                  backgroundColor = configData.color;
+                  opacityValue = configData.opacity;
+                } else if (typeof configData === "string") {
+                  backgroundColor = configData;
+                }
+
+                return (
+                  <View key={value} style={styles.legendItem}>
+                    <View
+                      style={[
+                        styles.legendColor,
+                        {
+                          backgroundColor,
+                          opacity: opacityValue,
+                          borderWidth: 1,
+                          borderColor: "#333",
+                        },
+                      ]}
+                    />
+                    <Text style={styles.legendText}>
+                      {value.charAt(0).toUpperCase() + value.slice(1)}
+                    </Text>
+                  </View>
+                );
+              }
+            )}
           </View>
         </View>
-      ))}
-    </View>
-  );
-};
+      );
+    }
+
+    // Render berdasarkan data context - Hapus label "Attributes:" yang berlebihan
+    return (
+      <View style={styles.legendContainer}>
+        {Object.entries(pickedAttribute).map(([attributeType, attributes]) => (
+          <View key={attributeType} style={styles.attributeGroup}>
+            <Text style={styles.attributeGroupTitle}>
+              {attributeType.charAt(0).toUpperCase() + attributeType.slice(1)}:
+            </Text>
+            <View style={styles.legendItems}>
+              {attributes.map((attribute) => {
+                // Nilai default
+                let backgroundColor = "#ccc";
+                let opacityValue = 0.7;
+
+                // Cek apakah attribute ada di colorSource
+                if (
+                  attributeType in customColorMapping &&
+                  attribute in customColorMapping[attributeType]
+                ) {
+                  const colorData =
+                    customColorMapping[attributeType][attribute];
+
+                  if (isColorObject(colorData)) {
+                    backgroundColor = colorData.color;
+                    opacityValue = colorData.opacity;
+                  } else if (typeof colorData === "string") {
+                    backgroundColor = colorData;
+                  }
+                }
+
+                return (
+                  <View key={attribute} style={styles.legendItem}>
+                    <View
+                      style={[
+                        styles.legendColor,
+                        {
+                          backgroundColor,
+                          opacity: opacityValue,
+                          borderWidth: 1,
+                          borderColor: "#333",
+                        },
+                      ]}
+                    />
+                    <Text style={styles.legendText}>
+                      {attribute.charAt(0).toUpperCase() + attribute.slice(1)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+
   const renderCreateLineInputs = () => (
     <View style={styles.createLineInputs}>
       <View style={styles.inputRow}>
@@ -815,6 +1044,15 @@ export default function TopDownViewScreen() {
       </Text>
     </View>
   );
+
+  // Tambahkan ini sebelum return statement di TopDownViewScreen
+  console.log("🔍 Rendering with:", {
+    selectedAttributeKey,
+    rockTypeLegendKeys: Object.keys(rockTypeLegend),
+    customColorMappingKeys: Object.keys(customColorMapping),
+    rockTypeLegendSample: Object.entries(rockTypeLegend).slice(0, 2),
+    pickedAttributeFromContext: Object.keys(pickedAttribute || {}),
+  });
 
   const renderCreateLineButtons = () => {
     const hasRequiredData = hasBlockModelData && hasElevationData;
@@ -1061,11 +1299,13 @@ export default function TopDownViewScreen() {
         visible={showColorPicker}
         onClose={() => setShowColorPicker(false)}
         onColorChange={handleColorChange}
+        onAttributeChange={handleAttributeChange}
         rockTypes={rockTypeLegend}
         currentColors={
-          Object.keys(customColorMapping).length > 0
-            ? customColorMapping
-            : rockTypeLegend
+          customColorMapping[selectedAttributeKey] ||
+          Object.keys(rockTypeLegend).length > 0
+            ? customColorMapping[selectedAttributeKey] || rockTypeLegend
+            : {}
         }
         pickingAttributes={pickingAttributes}
       />
@@ -1091,14 +1331,14 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e0e0e0",
   },
   attributeGroup: {
-  marginBottom: 10,
-},
-attributeGroupTitle: {
-  fontSize: 14,
-  fontWeight: "600",
-  marginBottom: 5,
-  color: "#333",
-},
+    marginBottom: 10,
+  },
+  attributeGroupTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 5,
+    color: "#333",
+  },
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",
@@ -1381,5 +1621,12 @@ attributeGroupTitle: {
   },
   disabledButtonText: {
     color: "#999",
+  },
+  legendSubtitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 8,
+    color: "#333",
+    textTransform: "capitalize",
   },
 });

@@ -210,6 +210,17 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
   }, [mapIsReady]);
 
   useEffect(() => {
+    if (geoJsonData) {
+      console.log("🌎 LeafletMap received new geoJsonData:", {
+        features: geoJsonData.features?.length || 0,
+        sampleFeatureProps: geoJsonData.features?.[0]?.properties,
+        attributeKey:
+          geoJsonData.features?.[0]?.properties?.selectedAttributeKey,
+      });
+    }
+  }, [geoJsonData]);
+
+  useEffect(() => {
     if (onAddPointFromCrosshair && mapIsReady) {
       onAddPointFromCrosshair(addPointFromCrosshair);
     }
@@ -846,45 +857,70 @@ true;
             console.log("updateMapData called", data);
             
             // Block model GeoJSON handling
-            if (data.geoJsonData && data.geoJsonData !== null) {
-              if (geoJsonLayer) {
-                map.removeLayer(geoJsonLayer);
-                geoJsonLayer = null;
-              }
-              
-              if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
-                geoJsonLayer = L.geoJSON(data.geoJsonData, {
-                  style: function(feature) {
-                    return {
-                      fillColor: feature.properties.color || '#3388ff',
-                      weight: 1,
-                      opacity: 0.7,
-                      color: 'black',
-                      fillOpacity: feature.properties.opacity || 0.7  // Use opacity from properties
-                    };
-                  },
-                  onEachFeature: function(feature, layer) {
-                    if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
-                      const props = feature.properties;
-                      const popupContent = \`
-                        <div>
-                          <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
-                          <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}<br>
-                          <strong>Opacity:</strong> \${props.opacity ? Math.round(props.opacity * 100) : 70}%
-                        </div>
-                      \`;
-                      layer.bindPopup(popupContent);
-                    }
-                  }
-                }).addTo(map);
-              }
-            } else if (data.geoJsonData === null) {
-              // Remove the layer if data is null
-              if (geoJsonLayer) {
-                map.removeLayer(geoJsonLayer);
-                geoJsonLayer = null;
-              }
-            }
+           if (data.geoJsonData && data.geoJsonData !== null) {
+  if (geoJsonLayer) {
+    map.removeLayer(geoJsonLayer);
+    geoJsonLayer = null;
+  }
+  
+  if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
+    // Log a sample feature to verify data
+    console.log("🌍 Sample feature for styling:", data.geoJsonData.features[0].properties);
+    
+    geoJsonLayer = L.geoJSON(data.geoJsonData, {
+      style: function(feature) {
+        // Get the color directly from feature properties
+        const featureColor = feature.properties.color || '#3388ff';
+        const featureOpacity = feature.properties.opacity || 0.7;
+        
+        // Debug output for a few features
+        if (Math.random() < 0.01) { // Only log 1% of features to avoid console spam
+          console.log("🌍 Feature styling:", {
+            color: featureColor,
+            attributeKey: feature.properties.selectedAttributeKey || feature.properties._attributeKey,
+            attributeValue: feature.properties.categoryValue || feature.properties._attributeValue,
+            p0810: feature.properties.p0810,
+            rock: feature.properties.rock
+          });
+        }
+        
+        return {
+          fillColor: featureColor,
+          weight: 1,
+          opacity: 0.7,
+          color: 'black',
+          fillOpacity: featureOpacity
+        };
+      },
+      onEachFeature: function(feature, layer) {
+        if (feature.properties) {
+          const props = feature.properties;
+          
+          // Get the attribute key and value with fallbacks
+          const attributeKey = props.selectedAttributeKey || props._attributeKey || "rock";
+          const attributeValue = props[attributeKey] || props.categoryValue || 
+                               props._attributeValue || "Unknown";
+          
+          // Create a detailed popup
+          const popupContent = \`
+            <div>
+              <strong>\${attributeKey}:</strong> \${attributeValue}<br>
+              <strong>Elevation:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}<br>
+              <strong>Color:</strong> <span style="display:inline-block; width:12px; height:12px; background-color:\${props.color || '#ccc'}"></span>
+            </div>
+          \`;
+          layer.bindPopup(popupContent);
+        }
+      }
+    }).addTo(map);
+  }
+} else if (data.geoJsonData === null) {
+  // Remove the layer if data is null
+  if (geoJsonLayer) {
+    map.removeLayer(geoJsonLayer);
+    geoJsonLayer = null;
+  }
+}
             
             // Pit GeoJSON handling with reduced opacity
             if (data.pitGeoJsonData && data.pitGeoJsonData !== null) {

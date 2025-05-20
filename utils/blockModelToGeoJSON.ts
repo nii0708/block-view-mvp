@@ -12,19 +12,27 @@ interface BlockModelGeoJSONResult {
 export const blockModelToGeoJSON = (
   blockModelData: any[],
   sourceProjection = "EPSG:4326",
-  topElevationOnly = false
+  topElevationOnly = false,
+  attributeKey = "rock",
+  customColors?: { [key: string]: { color: string; opacity: number } }
 ): BlockModelGeoJSONResult => {
   try {
-    // Pastikan data hanya memiliki atribut yang diperlukan
-    const mappedData = blockModelData.map((row) => ({
-      centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
-      centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
-      centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
-      dim_x: row.xinc || row.dim_x || row.width || row.block_size || 10,
-      dim_y: row.yinc || row.dim_y || row.length || row.block_size || 10,
-      dim_z: row.zinc || row.dim_z || row.height || row.block_size || 10,
-      rock: row.rock || row.rock_type || row.material || "Unknown",
-    }));
+    const mappedData = blockModelData.map((row) => {
+      // Keep all original properties
+      const properties = { ...row };
+
+      // Add standardized names for required positioning fields
+      return {
+        ...properties,
+        centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
+        centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
+        centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
+        dim_x: row.xinc || row.dim_x || row.width || row.block_size || 10,
+        dim_y: row.yinc || row.dim_y || row.length || row.block_size || 10,
+        dim_z: row.zinc || row.dim_z || row.height || row.block_size || 10,
+        categoryValue: row[attributeKey] || "Unknown",
+      };
+    });
 
     // Filter top elevation blocks jika diminta
     const filteredData = topElevationOnly
@@ -32,7 +40,13 @@ export const blockModelToGeoJSON = (
       : mappedData;
 
     // Process the data into GeoJSON with the specified projection
-    const processedData = processBlockModelCSV(filteredData, sourceProjection);
+    const processedData = processBlockModelCSV(
+      filteredData,
+      sourceProjection,
+      topElevationOnly,
+      attributeKey,
+      customColors
+    );
 
     // Calculate initial map center if features are available
     let mapCenter = [0, 0];

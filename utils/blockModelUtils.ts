@@ -149,10 +149,20 @@ export function filterTopElevationBlocks(data: any[]): any[] {
 export function processBlockModelCSV(
   data: any[],
   sourceProjection = "EPSG:4326",
-  topElevationOnly = true
+  topElevationOnly = true,
+  attributeKey = "rock", // Default to "rock" for backward compatibility
+   customColors?: {[key: string]: {color: string, opacity: number}}
 ): GeoJsonFeatureCollection {
   try {
-    // Your provided hex colors
+    console.log(
+      `🔄 PROCESSING WITH KEY: '${attributeKey}', sample data:`,
+      data.slice(0, 2).map((item) => ({
+        keys: Object.keys(item).slice(0, 10),
+        [attributeKey]: item[attributeKey],
+      }))
+    );
+
+    // Predefined colors for consistent mapping
     const hexColors = [
       "#75499c",
       "#b40c0d",
@@ -176,76 +186,154 @@ export function processBlockModelCSV(
       "#7eb8c2",
     ];
 
-    // Function to create a color mapping for rock types
-    function createRockColorMapping(
-      data: any[],
-      colors: string[]
-    ): Record<string, string> {
-      // Extract unique rock types
-      const uniqueRockTypes = Array.from(
-        new Set(data.map((item) => item.rock || "Unknown"))
-      );
+    // Guarantee case-insensitive attribute matching
+    const normalizedKey = attributeKey.toLowerCase();
 
-      // Create mapping object
-      const rockColorMap: Record<string, string> = {};
+    // Find the actual key with the correct case in the data
+    const actualKey =
+      data.length > 0
+        ? Object.keys(data[0]).find(
+            (key) => key.toLowerCase() === normalizedKey
+          ) || attributeKey
+        : attributeKey;
 
-      // Assign colors to rock types
-      uniqueRockTypes.forEach((rockType, index) => {
-        // Use modulo to handle cases with more rock types than colors
-        if (typeof rockType === "string" || typeof rockType === "number") {
-          rockColorMap[String(rockType)] = colors[index % colors.length];
-        }
-      });
-
-      return rockColorMap;
-    }
-
-    // Map columns if names are different
-    let mappedData = data.map((row) => ({
-      centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
-      centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
-      centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
-      dim_x: row.dim_x || row.xinc ||row.width || row.block_size || 12.5,
-      dim_y: row.dim_y || row.yinc ||row.length || row.block_size || 12.5,
-      dim_z: row.dim_z || row.zinc ||row.height || row.block_size || 1,
-      rock: row.rock || row.rock_type || row.material || "Unknown",
-    }));
-
-    // If requested, filter to only keep the top elevation blocks
-    if (topElevationOnly) {
-      console.log(`Original block count: ${mappedData.length}`);
-      mappedData = filterTopElevationBlocks(mappedData);
-      console.log(`Filtered to top elevation blocks: ${mappedData.length}`);
-    }
-
-    // Create the mapping
-    const rockColorMap = createRockColorMapping(mappedData, hexColors);
-
-    // Add colors to the data
-    const filteredData = mappedData.map((row) => ({
-      centroid_x: row.centroid_x,
-      centroid_y: row.centroid_y,
-      centroid_z: row.centroid_z,
-      dim_x: row.dim_x,
-      dim_y: row.dim_y,
-      dim_z: row.dim_z,
-      rock: row.rock,
-      color: rockColorMap[row.rock] || "#aaaaaa",
-    }));
-
-    // Create polygon features with projection conversion
-    const polygons = createPolygonsFromCoordsAndDims(
-      filteredData,
-      "centroid_x",
-      "centroid_y",
-      "dim_x",
-      "dim_y",
-      sourceProjection
+    console.log(
+      `🔄 Using actual attribute key: '${actualKey}' for requested '${attributeKey}'`
     );
 
-    return polygons;
+    // Map columns for consistent access
+    let mappedData = data.map((row) => {
+      // Check if the attribute exists
+      const hasAttr = actualKey in row;
+      if (!hasAttr && Math.random() < 0.01) {
+        // Log for 1% of rows
+        console.log(
+          `⚠️ Row missing attribute '${actualKey}'`,
+          Object.keys(row).slice(0, 5)
+        );
+      }
+
+      return {
+        ...row, // Keep original data
+        centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
+        centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
+        centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
+        dim_x: row.dim_x || row.xinc || row.width || row.block_size || 12.5,
+        dim_y: row.dim_y || row.yinc || row.length || row.block_size || 12.5,
+        dim_z: row.dim_z || row.zinc || row.height || row.block_size || 1,
+        // Store the attribute explicitly
+        _attributeKey: actualKey,
+        _attributeValue: row[actualKey] || "Unknown",
+      };
+    });
+
+    if (topElevationOnly) {
+      console.log(
+        `🔄 Filtering from ${mappedData.length} blocks to top elevation only`
+      );
+      mappedData = filterTopElevationBlocks(mappedData);
+      console.log(`🔄 Filtered to ${mappedData.length} top elevation blocks`);
+    }
+
+    // Get unique values for the selected attribute
+    const uniqueValues = Array.from(
+      new Set(data.map((item) => String(item[attributeKey] || "Unknown")))
+    );
+
+    // Create color mapping - UBAH BAGIAN INI
+    const colorMap: Record<string, string> = {};
+    uniqueValues.forEach((value, index) => {
+      // PENTING: Prioritaskan customColors jika ada
+      if (customColors && customColors[value]) {
+        colorMap[value] = customColors[value].color;
+      } else {
+        colorMap[value] = hexColors[index % hexColors.length];
+      }
+    });
+
+    // Apply colors to data - UBAH BAGIAN INI
+    const coloredData = mappedData.map((row) => {
+      const attrValue = String(row[actualKey] || "Unknown");
+      // Ambil opacity dari customColors jika ada
+      const opacity =
+        customColors && customColors[attrValue]
+          ? customColors[attrValue].opacity
+          : 0.7;
+
+      return {
+        ...row,
+        _attributeKey: actualKey,
+        _attributeValue: attrValue,
+        color: colorMap[attrValue] || "#aaaaaa",
+        opacity: opacity,
+      };
+    });
+
+    // Sample the data to verify coloring
+    if (coloredData.length > 0) {
+      console.log("🔄 Sample colored data:", {
+        attributeKey: coloredData[0]._attributeKey,
+        attributeValue: coloredData[0]._attributeValue,
+        color: coloredData[0].color,
+      });
+    }
+
+    // Create GeoJSON features
+    const features = coloredData.map((row, index) => {
+      // Calculate polygon corners
+      const x = row.centroid_x;
+      const y = row.centroid_y;
+      const width = row.dim_x;
+      const length = row.dim_y;
+
+      const halfWidth = width / 2;
+      const halfLength = length / 2;
+
+      const corners = [
+        [x - halfWidth, y - halfLength],
+        [x + halfWidth, y - halfLength],
+        [x + halfWidth, y + halfLength],
+        [x - halfWidth, y + halfLength],
+        [x - halfWidth, y - halfLength],
+      ];
+
+      // Convert coordinates if needed
+      const convertedCorners =
+        sourceProjection !== "EPSG:4326"
+          ? corners.map((point) => {
+              try {
+                return convertCoordinates(point, sourceProjection, "EPSG:4326");
+              } catch (e) {
+                console.error("🔄 Coordinate conversion error:", e);
+                return point;
+              }
+            })
+          : corners;
+
+      // Create feature with ALL properties
+      return {
+        type: "Feature",
+        properties: {
+          ...row,
+          id: index,
+          // Ensure these critical properties are present
+          selectedAttributeKey: actualKey,
+          categoryValue: row[actualKey] || "Unknown",
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [convertedCorners],
+        },
+      };
+    });
+
+    // Create final GeoJSON
+    return {
+      type: "FeatureCollection",
+      features,
+    };
   } catch (error) {
-    console.error("Error in processBlockModelCSV:", error);
+    console.error("🔄 Error in processBlockModelCSV:", error);
     throw error;
   }
 }
@@ -293,40 +381,42 @@ export function createInitialColorMapping(rockTypes: string[]): {
  */
 export function applyColorMapping(
   geoJsonData: any,
-  colorMapping: { [key: string]: { color: string; opacity: number } | string }
+  colorMapping: { [key: string]: { color: string; opacity: number } },
+  attributeKey = "rock" // Default attribute to use
 ): any {
   if (!geoJsonData || !geoJsonData.features) {
     return geoJsonData;
   }
 
+  console.log(`Applying color mapping for attribute: ${attributeKey}`, {
+    totalFeatures: geoJsonData.features.length,
+    mappingKeys: Object.keys(colorMapping),
+  });
+
   // Create a new GeoJSON object with updated colors and opacity
   const updatedGeoJson = {
     ...geoJsonData,
     features: geoJsonData.features.map((feature: any) => {
-      if (feature.properties && feature.properties.rock) {
-        const mapping = colorMapping[feature.properties.rock];
+      // Pastikan attributeKey yang tepat digunakan
+      if (
+        feature.properties &&
+        feature.properties[attributeKey] !== undefined
+      ) {
+        const attrValue = String(feature.properties[attributeKey]);
+        const mapping = colorMapping[attrValue];
 
-        // Handle both old format (string) and new format (object with color and opacity)
         if (mapping) {
-          if (typeof mapping === "string") {
-            return {
-              ...feature,
-              properties: {
-                ...feature.properties,
-                color: mapping,
-                opacity: 0.7, // default opacity for backward compatibility
-              },
-            };
-          } else {
-            return {
-              ...feature,
-              properties: {
-                ...feature.properties,
-                color: mapping.color,
-                opacity: mapping.opacity,
-              },
-            };
-          }
+          return {
+            ...feature,
+            properties: {
+              ...feature.properties,
+              color: mapping.color,
+              opacity: mapping.opacity,
+              // Track which attribute was used for coloring
+              _coloredBy: attributeKey,
+              _coloredValue: attrValue,
+            },
+          };
         }
       }
       return feature;
