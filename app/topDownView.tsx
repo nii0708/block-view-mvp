@@ -40,6 +40,39 @@ import ColorPickerDialog from "../components/ColorPickerDialog";
 // Get screen dimensions
 const windowWidth = Dimensions.get("window").width;
 
+interface Coordinates {
+  topLeft: { lat: number; lng: number };
+  topRight: { lat: number; lng: number };
+  bottomLeft: { lat: number; lng: number };
+  bottomRight: { lat: number; lng: number };
+}
+
+interface MiningFile {
+  name: string;
+  files: {
+    orthophoto?: { uri: string };
+    blockModel?: { uri: string };
+    elevation?: { uri: string };
+    pit?: { uri: string };
+    pdfCoordinates?: Coordinates;
+  };
+}
+
+interface PDFResult {
+  error?: string;
+  bounds?: [[number, number], [number, number]];
+  center: [number, number];
+  zoom: number;
+  needsConversion?: boolean;
+  imageBase64?: string | null;
+}
+
+interface PDFLoadResult {
+  pdfLoaded: boolean;
+  pdfCenter?: [number, number] | null;
+  pdfZoom?: number | null;
+}
+
 // Maximum features to render to prevent performance issues
 const MAX_FEATURES = 5000;
 
@@ -134,6 +167,8 @@ export default function TopDownViewScreen() {
   const processedMessagesRef = useRef<Set<string>>(new Set());
   const [addPointFunc, setAddPointFunc] = useState<(() => void) | null>(null);
   const mountedRef = useRef(true);
+  const rawBlockModelDataRef = useRef<any[] | null>(null);
+  const pdfLoadedRef = useRef<boolean>(false);
 
   // File data states
   const [hasBlockModelData, setHasBlockModelData] = useState(false);
@@ -150,9 +185,7 @@ export default function TopDownViewScreen() {
     pickedAttribute,
   } = useMiningData();
 
-  // console.log("attributes berubah ubah", pickedAttribute);
-
-  // Main data loading effect - SEQUENTIAL
+  // Main effect for initial data loading - runs only when fileName changes
   useEffect(() => {
     let mounted = true;
     mountedRef.current = true;
@@ -185,217 +218,14 @@ export default function TopDownViewScreen() {
         setFileData(file);
         setLoadingProgress(0.2);
 
-        let pdfCenter: [number, number] | null = null;
-        let pdfZoom: number | null = null;
-        let pdfLoaded = false;
+        // Load each data type
+        const { pdfLoaded } = await loadPDFData(file, mounted);
+        pdfLoadedRef.current = pdfLoaded;
 
-        // Step 2: Process PDF first (if available)
-        if (file.files.orthophoto && mounted) {
-          setLoadingMessage("Processing PDF...");
-          setLoadingProgress(0.25);
-
-          try {
-            let coordinates = file.files.pdfCoordinates;
-
-            if (!coordinates) {
-              const nativeResult =
-                await FileService.extractPDFCoordinatesNative(
-                  file.files.orthophoto.uri
-                );
-
-              coordinates = nativeResult.coordinates;
-              if (coordinates) {
-                file.files.pdfCoordinates = coordinates;
-                const files = await FileService.getFileInfo();
-                const updatedFiles = files.map((f) =>
-                  f.name === file.name ? file : f
-                );
-                await FileService.saveFileInfo(updatedFiles);
-              }
-            }
-
-            if (coordinates) {
-              setHasPDFCoordinates(true);
-              pdfCenter = [
-                (coordinates.topLeft.lat + coordinates.bottomLeft.lat) / 2,
-                (coordinates.topLeft.lng + coordinates.topRight.lng) / 2,
-              ];
-              setMapCenter(pdfCenter);
-              setMapZoom(14);
-              pdfLoaded = true;
-
-              const pdfResult = await processPDFForMapOverlay(
-                file.files.orthophoto.uri,
-                coordinates,
-                true
-              );
-
-              if (!pdfResult.error && pdfResult.bounds && mounted) {
-                pdfCenter = pdfResult.center;
-                pdfZoom = pdfResult.zoom;
-
-                if (pdfResult.needsConversion) {
-                  setPdfUriForConversion(file.files.orthophoto.uri);
-                  setShowPdfConverter(true);
-                }
-
-                setPdfOverlayData({
-                  imageBase64: pdfResult.imageBase64 || null,
-                  bounds: pdfResult.bounds,
-                  center: pdfResult.center,
-                  zoom: pdfResult.zoom,
-                });
-              }
-            }
-          } catch (error) {
-            console.error("Error processing PDF:", error);
-          }
-        }
-
-        // Step 3: Load and process block model data
-        if (file.files.blockModel && mounted) {
-          setLoadingMessage("Loading block model data...");
-          setLoadingProgress(0.4);
-
-          try {
-            const csvData = await FileService.parseCSVFile(
-              file.files.blockModel.uri
-            );
-            const rawBlockModelData = csvData.slice(3);
-            const sampleBlock = rawBlockModelData[0];
-            const processedAttributes =
-              extractBlockModelAttributes(sampleBlock);
-
-            if (!mounted) return;
-
-            // Process block model immediately
-            const resultForTopDown = blockModelToGeoJSON(
-              rawBlockModelData,
-              sourceProjection,
-              true // top elevation only for display
-            );
-
-            const resultForCrossSection = blockModelToGeoJSON(
-              rawBlockModelData,
-              sourceProjection,
-              false // all blocks for cross-section
-            );
-
-            // Set all block model related states
-            setBlockModelData(rawBlockModelData);
-            setFullBlockModelData(rawBlockModelData);
-            setGeoJsonData(resultForTopDown.geoJsonData);
-            setProcessedBlockModel(resultForCrossSection.geoJsonData);
-            setProcessedAttributeViewing(processedAttributes);
-            setHasBlockModelData(true);
-
-            const filteredAttributes = getStringFieldsWithUniqueValues(rawBlockModelData)
-            setPickingAttributes(filteredAttributes);
-
-            // Update map center only if no PDF
-            if (!pdfLoaded && mounted) {
-              setMapCenter(resultForTopDown.mapCenter);
-              setMapZoom(resultForTopDown.mapZoom);
-            }
-
-            // Update rock type legend
-            updateRockTypeLegend(resultForTopDown.geoJsonData);
-
-            setLoadingProgress(0.6);
-          } catch (error) {
-            console.error("Error processing block model:", error);
-          }
-        }
-
-        // Step 4: Process elevation data
-        if (file.files.elevation && mounted) {
-          setLoadingMessage("Loading elevation data...");
-          setLoadingProgress(0.7);
-
-          try {
-            const rawElevationData = await FileService.parseLiDARFile(
-              file.files.elevation.uri,
-              { maxPoints: 30000 }
-            );
-
-            const blockModelBoundingBox = createBoundingBoxFromBlockModel(
-              blockModelData,
-              100
-            );
-
-            const processedElev = processElevationData(
-              rawElevationData,
-              sourceProjection,
-              "lon",
-              "lat",
-              "z",
-              blockModelBoundingBox
-            );
-
-            if (mounted) {
-              setElevationData(processedElev);
-              setProcessedElevation(processedElev);
-            }
-            setHasElevationData(true);
-            setLoadingProgress(0.8);
-          } catch (error) {
-            console.error("Error processing elevation data:", error);
-          }
-        }
-
-        // Step 5: Process pit/lidar data
-        if (file.files.pit && mounted) {
-          setLoadingMessage("Loading pit boundary data...");
-          setLoadingProgress(0.9);
-
-          try {
-            const rawPitData = await FileService.parseLiDARFile(
-              file.files.pit.uri
-              // { maxPoints: 10000 }
-            );
-            if (!mounted) return;
-
-            // Process pit data immediately
-            const pitDataFormat = rawPitData.map((point) => ({
-              x: point.lon || 0,
-              y: point.lat || 0,
-              z: point.z || 0,
-              interior: 1,
-              none: 0,
-              type: 0,
-            }));
-
-            const pitDataSample =
-              pitDataFormat.length > 10000
-                ? pitDataFormat.filter(
-                    (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
-                  )
-                : pitDataFormat;
-
-            const result = processPitDataToGeoJSON(
-              pitDataSample,
-              sourceProjection
-            );
-
-            if (result && mounted) {
-              setPitGeoJsonData(result);
-              setProcessedPitData(result);
-
-              // Extract elevation range
-              const elevations = rawPitData.map((point) =>
-                parseFloat(String(point.z))
-              );
-              const validElevations = elevations.filter((e) => !isNaN(e));
-
-              if (validElevations.length > 0) {
-                const minElev = Math.min(...validElevations);
-                const maxElev = Math.max(...validElevations);
-                setElevationRange({ min: minElev, max: maxElev });
-              }
-            }
-          } catch (error) {
-            console.error("Error processing pit data:", error);
-          }
+        if (mounted) {
+          await loadBlockModelData(file, mounted);
+          await loadElevationData(file, mounted);
+          await loadPitData(file, mounted);
         }
 
         // Final setup
@@ -423,7 +253,270 @@ export default function TopDownViewScreen() {
       mounted = false;
       mountedRef.current = false;
     };
-  }, [fileName]);
+  }, [fileName]); // Remove pickedAttribute dependency
+
+  // PDF loading function with your existing types
+  const loadPDFData = async (
+    file: FileService.MiningDataFile,
+    mounted: boolean
+  ): Promise<{ pdfLoaded: boolean; pdfCenter?: [number, number] | null; pdfZoom?: number | null }> => {
+    let pdfCenter: [number, number] | null = null;
+    let pdfZoom: number | null = null;
+    let pdfLoaded = false;
+
+    if (!file.files.orthophoto || !mounted) return { pdfLoaded };
+
+    setLoadingMessage("Processing PDF...");
+    setLoadingProgress(0.25);
+
+    try {
+      let coordinates = file.files.pdfCoordinates;
+
+      if (!coordinates) {
+        const nativeResult = await FileService.extractPDFCoordinatesNative(
+          file.files.orthophoto.uri
+        );
+
+        coordinates = nativeResult.coordinates;
+        if (coordinates) {
+          file.files.pdfCoordinates = coordinates;
+          const files = await FileService.getFileInfo();
+          const updatedFiles = files.map((f) =>
+            f.name === file.name ? file : f
+          );
+          await FileService.saveFileInfo(updatedFiles);
+        }
+      }
+
+      if (coordinates) {
+        setHasPDFCoordinates(true);
+        pdfCenter = [
+          (coordinates.topLeft.lat + coordinates.bottomLeft.lat) / 2,
+          (coordinates.topLeft.lng + coordinates.topRight.lng) / 2,
+        ];
+        setMapCenter(pdfCenter);
+        setMapZoom(14);
+        pdfLoaded = true;
+
+        const pdfResult = await processPDFForMapOverlay(
+          file.files.orthophoto.uri,
+          coordinates,
+          true
+        );
+
+        if (!pdfResult.error && pdfResult.bounds && mounted) {
+          pdfCenter = pdfResult.center;
+          pdfZoom = pdfResult.zoom;
+
+          if (pdfResult.needsConversion) {
+            setPdfUriForConversion(file.files.orthophoto.uri);
+            setShowPdfConverter(true);
+          }
+
+          setPdfOverlayData({
+            imageBase64: pdfResult.imageBase64 || null,
+            bounds: pdfResult.bounds,
+            center: pdfResult.center,
+            zoom: pdfResult.zoom,
+          });
+        }
+      }
+
+      return { pdfLoaded, pdfCenter, pdfZoom };
+    } catch (error) {
+      console.error("Error processing PDF:", error);
+      return { pdfLoaded };
+    }
+  };
+
+  // Block model loading function
+  const loadBlockModelData = async (
+    file: FileService.MiningDataFile,
+    mounted: boolean
+  ): Promise<void> => {
+    if (!file.files.blockModel || !mounted) return;
+
+    setLoadingMessage("Loading block model data...");
+    setLoadingProgress(0.4);
+
+    try {
+      const csvData = await FileService.parseCSVFile(
+        file.files.blockModel.uri
+      );
+      const rawBlockModelData = csvData.slice(3);
+
+      if (!mounted) return;
+
+      // Store raw data in ref for later use with attribute changes
+      rawBlockModelDataRef.current = rawBlockModelData;
+
+      // Get attributes for selection UI
+      const sampleBlock = rawBlockModelData[0];
+      const processedAttributes = extractBlockModelAttributes(sampleBlock);
+      setProcessedAttributeViewing(processedAttributes);
+
+      const filteredAttributes = getStringFieldsWithUniqueValues(rawBlockModelData);
+      setPickingAttributes(filteredAttributes);
+
+      // Process block model with current attribute
+      processBlockModelWithAttribute(rawBlockModelData, pickedAttribute);
+
+      // Set loading progress
+      setLoadingProgress(0.6);
+    } catch (error) {
+      console.error("Error processing block model:", error);
+    }
+  };
+
+  // Elevation data loading function
+  const loadElevationData = async (
+    file: FileService.MiningDataFile,
+    mounted: boolean
+  ): Promise<void> => {
+    if (!file.files.elevation || !mounted) return;
+
+    setLoadingMessage("Loading elevation data...");
+    setLoadingProgress(0.7);
+
+    try {
+      const rawElevationData = await FileService.parseLiDARFile(
+        file.files.elevation.uri,
+        { maxPoints: 30000 }
+      );
+
+      const blockModelBoundingBox = createBoundingBoxFromBlockModel(
+        blockModelData,
+        100
+      );
+
+      const processedElev = processElevationData(
+        rawElevationData,
+        sourceProjection,
+        "lon",
+        "lat",
+        "z",
+        blockModelBoundingBox
+      );
+
+      if (mounted) {
+        setElevationData(processedElev);
+        setProcessedElevation(processedElev);
+      }
+      setHasElevationData(true);
+      setLoadingProgress(0.8);
+    } catch (error) {
+      console.error("Error processing elevation data:", error);
+    }
+  };
+
+  // Pit data loading function
+  const loadPitData = async (
+    file: FileService.MiningDataFile,
+    mounted: boolean
+  ): Promise<void> => {
+    if (!file.files.pit || !mounted) return;
+
+    setLoadingMessage("Loading pit boundary data...");
+    setLoadingProgress(0.9);
+
+    try {
+      const rawPitData = await FileService.parseLiDARFile(
+        file.files.pit.uri
+        // { maxPoints: 10000 }
+      );
+      if (!mounted) return;
+
+      // Process pit data immediately
+      const pitDataFormat = rawPitData.map((point) => ({
+        x: point.lon || 0,
+        y: point.lat || 0,
+        z: point.z || 0,
+        interior: 1,
+        none: 0,
+        type: 0,
+      }));
+
+      const pitDataSample =
+        pitDataFormat.length > 10000
+          ? pitDataFormat.filter(
+            (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
+          )
+          : pitDataFormat;
+
+      const result = processPitDataToGeoJSON(
+        pitDataSample,
+        sourceProjection
+      );
+
+      if (result && mounted) {
+        setPitGeoJsonData(result);
+        setProcessedPitData(result);
+
+        // Extract elevation range
+        const elevations = rawPitData.map((point) =>
+          parseFloat(String(point.z))
+        );
+        const validElevations = elevations.filter((e) => !isNaN(e));
+
+        if (validElevations.length > 0) {
+          const minElev = Math.min(...validElevations);
+          const maxElev = Math.max(...validElevations);
+          setElevationRange({ min: minElev, max: maxElev });
+        }
+      }
+    } catch (error) {
+      console.error("Error processing pit data:", error);
+    }
+  };
+
+  // Function to process block model with specific attribute
+
+  const processBlockModelWithAttribute = (
+    rawData: any[] | null,
+    attribute: Record<string, string[]> | null
+  ): void => {
+    if (!rawData) return;
+
+
+    // Process block model for visualization
+    const resultForTopDown = blockModelToGeoJSON(
+      rawData,
+      sourceProjection,
+      true, // top elevation only for display
+      attribute || undefined
+    );
+
+    const resultForCrossSection = blockModelToGeoJSON(
+      rawData,
+      sourceProjection,
+      false, // all blocks for cross-section
+      attribute || undefined
+    );
+
+    // Set visualization data
+    setBlockModelData(rawData);
+    setFullBlockModelData(rawData);
+    setGeoJsonData(resultForTopDown.geoJsonData);
+    setProcessedBlockModel(resultForCrossSection.geoJsonData);
+    setHasBlockModelData(true);
+
+    // Update map center only if no PDF was loaded
+    if (!pdfLoadedRef.current && mountedRef.current) {
+      setMapCenter(resultForTopDown.mapCenter);
+      setMapZoom(resultForTopDown.mapZoom);
+    }
+
+    // Update rock type legend
+    updateRockTypeLegend(resultForTopDown.geoJsonData);
+  };
+
+  // Separate effect for pickedAttribute changes
+  useEffect(() => {
+    if (rawBlockModelDataRef.current) {
+      // Only run visualization processing when pickedAttribute changes
+      processBlockModelWithAttribute(rawBlockModelDataRef.current, pickedAttribute);
+    }
+  }, [pickedAttribute]);
 
   // Back handler
   useEffect(() => {
@@ -507,9 +600,9 @@ export default function TopDownViewScreen() {
         setPdfOverlayData((prev) =>
           prev
             ? {
-                ...prev,
-                imageBase64: imageBase64,
-              }
+              ...prev,
+              imageBase64: imageBase64,
+            }
             : null
         );
       }
@@ -709,70 +802,70 @@ export default function TopDownViewScreen() {
   };
 
   const renderRockTypeLegend = () => {
-  // Only render legend if there's block model data
-  if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
-    return null;
-  }
+    // Only render legend if there's block model data
+    if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
+      return null;
+    }
 
-  // If no pickedAttribute data is available, render the original legend
-  if (!pickedAttribute || Object.keys(pickedAttribute).length === 0) {
-    return (
-      <View style={styles.legendContainer}>
-        <Text style={styles.legendTitle}>Attributes:</Text>
-        <View style={styles.legendItems}>
-          {Object.entries(rockTypeLegend).map(([rockType, config]) => (
-            <View key={rockType} style={styles.legendItem}>
-              <View
-                style={[
-                  styles.legendColor,
-                  {
-                    backgroundColor: config.color,
-                    opacity: config.opacity,
-                  },
-                ]}
-              />
-              <Text style={styles.legendText}>
-                {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  }
-
-  // Render the grouped legend based on pickedAttribute
-  return (
-    <View style={styles.legendContainer}>
-      <Text style={styles.legendTitle}>Attributes:</Text>
-      {Object.entries(pickedAttribute).map(([attributeType, attributes]) => (
-        <View key={attributeType} style={styles.attributeGroup}>
-          <Text style={styles.attributeGroupTitle}>
-            {attributeType.charAt(0).toUpperCase() + attributeType.slice(1)}:
-          </Text>
+    // If no pickedAttribute data is available, render the original legend
+    if (!pickedAttribute || Object.keys(pickedAttribute).length === 0) {
+      return (
+        <View style={styles.legendContainer}>
+          <Text style={styles.legendTitle}>Attributes:</Text>
           <View style={styles.legendItems}>
-            {attributes.map((attribute) => (
-              <View key={attribute} style={styles.legendItem}>
+            {Object.entries(rockTypeLegend).map(([rockType, config]) => (
+              <View key={rockType} style={styles.legendItem}>
                 <View
                   style={[
                     styles.legendColor,
                     {
-                      backgroundColor: rockTypeLegend[attribute]?.color || "#ccc",
-                      opacity: rockTypeLegend[attribute]?.opacity || 0.7,
+                      backgroundColor: config.color,
+                      opacity: config.opacity,
                     },
                   ]}
                 />
                 <Text style={styles.legendText}>
-                  {attribute.charAt(0).toUpperCase() + attribute.slice(1)}
+                  {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
                 </Text>
               </View>
             ))}
           </View>
         </View>
-      ))}
-    </View>
-  );
-};
+      );
+    }
+
+    // Render the grouped legend based on pickedAttribute
+    return (
+      <View style={styles.legendContainer}>
+        <Text style={styles.legendTitle}>Attributes:</Text>
+        {Object.entries(pickedAttribute).map(([attributeType, attributes]) => (
+          <View key={attributeType} style={styles.attributeGroup}>
+            <Text style={styles.attributeGroupTitle}>
+              {attributeType.charAt(0).toUpperCase() + attributeType.slice(1)}:
+            </Text>
+            <View style={styles.legendItems}>
+              {attributes.map((attribute) => (
+                <View key={attribute} style={styles.legendItem}>
+                  <View
+                    style={[
+                      styles.legendColor,
+                      {
+                        backgroundColor: rockTypeLegend[attribute]?.color || "#ccc",
+                        opacity: rockTypeLegend[attribute]?.opacity || 0.7,
+                      },
+                    ]}
+                  />
+                  <Text style={styles.legendText}>
+                    {attribute.charAt(0).toUpperCase() + attribute.slice(1)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+    );
+  };
   const renderCreateLineInputs = () => (
     <View style={styles.createLineInputs}>
       <View style={styles.inputRow}>
@@ -802,8 +895,8 @@ export default function TopDownViewScreen() {
           value={
             selectedPoints.length > 0
               ? `${(coordinates.lng || 0).toFixed(6)}, ${(
-                  coordinates.lat || 0
-                ).toFixed(6)}`
+                coordinates.lat || 0
+              ).toFixed(6)}`
               : ""
           }
           editable={false}
@@ -1030,8 +1123,8 @@ export default function TopDownViewScreen() {
                     <Text style={styles.coordinatesText}>
                       {mapReady
                         ? `x: ${(coordinates?.lng || 0).toFixed(5)}, y: ${(
-                            coordinates?.lat || 0
-                          ).toFixed(5)}`
+                          coordinates?.lat || 0
+                        ).toFixed(5)}`
                         : "..."}
                     </Text>
                   </View>
@@ -1091,14 +1184,14 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e0e0e0",
   },
   attributeGroup: {
-  marginBottom: 10,
-},
-attributeGroupTitle: {
-  fontSize: 14,
-  fontWeight: "600",
-  marginBottom: 5,
-  color: "#333",
-},
+    marginBottom: 10,
+  },
+  attributeGroupTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 5,
+    color: "#333",
+  },
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",

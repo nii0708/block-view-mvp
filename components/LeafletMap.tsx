@@ -119,7 +119,7 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   };
 
-  console.log("geoJsonData", geoJsonData.features[0]);
+  // console.log("geoJsonData", geoJsonData.features[0]);
 
   // Update GeoJSON data and PDF overlay when changed
   useEffect(() => {

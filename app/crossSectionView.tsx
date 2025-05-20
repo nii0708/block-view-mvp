@@ -79,7 +79,12 @@ export default function CrossSectionViewScreen() {
     processedElevation,
     processedPitData,
     processedAttributeViewing,
+    pickedAttribute
   } = useMiningData();
+
+  console.log("fullBlockModelData", fullBlockModelData[0]);  
+  console.log("pickedAttribute DI CROSSSECTION", pickedAttribute);
+  console.log("selectedAttribute DI CROSSSECTION", selectedAttribute);
 
   // Load data on component mount
   useEffect(() => {
@@ -88,65 +93,75 @@ export default function CrossSectionViewScreen() {
 
   // Load and filter data for cross-section
   const loadCrossSectionData = useCallback(async () => {
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
 
-      console.log("attribute viewing", processedAttributeViewing);
-
-      // First, check if we have block model data
-      if (fullBlockModelData && fullBlockModelData.length > 0) {
-        // Direct mapping without filtering (WebView will handle filtering)
-        const extractedBlocks = fullBlockModelData.map((block) => ({
+    // First, check if we have block model data
+    if (fullBlockModelData && fullBlockModelData.length > 0) {
+      // Direct mapping without filtering (WebView will handle filtering)
+      const extractedBlocks = fullBlockModelData.map((block) => {
+        // Get the key from pickedAttribute (e.g. "p0810" from {"p0810": ["ws", "ob", "sap", "lim"]})
+        const attributeKey = pickedAttribute && typeof pickedAttribute === 'object' 
+          ? Object.keys(pickedAttribute)[0] 
+          : null;
+        
+        // Use the value from the block for the picked attribute key as rock type
+        // or fallback to block.rock
+        const rockType = attributeKey && block[attributeKey] !== undefined 
+          ? block[attributeKey] 
+          : (block.rock || "unknown");
+          
+        return {
           centroid_x: parseFloat(block.centroid_x || block.x || block.X || 0),
           centroid_y: parseFloat(block.centroid_y || block.y || block.Y || 0),
           centroid_z: parseFloat(block.centroid_z || block.z || block.Z || 0),
           dim_x: parseFloat(block.dim_x || block.xinc || block.width || 12.5),
           dim_y: parseFloat(block.dim_y || block.yinc || block.length || 12.5),
           dim_z: parseFloat(block.dim_z || block.zinc || block.height || 1),
-          rock: block.rock || "unknown",
-          color: block.color || getRockColor(block.rock || "unknown"), // Use updated getRockColor
+          rock: rockType,
+          color: block.color || getRockColor(rockType),
           concentrate:
             parseFloat(block[selectedAttribute]) === -99
               ? parseFloat(block[selectedAttribute])
               : parseFloat(block[selectedAttribute] || 0).toFixed(2),
-        }));
+        };
+      });
 
-        console.log("extractedBlocks", extractedBlocks[0]);
-
-        setBlockModelData(extractedBlocks);
-      }
-
-      // Process elevation data if available
-      if (processedElevation && processedElevation.length > 0) {
-        // Direct mapping without filtering (WebView will handle filtering)
-        setElevationData(processedElevation);
-      }
-
-      // Process pit data if available
-      if (processedPitData?.features) {
-        // Direct mapping without filtering (WebView will handle filtering)
-        setPitData(processedPitData.features);
-      }
-
-      if (processedAttributeViewing) {
-        // Direct mapping without filtering (WebView will handle filtering)
-        setProcessedAttributeViewing(processedAttributeViewing);
-      }
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Error loading cross section data:", error);
-      Alert.alert("Error", "Failed to load cross section data");
-      setLoading(false);
+      setBlockModelData(extractedBlocks);
     }
-  }, [
-    fullBlockModelData,
-    processedElevation,
-    processedPitData,
-    processedAttributeViewing,
-    customColorMapping,
-    selectedAttribute,
-  ]);
+
+    // Process elevation data if available
+    if (processedElevation && processedElevation.length > 0) {
+      // Direct mapping without filtering (WebView will handle filtering)
+      setElevationData(processedElevation);
+    }
+
+    // Process pit data if available
+    if (processedPitData?.features) {
+      // Direct mapping without filtering (WebView will handle filtering)
+      setPitData(processedPitData.features);
+    }
+
+    if (processedAttributeViewing) {
+      // Direct mapping without filtering (WebView will handle filtering)
+      setProcessedAttributeViewing(processedAttributeViewing);
+    }
+
+    setLoading(false);
+  } catch (error) {
+    console.error("Error loading cross section data:", error);
+    Alert.alert("Error", "Failed to load cross section data");
+    setLoading(false);
+  }
+}, [
+  fullBlockModelData,
+  processedElevation,
+  processedPitData,
+  processedAttributeViewing,
+  customColorMapping,
+  selectedAttribute,
+  pickedAttribute, // Added pickedAttribute as a dependency
+]);
 
   // Helper function to get color for rock type
   const getRockColor = (rockType: string): string => {

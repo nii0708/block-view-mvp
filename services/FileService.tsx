@@ -112,7 +112,6 @@ export const pickFile = async (
   type: string | string[] = "*/*"
 ): Promise<FileInfo | null> => {
   try {
-    console.log(`Attempting to pick file with type: ${JSON.stringify(type)}`);
 
     const result = await DocumentPicker.getDocumentAsync({
       type,

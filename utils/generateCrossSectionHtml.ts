@@ -28,8 +28,6 @@ export function generateD3Html(
 
   const blockCount = intersectingBlocks.length;
 
-  console.log("isian blok model data : ", blockModelData[0].rock);
-
   let elevationPoints = processElevationData(
     elevationData,
     sourceProjection,

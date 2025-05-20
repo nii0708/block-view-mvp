@@ -9,24 +9,47 @@ interface BlockModelGeoJSONResult {
   error?: string;
 }
 
+// Define a type for the picked attributes
+type PickedAttributeType = Record<string, string[]>;
+
 export const blockModelToGeoJSON = (
   blockModelData: any[],
   sourceProjection = "EPSG:4326",
-  topElevationOnly = false
+  topElevationOnly = false,
+  pickedAttribute?: PickedAttributeType | null
 ): BlockModelGeoJSONResult => {
   try {
-    // Pastikan data hanya memiliki atribut yang diperlukan
-    const mappedData = blockModelData.map((row) => ({
-      centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
-      centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
-      centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
-      dim_x: row.xinc || row.dim_x || row.width || row.block_size || 10,
-      dim_y: row.yinc || row.dim_y || row.length || row.block_size || 10,
-      dim_z: row.zinc || row.dim_z || row.height || row.block_size || 10,
-      rock: row.rock || row.rock_type || row.material || "Unknown",
-    }));
+    console.log("picked attribute", pickedAttribute);
 
-    // Filter top elevation blocks jika diminta
+    // Determine which attribute to use for rock type classification
+    let attributeKey = "rock"; // Default attribute
+    
+    // If we have a picked attribute, use the first key as the attribute to display
+    if (pickedAttribute && Object.keys(pickedAttribute).length > 0) {
+      attributeKey = Object.keys(pickedAttribute)[0]; // Get the first key (e.g., "p0810")
+      console.log("Using attribute key:", attributeKey);
+    }
+
+    // Map the data with the selected attribute as the "rock" property for visualization
+    const mappedData = blockModelData.map((row) => {
+      // Get the value for rock based on the picked attribute key or fallback to default
+      const rockValue = attributeKey !== "rock" && row[attributeKey] 
+        ? row[attributeKey] 
+        : (row.rock || row.rock_type || row.material || "Unknown");
+      
+      return {
+        centroid_x: row.centroid_x || row.x || row.X || row.easting || 0,
+        centroid_y: row.centroid_y || row.y || row.Y || row.northing || 0,
+        centroid_z: row.centroid_z || row.z || row.Z || row.elevation || 0,
+        dim_x: row.xinc || row.dim_x || row.width || row.block_size || 10,
+        dim_y: row.yinc || row.dim_y || row.length || row.block_size || 10,
+        dim_z: row.zinc || row.dim_z || row.height || row.block_size || 10,
+        rock: rockValue, // Use the value from the picked attribute
+        originalData: row, // Optionally keep the original data for debugging
+      };
+    });
+
+    // Filter top elevation blocks if requested
     const filteredData = topElevationOnly
       ? filterTopElevationBlocks(mappedData)
       : mappedData;
