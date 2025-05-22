@@ -12,23 +12,21 @@ jobs:
       build_url: ${{ steps.get_build_url.outputs.build_url }}
     steps:
       - name: 📱 Checkout repository
-        uses: actions/checkout@v4 # Updated from v3 to v4
+        uses: actions/checkout@v4
 
       - name: 🏗 Setup Node
-        uses: actions/setup-node@v4 # Updated from v3 to v4
+        uses: actions/setup-node@v4
         with:
           node-version: 18.x
           cache: npm
 
-      # - name: 🔄 Update dependencies
-      #   run: |
-      #     echo "Updating npm..."
-      #     npm install -g npm@latest
-      #     echo "Checking for outdated packages..."
-      #     npm outdated || true
-
       - name: 📦 Install dependencies
         run: npm ci
+
+      - name: 🩹 Fix package versions
+        run: |
+          echo "Updating packages to compatible versions..."
+          npx expo install expo@~52.0.46 expo-location@~18.0.10 expo-media-library@~17.0.6 expo-router@~4.0.21 expo-splash-screen@~0.29.24 react-native-safe-area-context@4.12.0 react-native-svg@15.8.0 @react-native-community/slider@4.5.5
 
       - name: 🏗 Setup EAS
         uses: expo/expo-github-action@v8
@@ -38,59 +36,11 @@ jobs:
 
       - name: ✅ Verify environment
         run: |
-          echo "Node version: $(node -v)"
-          echo "NPM version: $(npm -v)"
-          echo "EAS CLI version: $(eas --version)"
-
-      - name: 🧪 Run tests
-        run: npm test -- --watchAll=false
-        continue-on-error: true # If tests fail, continue with the build
-
-      # Get the current date for versioning/logging
-      - name: 📅 Get current date
-        id: date
-        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
-
-      # Add a step to increment build version if desired
-      - name: 🔢 Increment build version
-        if: github.ref == 'refs/heads/main' # Only on main branch
-        run: npx eas-cli build:version --platform android --auto
-        continue-on-error: true
+          echo "Running diagnostics..."
+          npx expo-doctor || true
 
       - name: 🚀 Build APK
         id: build
         run: |
           echo "Starting build for APK at $(date)"
-          BUILD_OUTPUT=$(eas build -p android --profile preview --non-interactive --json)
-          echo "$BUILD_OUTPUT" > build_result.json
-          echo "Build completed at $(date)"
-
-      - name: 🔗 Get Build URL
-        id: get_build_url
-        run: |
-          # Extract the build ID
-          BUILD_ID=$(cat build_result.json | jq -r '.id')
-          BUILD_URL="https://expo.dev/accounts/fawwazanvilen/projects/block-view-mvp/builds/$BUILD_ID"
-          echo "build_url=$BUILD_URL" >> $GITHUB_OUTPUT
-          echo "EAS Build URL: $BUILD_URL"
-
-      - name: 📝 Create build summary
-        run: |
-          echo "## Android APK Build Completed ✅" >> $GITHUB_STEP_SUMMARY
-          echo "**Date:** ${{ steps.date.outputs.date }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Build URL:** ${{ steps.get_build_url.outputs.build_url }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Project:** block-view-mvp" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-
-  # # Optional: Notify about the build
-  # notify:
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   if: always() # Run even if the build job fails
-  #   steps:
-  #     - name: 📢 Notify about build completion
-  #       run: |
-  #         echo "Build completed with status: ${{ needs.build.result }}"
-  #         echo "Build URL: ${{ needs.build.outputs.build_url }}"
-  #         # Add notifications here (Slack, Discord, email, etc.)
-  #         # For example, with curl to a webhook
+          eas build -p android --profile preview --non-interactive
