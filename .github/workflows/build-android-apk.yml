@@ -20,12 +20,12 @@ jobs:
           node-version: 18.x
           cache: npm
 
-      - name: 🔄 Update dependencies
-        run: |
-          echo "Updating npm..."
-          npm install -g npm@latest
-          echo "Checking for outdated packages..."
-          npm outdated || true
+      # - name: 🔄 Update dependencies
+      #   run: |
+      #     echo "Updating npm..."
+      #     npm install -g npm@latest
+      #     echo "Checking for outdated packages..."
+      #     npm outdated || true
 
       - name: 📦 Install dependencies
         run: npm ci
