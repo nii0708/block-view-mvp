@@ -112,7 +112,6 @@ export const pickFile = async (
   type: string | string[] = "*/*"
 ): Promise<FileInfo | null> => {
   try {
-
     const result = await DocumentPicker.getDocumentAsync({
       type,
       copyToCacheDirectory: true,
@@ -572,8 +571,18 @@ export const extractPDFCoordinatesNative = async (
       throw new Error("VP not found or invalid");
     }
     console.log("vpObj : ", vpObj);
-    const VP_array = vpObj.array;
+
+    let VP_array;
+
+    if (vpObj.array && vpObj.array.length > 1) {
+      VP_array = vpObj.array;
+    } else {
+      VP_array = vpObj.context;
+    }
+
     console.log("VP_array : ", VP_array);
+    console.log("VP_array.length : ", VP_array.length);
+
     let areaBBOXMax = 0;
     let bboxList: number[] = [];
     let gptsList: number[] = [];
