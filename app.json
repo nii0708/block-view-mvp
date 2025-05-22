@@ -10,7 +10,7 @@
     "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ashecone.mine.lite"
+      "bundleIdentifier": "com.softroc.mine.lite"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +18,7 @@
         "backgroundImage": "./assets/images/res/mipmap-xxxhdpi/mine.lite_adaptive_back.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.ashecone.mine.lite",
+      "package": "com.softroc.mine.lite",
       "permissions": [
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
@@ -58,8 +58,8 @@
         "origin": false
       },
       "eas": {
-        "projectId": "a88dd60a-40e5-4b14-9d77-d3488c1259fa"
+        "projectId": "4b4d47f4-8630-4dae-ae16-c7a00c3bd134"
       }
     }
-  } 
+  }
 }
