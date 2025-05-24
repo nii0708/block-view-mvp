@@ -9,6 +9,8 @@ import {
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider } from "../services/AuthService";
 import { MiningDataProvider } from "../context/MiningDataContext";
+import { AppAccessProvider } from "../services/AppAccessControl";
+import { AccessGate } from "../components/AccessGate";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -30,10 +32,14 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <MiningDataProvider>
-        <Stack screenOptions={{ headerShown: false }} />
-      </MiningDataProvider>
-    </AuthProvider>
+    <AppAccessProvider>
+      <AccessGate>
+        <AuthProvider>
+          <MiningDataProvider>
+            <Stack screenOptions={{ headerShown: false }} />
+          </MiningDataProvider>
+        </AuthProvider>
+      </AccessGate>
+    </AppAccessProvider>
   );
 }
