@@ -12,6 +12,8 @@ import {
   BackHandler,
   Modal,
   TouchableWithoutFeedback,
+  ScrollView,
+  ActivityIndicator,
 } from "react-native";
 import {
   MaterialIcons,
@@ -114,7 +116,9 @@ export default function TopDownViewScreen() {
   const [pitGeoJsonData, setPitGeoJsonData] = useState<any>(null);
   const [elevationData, setElevationData] = useState<any[]>([]);
   const [elevationRange, setElevationRange] = useState({ min: 0, max: 4000 });
-  const [pickingAttributes, setPickingAttributes] = useState<Record<string, string[]>>({});
+  const [pickingAttributes, setPickingAttributes] = useState<
+    Record<string, string[]>
+  >({});
 
   // Create line states
   const [isCreateLineMode, setIsCreateLineMode] = useState(false);
@@ -133,24 +137,6 @@ export default function TopDownViewScreen() {
   const [customColorMapping, setCustomColorMapping] = useState<{
     [key: string]: { color: string; opacity: number };
   }>({});
-
-  const handleColorChange = useCallback(
-    (newColorMapping: {
-      [key: string]: { color: string; opacity: number };
-    }) => {
-      setCustomColorMapping(newColorMapping);
-
-      // Apply new colors to existing GeoJSON data
-      if (geoJsonData) {
-        const updatedGeoJson = applyColorMapping(geoJsonData, newColorMapping);
-        setGeoJsonData(updatedGeoJson);
-      }
-
-      // Update rock type legend
-      setRockTypeLegend(newColorMapping);
-    },
-    [geoJsonData]
-  );
 
   // Toggle visibility states
   const [showBlockModel, setShowBlockModel] = useState(true);
@@ -259,7 +245,11 @@ export default function TopDownViewScreen() {
   const loadPDFData = async (
     file: FileService.MiningDataFile,
     mounted: boolean
-  ): Promise<{ pdfLoaded: boolean; pdfCenter?: [number, number] | null; pdfZoom?: number | null }> => {
+  ): Promise<{
+    pdfLoaded: boolean;
+    pdfCenter?: [number, number] | null;
+    pdfZoom?: number | null;
+  }> => {
     let pdfCenter: [number, number] | null = null;
     let pdfZoom: number | null = null;
     let pdfLoaded = false;
@@ -340,9 +330,7 @@ export default function TopDownViewScreen() {
     setLoadingProgress(0.4);
 
     try {
-      const csvData = await FileService.parseCSVFile(
-        file.files.blockModel.uri
-      );
+      const csvData = await FileService.parseCSVFile(file.files.blockModel.uri);
       const rawBlockModelData = csvData.slice(3);
 
       if (!mounted) return;
@@ -355,7 +343,8 @@ export default function TopDownViewScreen() {
       const processedAttributes = extractBlockModelAttributes(sampleBlock);
       setProcessedAttributeViewing(processedAttributes);
 
-      const filteredAttributes = getStringFieldsWithUniqueValues(rawBlockModelData);
+      const filteredAttributes =
+        getStringFieldsWithUniqueValues(rawBlockModelData);
       setPickingAttributes(filteredAttributes);
 
       // Process block model with current attribute
@@ -439,14 +428,11 @@ export default function TopDownViewScreen() {
       const pitDataSample =
         pitDataFormat.length > 10000
           ? pitDataFormat.filter(
-            (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
-          )
+              (_, i) => i % Math.ceil(pitDataFormat.length / 10000) === 0
+            )
           : pitDataFormat;
 
-      const result = processPitDataToGeoJSON(
-        pitDataSample,
-        sourceProjection
-      );
+      const result = processPitDataToGeoJSON(pitDataSample, sourceProjection);
 
       if (result && mounted) {
         setPitGeoJsonData(result);
@@ -476,7 +462,6 @@ export default function TopDownViewScreen() {
     attribute: Record<string, string[]> | null
   ): void => {
     if (!rawData) return;
-
 
     // Process block model for visualization
     const resultForTopDown = blockModelToGeoJSON(
@@ -514,7 +499,10 @@ export default function TopDownViewScreen() {
   useEffect(() => {
     if (rawBlockModelDataRef.current) {
       // Only run visualization processing when pickedAttribute changes
-      processBlockModelWithAttribute(rawBlockModelDataRef.current, pickedAttribute);
+      processBlockModelWithAttribute(
+        rawBlockModelDataRef.current,
+        pickedAttribute
+      );
     }
   }, [pickedAttribute]);
 
@@ -548,6 +536,15 @@ export default function TopDownViewScreen() {
   const updateRockTypeLegend = (geoJsonData: any) => {
     if (!geoJsonData || !geoJsonData.features) return;
 
+    // Get current attribute type and values
+    const currentAttributeType = pickedAttribute
+      ? Object.keys(pickedAttribute)[0]
+      : null;
+    const currentAttributeValues =
+      currentAttributeType && pickedAttribute
+        ? pickedAttribute[currentAttributeType]
+        : [];
+
     const rockTypes = new Set<string>();
     const colorsAndOpacity: {
       [key: string]: { color: string; opacity: number };
@@ -555,19 +552,24 @@ export default function TopDownViewScreen() {
 
     geoJsonData.features.forEach((feature: any) => {
       if (feature.properties && feature.properties.rock) {
-        rockTypes.add(feature.properties.rock);
-        if (feature.properties.color) {
-          colorsAndOpacity[feature.properties.rock] = {
-            color: feature.properties.color,
-            opacity: feature.properties.opacity || 0.7,
-          };
+        // Hanya tambahkan tipe rock yang ada dalam attribute values yang dipilih saat ini
+        if (
+          !currentAttributeValues.length ||
+          currentAttributeValues.includes(feature.properties.rock)
+        ) {
+          rockTypes.add(feature.properties.rock);
+          if (feature.properties.color) {
+            colorsAndOpacity[feature.properties.rock] = {
+              color: feature.properties.color,
+              opacity: feature.properties.opacity || 0.7,
+            };
+          }
         }
       }
     });
 
     const newLegend: { [key: string]: { color: string; opacity: number } } = {};
     rockTypes.forEach((rockType) => {
-      // Hanya ambil dari data yang ada, tidak ada hardcoded
       newLegend[rockType] = colorsAndOpacity[rockType] || {
         color: "#3388ff",
         opacity: 0.7,
@@ -600,9 +602,9 @@ export default function TopDownViewScreen() {
         setPdfOverlayData((prev) =>
           prev
             ? {
-              ...prev,
-              imageBase64: imageBase64,
-            }
+                ...prev,
+                imageBase64: imageBase64,
+              }
             : null
         );
       }
@@ -756,6 +758,65 @@ export default function TopDownViewScreen() {
     }
   }, [isCreateLineMode, hasBlockModelData, hasElevationData]);
 
+  const handleColorChange = useCallback(
+    (
+      newColorMapping: {
+        [key: string]: { color: string; opacity: number };
+      },
+      callback: () => void
+    ) => {
+      try {
+        setCustomColorMapping(newColorMapping);
+
+        // Apply new colors to existing GeoJSON data
+        if (geoJsonData) {
+          const updatedGeoJson = applyColorMapping(
+            geoJsonData,
+            newColorMapping
+          );
+          setGeoJsonData(updatedGeoJson);
+        }
+
+        // Update rock type legend
+        if (pickedAttribute) {
+          const currentAttributeType = Object.keys(pickedAttribute)[0];
+          const currentAttributeValues = pickedAttribute[currentAttributeType];
+
+          const filteredColorMapping: {
+            [key: string]: { color: string; opacity: number };
+          } = {};
+          currentAttributeValues.forEach((value) => {
+            if (newColorMapping[value]) {
+              filteredColorMapping[value] = newColorMapping[value];
+            }
+          });
+
+          setRockTypeLegend(filteredColorMapping);
+        } else {
+          setRockTypeLegend(newColorMapping);
+        }
+
+        // Panggil callback langsung tanpa setTimeout
+        if (callback) {
+          callback();
+        }
+      } catch (error) {
+        console.error("Error applying color changes:", error);
+        if (callback) callback();
+      }
+    },
+    [geoJsonData, pickedAttribute]
+  );
+
+  const toggleColorPicker = useCallback(() => {
+    if (!hasBlockModelData) {
+      Alert.alert("No Data", "Block model data is required to change colors");
+      return;
+    }
+
+    setShowColorPicker(true);
+  }, [hasBlockModelData]);
+
   const toggleDropdown = useCallback(() => {
     // Only show dropdown if there's at least one option available
     const hasAnyOption = hasBlockModelData || pitGeoJsonData || pdfOverlayData;
@@ -807,72 +868,73 @@ export default function TopDownViewScreen() {
       return null;
     }
 
-    // If no pickedAttribute data is available, render the original legend
-    if (!pickedAttribute || Object.keys(pickedAttribute).length === 0) {
-      return (
-        <View style={styles.legendContainer}>
-          <Text style={styles.legendTitle}>Attributes:</Text>
-          <View style={styles.legendItems}>
-            {Object.entries(rockTypeLegend).map(([rockType, config]) => (
-              <View key={rockType} style={styles.legendItem}>
-                <View
-                  style={[
-                    styles.legendColor,
-                    {
-                      backgroundColor: config.color,
-                      opacity: config.opacity,
-                    },
-                  ]}
-                />
-                <Text style={styles.legendText}>
-                  {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
-                </Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      );
+    // Determine the attribute name to display
+    let attributeName = "";
+
+    // If pickedAttribute exists and has data, use the first attribute type as the main attribute name
+    if (pickedAttribute && Object.keys(pickedAttribute).length > 0) {
+      attributeName = Object.keys(pickedAttribute)[0];
+      // Capitalize first letter
+      attributeName =
+        attributeName.charAt(0).toUpperCase() + attributeName.slice(1);
     }
 
-    // Render the grouped legend based on pickedAttribute
+    // Check if we have many legend items (more than 4)
+    const hasManyItems = Object.keys(rockTypeLegend).length > 4;
+
     return (
       <View style={styles.legendContainer}>
-        <Text style={styles.legendTitle}>Attributes:</Text>
-        {Object.entries(pickedAttribute).map(([attributeType, attributes]) => (
-          <View key={attributeType} style={styles.attributeGroup}>
-            <Text style={styles.attributeGroupTitle}>
-              {attributeType.charAt(0).toUpperCase() + attributeType.slice(1)}:
-            </Text>
-            <View style={styles.legendItems}>
-              {attributes.map((attribute) => (
-                <View key={attribute} style={styles.legendItem}>
-                  <View
-                    style={[
-                      styles.legendColor,
-                      {
-                        backgroundColor: rockTypeLegend[attribute]?.color || "#ccc",
-                        opacity: rockTypeLegend[attribute]?.opacity || 0.7,
-                      },
-                    ]}
-                  />
-                  <Text style={styles.legendText}>
-                    {attribute.charAt(0).toUpperCase() + attribute.slice(1)}
-                  </Text>
-                </View>
-              ))}
+        <View style={styles.titleRow}>
+          <Text style={styles.legendTitle}>Block Model Attributes: </Text>
+          <Text style={styles.attributeName}>{attributeName}</Text>
+        </View>
+
+        {/* Use ScrollView for horizontal scrolling when many items exist */}
+        <ScrollView
+          horizontal={hasManyItems}
+          showsHorizontalScrollIndicator={hasManyItems}
+          contentContainerStyle={styles.legendItemsContainer}
+        >
+          {Object.entries(rockTypeLegend).map(([rockType, config]) => (
+            <View key={rockType} style={styles.legendItem}>
+              <View
+                style={[
+                  styles.legendColor,
+                  {
+                    backgroundColor: config.color,
+                    opacity: config.opacity,
+                  },
+                ]}
+              />
+              <Text style={styles.legendText}>
+                {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+              </Text>
             </View>
+          ))}
+        </ScrollView>
+
+        {/* Optional: Add indicator for more items if needed */}
+        {hasManyItems && (
+          <View style={styles.scrollIndicator}>
+            <Text style={styles.scrollIndicatorText}>→ scroll for more</Text>
           </View>
-        ))}
+        )}
       </View>
     );
   };
+
   const renderCreateLineInputs = () => (
     <View style={styles.createLineInputs}>
       <View style={styles.inputRow}>
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Length:</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              selectedPoints.length > 0
+                ? { color: "#000000", fontWeight: "600" }
+                : {},
+            ]}
             value={`${lineLength} m`}
             editable={false}
           />
@@ -881,7 +943,12 @@ export default function TopDownViewScreen() {
         <View style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Elevation:</Text>
           <TextInput
-            style={styles.input}
+            style={[
+              styles.input,
+              selectedPoints.length > 0
+                ? { color: "#000000", fontWeight: "600" }
+                : {},
+            ]}
             value={`${elevation} m`}
             editable={false}
           />
@@ -891,12 +958,17 @@ export default function TopDownViewScreen() {
       <View style={styles.coordinateInput}>
         <Text style={styles.inputLabel}>Point: long, lat</Text>
         <TextInput
-          style={styles.input}
+          style={[
+            styles.input,
+            selectedPoints.length > 0
+              ? { color: "#000000", fontWeight: "600" }
+              : {},
+          ]}
           value={
             selectedPoints.length > 0
               ? `${(coordinates.lng || 0).toFixed(6)}, ${(
-                coordinates.lat || 0
-              ).toFixed(6)}`
+                  coordinates.lat || 0
+                ).toFixed(6)}`
               : ""
           }
           editable={false}
@@ -1038,7 +1110,7 @@ export default function TopDownViewScreen() {
                   style={styles.dropdownItem}
                   onPress={() => {
                     setShowDropdown(false);
-                    setShowColorPicker(true);
+                    toggleColorPicker(); // Gunakan function yang sudah dioptimasi
                   }}
                 >
                   <MaterialIcons name="palette" size={24} color="#198754" />
@@ -1062,13 +1134,17 @@ export default function TopDownViewScreen() {
         {loading ? (
           <LoadingScreen message={loadingMessage} progress={loadingProgress} />
         ) : (
-          <>
+          <View style={{ flex: 1, display: "flex", flexDirection: "column" }}>
             {isCreateLineMode && renderCreateLineInputs()}
 
             <View
               style={[
                 styles.mapContainer,
-                { height: isCreateLineMode ? windowWidth : windowWidth * 1.3 },
+                {
+                  height: isCreateLineMode
+                    ? Dimensions.get("window").height * 0.48
+                    : Dimensions.get("window").height * 0.67,
+                },
               ]}
             >
               <LeafletMap
@@ -1123,8 +1199,8 @@ export default function TopDownViewScreen() {
                     <Text style={styles.coordinatesText}>
                       {mapReady
                         ? `x: ${(coordinates?.lng || 0).toFixed(5)}, y: ${(
-                          coordinates?.lat || 0
-                        ).toFixed(5)}`
+                            coordinates?.lat || 0
+                          ).toFixed(5)}`
                         : "..."}
                     </Text>
                   </View>
@@ -1138,7 +1214,7 @@ export default function TopDownViewScreen() {
                 </View>
               </View>
             )}
-          </>
+          </View>
         )}
       </View>
 
@@ -1150,18 +1226,20 @@ export default function TopDownViewScreen() {
         />
       )}
 
-      <ColorPickerDialog
-        visible={showColorPicker}
-        onClose={() => setShowColorPicker(false)}
-        onColorChange={handleColorChange}
-        rockTypes={rockTypeLegend}
-        currentColors={
-          Object.keys(customColorMapping).length > 0
-            ? customColorMapping
-            : rockTypeLegend
-        }
-        pickingAttributes={pickingAttributes}
-      />
+      {showColorPicker && (
+        <ColorPickerDialog
+          visible={showColorPicker}
+          onClose={() => setShowColorPicker(false)}
+          onColorChange={handleColorChange}
+          rockTypes={rockTypeLegend}
+          currentColors={
+            Object.keys(customColorMapping).length > 0
+              ? customColorMapping
+              : rockTypeLegend
+          }
+          pickingAttributes={pickingAttributes}
+        />
+      )}
 
       {renderDropdown()}
     </SafeAreaView>
@@ -1182,9 +1260,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
-  },
-  attributeGroup: {
-    marginBottom: 10,
   },
   attributeGroupTitle: {
     fontSize: 14,
@@ -1232,6 +1307,8 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     paddingHorizontal: 10,
     backgroundColor: "#f9f9f9",
+    color: "#000000",
+    fontWeight: "500",
   },
   debugInfo: {
     fontSize: 12,
@@ -1293,13 +1370,14 @@ const styles = StyleSheet.create({
   },
   createLineButtons: {
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingVertical: 8,
+    paddingBottom: 16,
     marginTop: "auto",
   },
   actionButtonsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 15,
+    marginBottom: 10,
   },
   actionButton: {
     backgroundColor: "#f0f0f0",
@@ -1333,16 +1411,18 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-  // FIXED STYLES FOR RESPONSIVE LAYOUT
   controlsContainer: {
-    paddingHorizontal: 15, // Reduced from 20
-    marginTop: 10,
+    paddingHorizontal: 15,
+    marginTop: "auto",
+    marginBottom: 10,
+    flex: 1,
+    justifyContent: "flex-end",
   },
   coordinatesContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 15,
+    marginTop: 0,
     paddingVertical: 10,
     paddingHorizontal: 0, // Remove horizontal padding
   },
@@ -1385,37 +1465,75 @@ const styles = StyleSheet.create({
   legendContainer: {
     backgroundColor: "#f9f9f9",
     marginHorizontal: 20,
-    marginVertical: 10,
-    padding: 10,
-    borderRadius: 8,
+    marginVertical: 5,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: "#e0e0e0",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
   },
   legendTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 5,
+    fontSize: 15,
+    fontFamily: "Montserrat_600SemiBold",
     color: "#333",
   },
-  legendItems: {
+  attributeName: {
+    fontSize: 15,
+    fontFamily: "Montserrat_500Medium",
+    color: "#333",
+  },
+  // New container for ScrollView
+  legendItemsContainer: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap", // Important: don't wrap when in scrollview
+    paddingRight: 10, // Add some padding for scrolling
   },
   legendItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 15,
-    marginBottom: 5,
+    marginRight: 18,
+    marginBottom: 8,
+    minWidth: 60,
   },
   legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 2,
-    marginRight: 5,
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    marginRight: 6,
+    borderWidth: 0.5,
+    borderColor: "rgba(0,0,0,0.1)",
   },
   legendText: {
     fontSize: 13,
     color: "#333",
+    fontFamily: "Montserrat_400Regular",
+  },
+  // New style for scroll indicator
+  scrollIndicator: {
+    alignSelf: "flex-end",
+    marginTop: 4,
+  },
+  scrollIndicatorText: {
+    fontSize: 11,
+    color: "#888",
+    fontStyle: "italic",
+    fontFamily: "Montserrat_400Regular",
+  },
+  attributeGroup: {
+    marginBottom: 12,
   },
   dropdownBackdrop: {
     flex: 1,
@@ -1474,5 +1592,22 @@ const styles = StyleSheet.create({
   },
   disabledButtonText: {
     color: "#999",
+  },
+  preparingContainer: {
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 30,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  preparingText: {
+    marginTop: 15,
+    fontSize: 16,
+    fontFamily: "Montserrat_500Medium",
+    color: "#333",
   },
 });

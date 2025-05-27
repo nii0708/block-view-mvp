@@ -585,7 +585,7 @@ const CrossSectionWebView = forwardRef<any, CrossSectionWebViewProps>(
       <View style={styles.container}>
         {loading && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#0066CC" />
+            <ActivityIndicator size="large" color="#CFE625" />
             <Text style={styles.loadingText}>{loadingMessage}</Text>
           </View>
         )}
@@ -661,7 +661,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: "#0066CC",
+    color: "#000000",
   },
   errorContainer: {
     position: "absolute",

@@ -12,7 +12,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({
 }) => {
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color="#0066CC" />
+      <ActivityIndicator size="large" color="#CFE625" />
       <View style={styles.messageContainer}>
         <Text style={styles.message}>{message}</Text>
       </View>
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: "100%",
-    backgroundColor: "#0066CC",
+    backgroundColor: "#CFE625",
     borderRadius: 4,
   },
   progressText: {

@@ -115,32 +115,76 @@ export function generateD3Html(
           position: relative;
         }
         
-        /* Fixed legend container */
+        /* Fixed legend container - Updated for scroll */
         #legend-container {
-          position: fixed;
-          bottom: 20px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 80%;
-          max-width: 600px;
-          background: white;
-          border: 1.5px solid #999;
-          border-radius: 5px;
-          padding: 10px 20px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-          z-index: 1000;
-          display: flex;
-          justify-content: space-around;
-          align-items: center;
-          min-height: 40px;
-          opacity: 0.95;
-        }
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  max-width: 600px;
+  background: white;
+  border: 1.5px solid #999;
+  border-radius: 5px;
+  padding: 10px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  opacity: 0.95;
+}
+
+#legend-scroll {
+  display: flex;
+  overflow-x: hidden;
+  flex: 1;
+  scroll-behavior: smooth;
+}
+        
+        .legend-arrow {
+  display: none;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  color: #333;
+  font-size: 16px;
+  font-weight: bold;
+  background: white;
+  border-radius: 5px;
+  margin: 0 5px;
+  border: 1px solid #ccc;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  /* Fix iOS blue background issue */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.legend-arrow:hover {
+  background-color: #f5f5f5;
+}
+
+.legend-arrow:active {
+  background-color: #e0e0e0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transform: translateY(1px);
+}
+
+.legend-arrow.visible {
+  display: flex;
+}
         
         .legend-item {
           display: flex;
           align-items: center;
           gap: 8px;
           margin: 0 10px;
+          flex-shrink: 0;
         }
         
         .legend-swatch {
@@ -350,6 +394,56 @@ export function generateD3Html(
             }));
           }
         }
+        
+        // Function to scroll the legend
+        function scrollLegend(direction) {
+          const container = document.getElementById('legend-scroll');
+          if (!container) return;
+          
+          const scrollAmount = 100; // Adjust as needed
+          if (direction === 'left') {
+            container.scrollLeft -= scrollAmount;
+          } else {
+            container.scrollLeft += scrollAmount;
+          }
+          
+          // Check if arrows should be visible after scrolling
+          setTimeout(checkLegendOverflow, 50);
+        }
+        
+        // Function to check if legend overflows and show/hide arrows accordingly
+        function checkLegendOverflow() {
+          const container = document.getElementById('legend-scroll');
+          const leftArrow = document.getElementById('legend-left');
+          const rightArrow = document.getElementById('legend-right');
+          
+          if (!container || !leftArrow || !rightArrow) return;
+          
+          const hasOverflow = container.scrollWidth > container.clientWidth;
+          
+          if (hasOverflow) {
+            // Show/hide left arrow based on scroll position
+            if (container.scrollLeft > 0) {
+              leftArrow.classList.add('visible');
+            } else {
+              leftArrow.classList.remove('visible');
+            }
+            
+            // Show/hide right arrow based on scroll position
+            if (container.scrollLeft + container.clientWidth < container.scrollWidth) {
+              rightArrow.classList.add('visible');
+            } else {
+              rightArrow.classList.remove('visible');
+            }
+          } else {
+            // Hide both arrows if no overflow
+            leftArrow.classList.remove('visible');
+            rightArrow.classList.remove('visible');
+          }
+        }
+        
+        // Add event listener to check overflow on window resize
+        window.addEventListener('resize', checkLegendOverflow);
         
         // Send data statistics
         function sendDataStats() {
@@ -604,10 +698,23 @@ export function generateD3Html(
           return zoom;
         }
         
-        // Create fixed legend function
+        // Create fixed legend function - Updated with scrolling functionality
         function createFixedLegend(uniqueRocks, hasElevation, hasPit) {
           const legendContainer = document.getElementById('legend-container');
           legendContainer.innerHTML = ''; // Clear existing legend
+          
+          // Add left arrow
+          const leftArrow = document.createElement('div');
+          leftArrow.className = 'legend-arrow';
+          leftArrow.id = 'legend-left';
+          leftArrow.innerHTML = '&lt;';
+          leftArrow.onclick = () => scrollLegend('left');
+          legendContainer.appendChild(leftArrow);
+          
+          // Create scroll container
+          const scrollContainer = document.createElement('div');
+          scrollContainer.id = 'legend-scroll';
+          legendContainer.appendChild(scrollContainer);
           
           // Add rock types
           Object.entries(uniqueRocks).forEach(([label, color]) => {
@@ -624,7 +731,7 @@ export function generateD3Html(
             
             item.appendChild(swatch);
             item.appendChild(labelElement);
-            legendContainer.appendChild(item);
+            scrollContainer.appendChild(item);
           });
           
           // Add terrain elevation
@@ -642,7 +749,7 @@ export function generateD3Html(
             
             item.appendChild(line);
             item.appendChild(labelElement);
-            legendContainer.appendChild(item);
+            scrollContainer.appendChild(item);
           }
           
           // Add pit boundary
@@ -660,8 +767,19 @@ export function generateD3Html(
             
             item.appendChild(dashedLine);
             item.appendChild(labelElement);
-            legendContainer.appendChild(item);
+            scrollContainer.appendChild(item);
           }
+          
+          // Add right arrow
+          const rightArrow = document.createElement('div');
+          rightArrow.className = 'legend-arrow';
+          rightArrow.id = 'legend-right';
+          rightArrow.innerHTML = '&gt;';
+          rightArrow.onclick = () => scrollLegend('right');
+          legendContainer.appendChild(rightArrow);
+          
+          // Check if scrolling is needed and show/hide arrows
+          setTimeout(checkLegendOverflow, 100);
         }
         
         // Main rendering function
@@ -1136,7 +1254,7 @@ export function generateD3Html(
               }
             }
             
-            // Create fixed legend
+            // Create fixed legend with scrolling support
             createFixedLegend(
               uniqueRocks,
               elevationProfile && elevationProfile.some(p => p.elevation !== null),

@@ -25,6 +25,7 @@ import LoadingScreen from "../components/LoadingScreen";
 import { useMiningData } from "../context/MiningDataContext";
 import CrossSectionWebView from "../components/CrossSectionWebView";
 import ExportDialog from "../components/ExportDialog";
+import { BackHandler } from "react-native";
 
 export default function CrossSectionViewScreen() {
   const router = useRouter();
@@ -79,89 +80,106 @@ export default function CrossSectionViewScreen() {
     processedElevation,
     processedPitData,
     processedAttributeViewing,
-    pickedAttribute
+    pickedAttribute,
   } = useMiningData();
-
-  console.log("fullBlockModelData", fullBlockModelData[0]);  
-  console.log("pickedAttribute DI CROSSSECTION", pickedAttribute);
-  console.log("selectedAttribute DI CROSSSECTION", selectedAttribute);
 
   // Load data on component mount
   useEffect(() => {
     loadCrossSectionData();
   }, [selectedAttribute]);
 
+  useEffect(() => {
+    // Handler untuk tombol back hardware
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        // Navigasi kembali otomatis ketika back button ditekan
+        router.back();
+
+        // PENTING: batalkan event ini agar tidak diproses lebih lanjut
+        return true;
+      }
+    );
+
+    // Cleanup
+    return () => backHandler.remove();
+  }, [router]);
+
   // Load and filter data for cross-section
   const loadCrossSectionData = useCallback(async () => {
-  try {
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    // First, check if we have block model data
-    if (fullBlockModelData && fullBlockModelData.length > 0) {
-      // Direct mapping without filtering (WebView will handle filtering)
-      const extractedBlocks = fullBlockModelData.map((block) => {
-        // Get the key from pickedAttribute (e.g. "p0810" from {"p0810": ["ws", "ob", "sap", "lim"]})
-        const attributeKey = pickedAttribute && typeof pickedAttribute === 'object' 
-          ? Object.keys(pickedAttribute)[0] 
-          : null;
-        
-        // Use the value from the block for the picked attribute key as rock type
-        // or fallback to block.rock
-        const rockType = attributeKey && block[attributeKey] !== undefined 
-          ? block[attributeKey] 
-          : (block.rock || "unknown");
-          
-        return {
-          centroid_x: parseFloat(block.centroid_x || block.x || block.X || 0),
-          centroid_y: parseFloat(block.centroid_y || block.y || block.Y || 0),
-          centroid_z: parseFloat(block.centroid_z || block.z || block.Z || 0),
-          dim_x: parseFloat(block.dim_x || block.xinc || block.width || 12.5),
-          dim_y: parseFloat(block.dim_y || block.yinc || block.length || 12.5),
-          dim_z: parseFloat(block.dim_z || block.zinc || block.height || 1),
-          rock: rockType,
-          color: block.color || getRockColor(rockType),
-          concentrate:
-            parseFloat(block[selectedAttribute]) === -99
-              ? parseFloat(block[selectedAttribute])
-              : parseFloat(block[selectedAttribute] || 0).toFixed(2),
-        };
-      });
+      // First, check if we have block model data
+      if (fullBlockModelData && fullBlockModelData.length > 0) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        const extractedBlocks = fullBlockModelData.map((block) => {
+          // Get the key from pickedAttribute (e.g. "p0810" from {"p0810": ["ws", "ob", "sap", "lim"]})
+          const attributeKey =
+            pickedAttribute && typeof pickedAttribute === "object"
+              ? Object.keys(pickedAttribute)[0]
+              : null;
 
-      setBlockModelData(extractedBlocks);
+          // Use the value from the block for the picked attribute key as rock type
+          // or fallback to block.rock
+          const rockType =
+            attributeKey && block[attributeKey] !== undefined
+              ? block[attributeKey]
+              : block.rock || "unknown";
+
+          return {
+            centroid_x: parseFloat(block.centroid_x || block.x || block.X || 0),
+            centroid_y: parseFloat(block.centroid_y || block.y || block.Y || 0),
+            centroid_z: parseFloat(block.centroid_z || block.z || block.Z || 0),
+            dim_x: parseFloat(block.dim_x || block.xinc || block.width || 12.5),
+            dim_y: parseFloat(
+              block.dim_y || block.yinc || block.length || 12.5
+            ),
+            dim_z: parseFloat(block.dim_z || block.zinc || block.height || 1),
+            rock: rockType,
+            color: block.color || getRockColor(rockType),
+            concentrate:
+              parseFloat(block[selectedAttribute]) === -99
+                ? parseFloat(block[selectedAttribute])
+                : parseFloat(block[selectedAttribute] || 0).toFixed(2),
+          };
+        });
+
+        setBlockModelData(extractedBlocks);
+      }
+
+      // Process elevation data if available
+      if (processedElevation && processedElevation.length > 0) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        setElevationData(processedElevation);
+      }
+
+      // Process pit data if available
+      if (processedPitData?.features) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        setPitData(processedPitData.features);
+      }
+
+      if (processedAttributeViewing) {
+        // Direct mapping without filtering (WebView will handle filtering)
+        setProcessedAttributeViewing(processedAttributeViewing);
+      }
+
+      setLoading(false);
+    } catch (error) {
+      console.error("Error loading cross section data:", error);
+      Alert.alert("Error", "Failed to load cross section data");
+      setLoading(false);
     }
-
-    // Process elevation data if available
-    if (processedElevation && processedElevation.length > 0) {
-      // Direct mapping without filtering (WebView will handle filtering)
-      setElevationData(processedElevation);
-    }
-
-    // Process pit data if available
-    if (processedPitData?.features) {
-      // Direct mapping without filtering (WebView will handle filtering)
-      setPitData(processedPitData.features);
-    }
-
-    if (processedAttributeViewing) {
-      // Direct mapping without filtering (WebView will handle filtering)
-      setProcessedAttributeViewing(processedAttributeViewing);
-    }
-
-    setLoading(false);
-  } catch (error) {
-    console.error("Error loading cross section data:", error);
-    Alert.alert("Error", "Failed to load cross section data");
-    setLoading(false);
-  }
-}, [
-  fullBlockModelData,
-  processedElevation,
-  processedPitData,
-  processedAttributeViewing,
-  customColorMapping,
-  selectedAttribute,
-  pickedAttribute, // Added pickedAttribute as a dependency
-]);
+  }, [
+    fullBlockModelData,
+    processedElevation,
+    processedPitData,
+    processedAttributeViewing,
+    customColorMapping,
+    selectedAttribute,
+    pickedAttribute, // Added pickedAttribute as a dependency
+  ]);
 
   // Helper function to get color for rock type
   const getRockColor = (rockType: string): string => {
@@ -347,46 +365,68 @@ export default function CrossSectionViewScreen() {
 
   // Add attribute selection modal component
   const renderAttributeModal = () => {
+    const [pendingAttribute, setPendingAttribute] = useState(selectedAttribute);
+    const hasChanges = pendingAttribute !== selectedAttribute;
+
     return (
       <Modal
-        animationType="slide"
+        animationType="fade"
         transparent={true}
         visible={attributeModalVisible}
         onRequestClose={() => setAttributeModalVisible(false)}
+        statusBarTranslucent={true}
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Select Concentration Attribute
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              Current:{" "}
-              <Text style={styles.selectedAttribute}>{selectedAttribute}</Text>
-            </Text>
+            {/* Header */}
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Concentration Attribute</Text>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setAttributeModalVisible(false)}
+              >
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
 
+            {/* List */}
             <ScrollView style={styles.attributeList}>
-              {processedAttributeViewing &&
-                processedAttributeViewing.map((attribute: any, index: any) => (
+              {processedAttributeViewing?.map(
+                (attribute: string, index: number) => (
                   <TouchableOpacity
                     key={index}
                     style={[
                       styles.attributeItem,
-                      selectedAttribute === attribute &&
+                      pendingAttribute === attribute &&
                         styles.selectedAttributeItem,
                     ]}
-                    onPress={() => handleAttributeSelect(attribute)}
+                    onPress={() => setPendingAttribute(attribute)}
                   >
                     <Text style={styles.attributeText}>{attribute}</Text>
+                    {pendingAttribute === attribute && (
+                      <MaterialIcons name="check" size={20} color="#198754" />
+                    )}
                   </TouchableOpacity>
-                ))}
+                )
+              )}
             </ScrollView>
 
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setAttributeModalVisible(false)}
-            >
-              <Text style={styles.closeButtonText}>Cancel</Text>
-            </TouchableOpacity>
+            {/* Apply Button */}
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.applyButton,
+                  !hasChanges && styles.disabledButton,
+                ]}
+                onPress={() => {
+                  setSelectedAttribute(pendingAttribute);
+                  setAttributeModalVisible(false);
+                }}
+                disabled={!hasChanges}
+              >
+                <Text style={styles.applyButtonText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -432,24 +472,43 @@ export default function CrossSectionViewScreen() {
               {/* New row to show and select attribute */}
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Concentration:</Text>
-                <TouchableOpacity onPress={openAttributeModal}>
-                  <Text style={styles.attributeSelectButton}>
-                    {selectedAttribute}{" "}
+                <TouchableOpacity
+                  style={styles.concentrationButton}
+                  onPress={openAttributeModal}
+                >
+                  <View style={styles.buttonContent}>
+                    <Text style={styles.concentrationButtonText}>
+                      {selectedAttribute}
+                    </Text>
                     <MaterialIcons
                       name="arrow-drop-down"
-                      size={16}
-                      color="#007AFF"
+                      size={20}
+                      color="#333"
                     />
-                  </Text>
+                  </View>
                 </TouchableOpacity>
               </View>
-              <View style={styles.infoRow}>
+              {/* Modified: Split displayed data into two lines */}
+              <View style={[styles.infoRow, styles.displayedDataRow]}>
                 <Text style={styles.infoLabel}>Displayed Data:</Text>
-                <Text style={styles.infoValue}>
-                  {displayedDataCounts.displayedBlocks} blocks,{" "}
-                  {displayedDataCounts.displayedElevationPoints} terrain points,{" "}
-                  {displayedDataCounts.displayedPitPoints} pit points
-                </Text>
+                <View style={styles.dataCountsContainer}>
+                  <Text style={styles.dataCountsText}>
+                    <Text style={styles.dataCountValue}>
+                      {displayedDataCounts.displayedBlocks}
+                    </Text>{" "}
+                    blocks,{" "}
+                    <Text style={styles.dataCountValue}>
+                      {displayedDataCounts.displayedElevationPoints}
+                    </Text>{" "}
+                    terrain points
+                  </Text>
+                  <Text style={styles.dataCountsText}>
+                    <Text style={styles.dataCountValue}>
+                      {displayedDataCounts.displayedPitPoints}
+                    </Text>{" "}
+                    pit points
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -570,15 +629,33 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 8,
   },
+  // New styles for displayed data
+  displayedDataRow: {
+    alignItems: "flex-start", // Align items to the top instead of center
+  },
+  dataCountsContainer: {
+    flex: 1,
+    alignItems: "flex-end",
+  },
+  dataCountsText: {
+    fontSize: 14,
+    color: "#212529",
+    fontFamily: "Montserrat_400Regular",
+    marginBottom: 2,
+  },
+  dataCountValue: {
+    fontWeight: "600",
+    color: "#000",
+  },
   infoLabel: {
     fontSize: 14,
     color: "#6c757d",
-    fontWeight: "500",
+    fontFamily: "Montserrat_600SemiBold",
   },
   infoValue: {
     fontSize: 14,
     color: "#212529",
-    fontWeight: "400",
+    fontFamily: "Montserrat_400Regular",
   },
   graphWithExportContainer: {
     flex: 1,
@@ -642,31 +719,6 @@ const styles = StyleSheet.create({
     fontWeight: "normal",
     color: "#333",
   },
-  modalContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  modalContent: {
-    width: "80%",
-    maxHeight: "70%",
-    backgroundColor: "white",
-    borderRadius: 10,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 8,
-    textAlign: "center",
-  },
   modalSubtitle: {
     fontSize: 14,
     color: "#666",
@@ -676,22 +728,6 @@ const styles = StyleSheet.create({
   selectedAttribute: {
     fontWeight: "bold",
     color: "#007AFF",
-  },
-  attributeList: {
-    maxHeight: 400,
-  },
-  attributeItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  selectedAttributeItem: {
-    backgroundColor: "#f0f8ff",
-  },
-  attributeText: {
-    fontSize: 16,
-    color: "#333",
   },
   closeButton: {
     marginTop: 16,
@@ -711,5 +747,142 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     flexDirection: "row",
     alignItems: "center",
+  },
+  concentrationButton: {
+    backgroundColor: "#D9D9D9",
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    minWidth: 100,
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    elevation: 2,
+  },
+  buttonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  concentrationButtonText: {
+    fontSize: 14,
+    color: "#333",
+    fontFamily: "Montserrat_600SemiBold",
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    // Fixed positioning
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  modalContent: {
+    width: "85%",
+    backgroundColor: "white",
+    borderRadius: 20,
+    maxHeight: "70%",
+    flexDirection: "column",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E9ECEF",
+    position: "relative",
+    minHeight: 64,
+  },
+  modalCloseButton: {
+    position: "absolute",
+    right: 24,
+    top: 20,
+    padding: 4,
+    zIndex: 1,
+  },
+  attributeList: {
+    paddingHorizontal: 24,
+    marginVertical: 16,
+    maxHeight: 350, // Changed from flexGrow: 0
+  },
+  attributeText: {
+    marginLeft: 12,
+    fontSize: 16,
+    color: "#495057",
+    fontFamily: "Montserrat_400Regular",
+  },
+  modalButton: {
+    flex: 0.48,
+    height: 50,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#F8F9FA",
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#495057",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#212529",
+    textAlign: "center",
+    marginHorizontal: 40,
+  },
+  attributeItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E9ECEF",
+  },
+  selectedAttributeItem: {
+    backgroundColor: "rgba(25, 135, 84, 0.08)",
+    borderColor: "rgba(25, 135, 84, 0.2)",
+  },
+  modalButtonContainer: {
+    padding: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E9ECEF",
+  },
+  applyButton: {
+    height: 50,
+    borderRadius: 12,
+    backgroundColor: "#CFE625",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  disabledButton: {
+    opacity: 0.5,
+    backgroundColor: "#E9ECEF",
+  },
+  applyButtonText: {
+    fontSize: 16,
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#000",
   },
 });
