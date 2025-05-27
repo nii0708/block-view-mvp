@@ -814,7 +814,13 @@ export default function TopDownViewScreen() {
       return;
     }
 
-    setShowColorPicker(true);
+    // Tutup dropdown dulu, baru buka color picker
+    setShowDropdown(false);
+
+    // Gunakan setTimeout untuk menghindari race condition
+    setTimeout(() => {
+      setShowColorPicker(true);
+    }, 150); // Delay sedikit untuk smooth transition
   }, [hasBlockModelData]);
 
   const toggleDropdown = useCallback(() => {
@@ -1109,8 +1115,8 @@ export default function TopDownViewScreen() {
                 <TouchableOpacity
                   style={styles.dropdownItem}
                   onPress={() => {
-                    setShowDropdown(false);
-                    toggleColorPicker(); // Gunakan function yang sudah dioptimasi
+                    // Jangan langsung tutup dropdown di sini
+                    toggleColorPicker(); // Function sudah handle tutup dropdown
                   }}
                 >
                   <MaterialIcons name="palette" size={24} color="#198754" />

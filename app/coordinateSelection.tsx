@@ -100,7 +100,7 @@ export default function CoordinateSelectionScreen() {
   const router = useRouter();
   const { fileName } = useLocalSearchParams();
   const [selectedProjection, setSelectedProjection] =
-    useState<string>("EPSG:32652"); // Default to UTM Zone 52N
+    useState<string>("EPSG:4326"); // Default to UTM Zone 52N
 
   // Handle projection selection
   const handleSelectProjection = (projectionCode: string) => {
