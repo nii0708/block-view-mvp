@@ -1,0 +1,93 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      build_url: ${{ steps.get_build_url.outputs.build_url }}
+      apk_url: ${{ steps.get_build_url.outputs.apk_url }}
+    steps:
+      - name: 📱 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          cache: npm
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗 Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 🚀 Build APK
+        id: build
+        run: |
+          echo "Starting build for APK at $(date)"
+          eas build -p android --profile preview --non-interactive
+
+      - name: 🔗 Get Build Info and URLs
+        id: get_build_url
+        run: |
+          # Wait a moment for build to be registered
+          sleep 5
+
+          # Get latest build info
+          BUILD_INFO=$(eas build:list --limit=1 --platform=android --status=finished --non-interactive --json)
+          echo "$BUILD_INFO" > build_info.json
+
+          # Extract URLs from build info
+          BUILD_ID=$(echo "$BUILD_INFO" | jq -r '.[0].id')
+          APK_URL=$(echo "$BUILD_INFO" | jq -r '.[0].artifacts.applicationArchiveUrl')
+          BUILD_URL="https://expo.dev/accounts/fawwazanvilen/projects/block-view-mvp/builds/$BUILD_ID"
+
+          # Set output variables
+          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
+          echo "build_url=$BUILD_URL" >> $GITHUB_OUTPUT
+          echo "apk_url=$APK_URL" >> $GITHUB_OUTPUT
+
+          # Create a fancy output for the logs
+          echo "✅ Build Completed!"
+          echo "📱 Build ID: $BUILD_ID"
+          echo "🔗 Build URL: $BUILD_URL"
+          echo "📦 APK URL: $APK_URL"
+
+      # Optional: Download the APK locally
+      - name: 📥 Download APK
+        if: success() && steps.get_build_url.outputs.apk_url != ''
+        run: |
+          APK_URL="${{ steps.get_build_url.outputs.apk_url }}"
+          APK_PATH="./mine-lite-${{ github.run_number }}.apk"
+
+          # Download the APK using curl
+          curl -L "$APK_URL" -o "$APK_PATH"
+          echo "Downloaded APK to $APK_PATH"
+
+      # Upload as GitHub artifact
+      - name: 📤 Upload APK as GitHub Artifact
+        if: success() && steps.get_build_url.outputs.apk_url != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: mine-lite-apk
+          path: ./mine-lite-${{ github.run_number }}.apk
+
+      # Create a summary with links
+      - name: 📝 Create build summary
+        if: success()
+        run: |
+          echo "## Android APK Build Completed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "**Build URL:** ${{ steps.get_build_url.outputs.build_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**APK Download URL:** ${{ steps.get_build_url.outputs.apk_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Project:** block-view-mvp" >> $GITHUB_STEP_SUMMARY
+          echo "**Build #:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
