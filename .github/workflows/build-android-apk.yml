@@ -50,11 +50,9 @@ jobs:
 
       - name: 🚀 Build APK (Local)
         run: |
-          echo "Starting local build for APK at $(date)"
+          echo "🚀 Starting local build for APK at $(date)"
+          echo "📋 Using EAS Environment Variables for Supabase config"
           eas build --local --platform android --profile preview --output mine.lite.apk --non-interactive
-        env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: 📤 Upload APK as GitHub Artifact
         if: success()
@@ -72,6 +70,7 @@ jobs:
           echo "**Build #:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
           echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
           echo "**Download:** Check Artifacts section in this workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** Using EAS Environment Variables" >> $GITHUB_STEP_SUMMARY
 
       - name: 💬 Comment on PR (if applicable)
         if: github.event_name == 'pull_request' && success()

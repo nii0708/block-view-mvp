@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "mine.lite",
-    "slug": "block-view-mvp",
+    "slug": "mine-lite",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/res/mipmap-xxxhdpi/mine.lite.png",
@@ -62,9 +62,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "ac7b72cb-fdcf-46ff-afb6-39a22a34969a"
+        "projectId": "99284ec5-c775-4999-a221-ee39ac58dc5b"
       }
     },
-    "owner": "fawwazanvilen"
+    "owner": "ashecone"
   }
 }
