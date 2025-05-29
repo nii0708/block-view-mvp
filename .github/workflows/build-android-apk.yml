@@ -48,6 +48,21 @@ jobs:
             "platform-tools" \
             "cmdline-tools;latest"
 
+      # 🔥 SET ENVIRONMENT VARIABLES EXPLICITLY
+      - name: 🔐 Set Environment Variables
+        run: |
+          echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}" >> $GITHUB_ENV
+
+      # 🔥 DEBUG: Verify environment variables (REMOVE IN PRODUCTION)
+      - name: 🐛 Debug Environment Variables
+        run: |
+          echo "Checking environment variables..."
+          echo "URL exists: $([[ -n "$EXPO_PUBLIC_SUPABASE_URL" ]] && echo "YES" || echo "NO")"
+          echo "KEY exists: $([[ -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY" ]] && echo "YES" || echo "NO")"
+          echo "URL length: ${#EXPO_PUBLIC_SUPABASE_URL}"
+          echo "KEY length: ${#EXPO_PUBLIC_SUPABASE_ANON_KEY}"
+
       - name: 🚀 Build APK (Local)
         run: |
           echo "Starting local build for APK at $(date)"
