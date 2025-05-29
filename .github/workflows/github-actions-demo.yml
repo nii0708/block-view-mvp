@@ -1,22 +1,111 @@
+name: Build Android APK (Local)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allows manual triggering
+
 jobs:
-  Build-for-android:
-    runs-on: macos-latest
+  build:
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
+      - name: 📱 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 12.x
-      - uses: actions/setup-java@v1.4.3
+          node-version: 18.x
+          cache: npm
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
         with:
-          java-version: "9.0.4" # The JDK version to make available on the path.
-          java-package: jdk # (jre, jdk, or jdk+fx) - defaults to jdk
-          architecture: x64 # (x64 or x86) - defaults to x64
-      - uses: expo/expo-github-action@v5
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: 🤖 Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🏗 Setup EAS CLI
+        uses: expo/expo-github-action@v8
         with:
-          expo-version: 3.x
-          expo-username: ${{ secrets.EXPO_CLI_USERNAME }}
-          expo-password: ${{ secrets.EXPO_CLI_PASSWORD }}
-      - name: Install deps
-        run: yarn install
-      - name: Build Android APK Bundle
-        run: expo build:android
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 🔧 Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+
+      - name: 📱 Install required Android components
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "platform-tools" \
+            "cmdline-tools;latest"
+
+      # 🔥 SET ENVIRONMENT VARIABLES EXPLICITLY
+      - name: 🔐 Set Environment Variables
+        run: |
+          echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}" >> $GITHUB_ENV
+
+      # 🔥 DEBUG: Verify environment variables (REMOVE IN PRODUCTION)
+      - name: 🐛 Debug Environment Variables
+        run: |
+          echo "Checking environment variables..."
+          echo "URL exists: $([[ -n "$EXPO_PUBLIC_SUPABASE_URL" ]] && echo "YES" || echo "NO")"
+          echo "KEY exists: $([[ -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY" ]] && echo "YES" || echo "NO")"
+          echo "URL length: ${#EXPO_PUBLIC_SUPABASE_URL}"
+          echo "KEY length: ${#EXPO_PUBLIC_SUPABASE_ANON_KEY}"
+
+      - name: 🚀 Build APK (Local)
+        run: |
+          echo "Starting local build for APK at $(date)"
+          eas build --local --platform android --profile preview --output mine.lite.apk --non-interactive
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: 📤 Upload APK as GitHub Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mine-lite-apk-${{ github.run_number }}
+          path: mine.lite.apk
+
+      - name: 📝 Create build summary
+        if: success()
+        run: |
+          APK_SIZE=$(du -h mine.lite.apk | cut -f1)
+          echo "## Android APK Local Build Completed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "**APK Size:** $APK_SIZE" >> $GITHUB_STEP_SUMMARY
+          echo "**Build #:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
+          echo "**Download:** Check Artifacts section in this workflow run" >> $GITHUB_STEP_SUMMARY
+
+      - name: 💬 Comment on PR (if applicable)
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const apkStats = fs.statSync('mine.lite.apk');
+            const apkSize = (apkStats.size / 1024 / 1024).toFixed(2);
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🎉 **APK Build Completed!**
+              
+              📱 **mine.lite APK** has been built successfully!
+              📦 **Size:** ${apkSize} MB
+              🔗 **Download:** Check the Artifacts section in the [workflow run](${context.payload.pull_request.html_url}/checks)
+              
+              Built with local EAS build ⚡`
+            });
