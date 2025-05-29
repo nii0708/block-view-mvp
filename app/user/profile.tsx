@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -8,18 +8,35 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../services/AuthService";
+import { useAuth } from "@/context/AuthContext";
 import { MaterialIcons, Feather } from "@expo/vector-icons";
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, loading } = useAuth();
   const router = useRouter();
 
+  // ✅ BENAR: Handle redirect di useEffect
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/auth/login");
+    }
+  }, [user, loading, router]);
+
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#0066CC" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Don't render anything if no user (will redirect)
   if (!user) {
-    // Redirect to login if not logged in
-    router.replace("/login");
     return null;
   }
 
@@ -36,7 +53,7 @@ export default function ProfileScreen() {
           text: "Yes",
           onPress: async () => {
             await logout();
-            router.replace("/");
+            router.replace("/auth/login");
           },
         },
       ],
@@ -72,7 +89,7 @@ export default function ProfileScreen() {
       <View style={styles.menuContainer}>
         <TouchableOpacity
           style={styles.menuItem}
-          onPress={() => router.push("/biodata")}
+          onPress={() => router.push("/user/biodata")}
         >
           <View style={styles.menuIcon}>
             <MaterialIcons name="person" size={24} color="#333" />
@@ -144,6 +161,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  centered: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#666",
+    fontFamily: "Montserrat_400Regular",
   },
   header: {
     flexDirection: "row",

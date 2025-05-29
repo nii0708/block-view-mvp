@@ -1,231 +1,229 @@
-import * as FileSystem from "expo-file-system";
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  ReactNode,
-} from "react";
+import { supabase } from "../config/supabase";
 
-// Tipe data untuk user
+// Types
 export interface User {
+  id?: string;
   email: string;
   name?: string;
   phone?: string;
   location?: string;
 }
 
-// Interface untuk context auth
-interface AuthContextType {
-  user: User | null;
-  isLoggedIn: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  signup: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
-  updateUserProfile: (userData: User) => Promise<boolean>;
-  loading: boolean;
+export interface UpdateProfileData {
+  name?: string;
+  phone?: string;
+  location?: string;
+  email?: string;
+  password?: string;
 }
 
-// Nama file untuk menyimpan data user
-const USER_STORAGE_KEY = "user_data.json";
-const AUTH_STORAGE_KEY = "auth_data.json";
-
-// Membuat context
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Custom hook untuk menggunakan auth context
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
-};
-
-// Provider component
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Cek status login saat aplikasi dimulai
-  useEffect(() => {
-    const checkLoginStatus = async () => {
-      try {
-        const authFilePath = FileSystem.documentDirectory + AUTH_STORAGE_KEY;
-        const userFilePath = FileSystem.documentDirectory + USER_STORAGE_KEY;
-
-        // Cek jika file auth ada
-        const authInfo = await FileSystem.getInfoAsync(authFilePath);
-
-        if (authInfo.exists) {
-          // Baca data user jika sudah login
-          try {
-            const userData = await FileSystem.readAsStringAsync(userFilePath);
-            setUser(JSON.parse(userData));
-          } catch (error) {
-            console.log("Error reading user data:", error);
-            setUser(null);
-          }
-        } else {
-          setUser(null);
-        }
-      } catch (error) {
-        console.log("Error checking login status:", error);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkLoginStatus();
-  }, []);
-
-  // Fungsi login
-  const login = async (email: string, password: string): Promise<boolean> => {
+// Authentication Service Functions
+export class AuthService {
+  // Login function
+  static async login(
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      setLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-      // Mock authentication - dalam aplikasi nyata harus validasi dengan server
-      // Untuk demo, kita anggap password apapun benar selama email tidak kosong
-      if (!email) {
-        return false;
+      if (error) {
+        console.error("Login error:", error.message);
+        return { success: false, error: error.message };
       }
 
-      // Simulasi delay network
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (data.user) {
+        // Fetch profile data
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", data.user.id)
+          .single();
 
-      // Simpan status login
-      const authFilePath = FileSystem.documentDirectory + AUTH_STORAGE_KEY;
-      await FileSystem.writeAsStringAsync(
-        authFilePath,
-        JSON.stringify({ isLoggedIn: true })
-      );
+        const user: User = {
+          id: data.user.id,
+          email: data.user.email!,
+          name: profile?.name || data.user.email?.split("@")[0],
+          phone: profile?.phone,
+          location: profile?.location,
+        };
 
-      // Buat data user mock
-      const userData: User = {
-        email: email,
-        name: email.split("@")[0],
-      };
+        console.log("Login successful for:", data.user.email);
+        return { success: true, user };
+      }
 
-      // Simpan data user
-      const userFilePath = FileSystem.documentDirectory + USER_STORAGE_KEY;
-      await FileSystem.writeAsStringAsync(
-        userFilePath,
-        JSON.stringify(userData)
-      );
-
-      setUser(userData);
-      return true;
+      return { success: false, error: "Login failed" };
     } catch (error) {
       console.error("Login error:", error);
-      return false;
-    } finally {
-      setLoading(false);
+      return { success: false, error: "An unexpected error occurred" };
     }
-  };
+  }
 
-  // Fungsi signup
-  const signup = async (email: string, password: string): Promise<boolean> => {
+  // Signup function
+  static async signup(
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      setLoading(true);
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
 
-      // Mock signup - di aplikasi nyata harus registrasi dengan server
-      if (!email) {
-        return false;
+      if (error) {
+        console.error("Signup error:", error.message);
+        return { success: false, error: error.message };
       }
 
-      // Simulasi delay network
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (data.user) {
+        const user: User = {
+          id: data.user.id,
+          email: data.user.email!,
+          name: data.user.email?.split("@")[0],
+        };
 
-      // Simpan status login
-      const authFilePath = FileSystem.documentDirectory + AUTH_STORAGE_KEY;
-      await FileSystem.writeAsStringAsync(
-        authFilePath,
-        JSON.stringify({ isLoggedIn: true })
-      );
+        console.log("Signup successful for:", data.user.email);
+        return { success: true, user };
+      }
 
-      // Buat data user mock
-      const userData: User = {
-        email: email,
-        name: email.split("@")[0],
-      };
-
-      // Simpan data user
-      const userFilePath = FileSystem.documentDirectory + USER_STORAGE_KEY;
-      await FileSystem.writeAsStringAsync(
-        userFilePath,
-        JSON.stringify(userData)
-      );
-
-      setUser(userData);
-      return true;
+      return { success: false, error: "Signup failed" };
     } catch (error) {
       console.error("Signup error:", error);
-      return false;
-    } finally {
-      setLoading(false);
+      return { success: false, error: "An unexpected error occurred" };
     }
-  };
+  }
 
-  // Fungsi logout
-  const logout = async () => {
+  // Logout function
+  static async logout(): Promise<{ success: boolean; error?: string }> {
     try {
-      setLoading(true);
+      const { error } = await supabase.auth.signOut();
 
-      // Hapus data auth
-      const authFilePath = FileSystem.documentDirectory + AUTH_STORAGE_KEY;
-      const authInfo = await FileSystem.getInfoAsync(authFilePath);
-
-      if (authInfo.exists) {
-        await FileSystem.deleteAsync(authFilePath);
+      if (error) {
+        console.error("Logout error:", error.message);
+        return { success: false, error: error.message };
       }
 
-      setUser(null);
+      console.log("Logout successful");
+      return { success: true };
     } catch (error) {
       console.error("Logout error:", error);
-    } finally {
-      setLoading(false);
+      return { success: false, error: "An unexpected error occurred" };
     }
-  };
+  }
 
-  // Fungsi update profil
-  const updateUserProfile = async (userData: User): Promise<boolean> => {
+  // Update profile function
+  static async updateProfile(
+    userId: string,
+    userData: User,
+    options?: { email?: string; password?: string }
+  ): Promise<{ success: boolean; error?: string }> {
     try {
-      setLoading(true);
+      // 1. Update email in Supabase Auth (if changed)
+      if (options?.email) {
+        const { error: emailError } = await supabase.auth.updateUser({
+          email: options.email,
+        });
 
-      if (!user) {
-        return false;
+        if (emailError) {
+          console.error("Update email error:", emailError.message);
+          return { success: false, error: emailError.message };
+        }
       }
 
-      // Update user data
-      const updatedUser = { ...user, ...userData };
+      // 2. Update password in Supabase Auth (if provided)
+      if (options?.password && options.password !== "••••••••") {
+        const { error: passwordError } = await supabase.auth.updateUser({
+          password: options.password,
+        });
 
-      // Simpan data user yang diupdate
-      const userFilePath = FileSystem.documentDirectory + USER_STORAGE_KEY;
-      await FileSystem.writeAsStringAsync(
-        userFilePath,
-        JSON.stringify(updatedUser)
-      );
+        if (passwordError) {
+          console.error("Update password error:", passwordError.message);
+          return { success: false, error: passwordError.message };
+        }
+      }
 
-      setUser(updatedUser);
-      return true;
+      // 3. Update profile in database
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          name: userData.name,
+          phone: userData.phone,
+          location: userData.location,
+          email: options?.email || userData.email,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (error) {
+        console.error("Update profile error:", error.message);
+        return { success: false, error: error.message };
+      }
+
+      console.log("Profile updated successfully");
+      return { success: true };
     } catch (error) {
       console.error("Update profile error:", error);
-      return false;
-    } finally {
-      setLoading(false);
+      return { success: false, error: "An unexpected error occurred" };
     }
-  };
+  }
 
-  const value = {
-    user,
-    isLoggedIn: !!user,
-    login,
-    signup,
-    logout,
-    updateUserProfile,
-    loading,
-  };
+  // Get current session
+  static async getCurrentSession(): Promise<{ user?: User; error?: string }> {
+    try {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
+      if (error) {
+        console.log("Session error:", error.message);
+        return { error: error.message };
+      }
+
+      if (session?.user) {
+        // Fetch profile data
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profileError) {
+          console.log("Profile fetch error:", profileError.message);
+        }
+
+        const user: User = {
+          id: session.user.id,
+          email: session.user.email!,
+          name: profile?.name || session.user.email?.split("@")[0],
+          phone: profile?.phone,
+          location: profile?.location,
+        };
+
+        return { user };
+      }
+
+      return {};
+    } catch (error) {
+      console.log("Error getting current session:", error);
+      return { error: "An unexpected error occurred" };
+    }
+  }
+
+  // Test connection
+  static async testConnection(): Promise<void> {
+    try {
+      console.log("Testing Supabase connection...");
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("count")
+        .limit(1);
+      console.log("Connection test result:", { data, error });
+    } catch (err) {
+      console.log("Connection test failed:", err);
+    }
+  }
+}

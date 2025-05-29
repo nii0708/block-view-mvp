@@ -22,10 +22,12 @@
   "dependencies": {
     "@expo-google-fonts/montserrat": "^0.3.0",
     "@expo/vector-icons": "^14.1.0",
+    "@react-native-async-storage/async-storage": "^2.1.2",
     "@react-native-community/slider": "4.5.5",
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
     "@react-navigation/stack": "^7.2.10",
+    "@supabase/supabase-js": "^2.49.8",
     "@turf/turf": "^7.2.0",
     "dxf-parser": "^1.1.2",
     "expo": "~52.0.46",
@@ -65,8 +67,8 @@
     "victory-native": "^41.16.2"
   },
   "devDependencies": {
-    "@react-native-community/cli": "latest",
     "@babel/core": "^7.25.2",
+    "@react-native-community/cli": "latest",
     "@types/geojson": "^7946.0.16",
     "@types/jest": "^29.5.12",
     "@types/papaparse": "^5.3.15",

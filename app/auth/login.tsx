@@ -1,3 +1,4 @@
+// app/auth/login.tsx
 import React, { useState } from "react";
 import {
   StyleSheet,
@@ -13,19 +14,19 @@ import {
   ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../services/AuthService";
+import { useAuth } from "@/context/AuthContext";
 import { MaterialIcons, FontAwesome } from "@expo/vector-icons";
-import { Input, Button } from "../components/FormComponents";
+import { Input, Button } from "../../components/FormComponents";
 
-export default function SignupScreen() {
+export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { signup } = useAuth();
+  const { login } = useAuth();
   const router = useRouter();
 
-  const handleSignup = async () => {
+  const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert("Error", "Please enter both email and password");
       return;
@@ -34,36 +35,29 @@ export default function SignupScreen() {
     setIsLoading(true);
 
     try {
-      const success = await signup(email, password);
+      const success = await login(email, password);
 
       if (success) {
-        router.replace("/profile");
+        // 🏠 Redirect to main app (home screen) after successful login
+        router.replace("/");
       } else {
-        Alert.alert("Signup Failed", "Failed to create account");
+        Alert.alert("Login Failed", "Invalid email or password");
       }
     } catch (error) {
-      Alert.alert("Error", "An error occurred during signup");
+      Alert.alert("Error", "An error occurred during login");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleSignup = () => {
-    // Mock Google signup for demo
-    signup("nadhif@gmail.com", "password123").then((success) => {
-      if (success) {
-        router.replace("/profile");
-      }
-    });
+  const handleGoogleLogin = () => {
+    // TODO: Implement Google OAuth
+    Alert.alert("Info", "Google login will be available soon!");
   };
 
-  const handleFacebookSignup = () => {
-    // Mock Facebook signup for demo
-    signup("nadhif@gmail.com", "password123").then((success) => {
-      if (success) {
-        router.replace("/profile");
-      }
-    });
+  const handleFacebookLogin = () => {
+    // TODO: Implement Facebook OAuth
+    Alert.alert("Info", "Facebook login will be available soon!");
   };
 
   return (
@@ -72,13 +66,13 @@ export default function SignupScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Signup User</Text>
-        <TouchableOpacity
+        <Text style={styles.headerTitle}>Login User</Text>
+        {/* <TouchableOpacity
           style={styles.homeButton}
           onPress={() => router.push("/")}
         >
           <MaterialIcons name="home" size={24} color="black" />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       <KeyboardAvoidingView
@@ -91,7 +85,7 @@ export default function SignupScreen() {
         >
           <View style={styles.logoContainer}>
             <Image
-              source={require("../assets/images/logo.png")}
+              source={require("../../assets/images/logo.png")}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -118,19 +112,19 @@ export default function SignupScreen() {
             />
 
             <Button
-              title="Signup"
-              onPress={handleSignup}
+              title="Login"
+              onPress={handleLogin}
               isLoading={isLoading}
-              style={styles.signupButton}
+              style={styles.loginButton}
             />
           </View>
 
-          <Text style={styles.orText}>or register with</Text>
+          <Text style={styles.orText}>or continue with</Text>
 
           <View style={styles.socialButtonsContainer}>
             <TouchableOpacity
               style={styles.socialButton}
-              onPress={handleGoogleSignup}
+              onPress={handleGoogleLogin}
             >
               <FontAwesome name="google" size={22} color="#DB4437" />
               <Text style={styles.socialButtonText}>Google</Text>
@@ -138,17 +132,17 @@ export default function SignupScreen() {
 
             <TouchableOpacity
               style={styles.socialButton}
-              onPress={handleFacebookSignup}
+              onPress={handleFacebookLogin}
             >
               <FontAwesome name="facebook" size={22} color="#1877F2" />
               <Text style={styles.socialButtonText}>Facebook</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.loginContainer}>
-            <TouchableOpacity onPress={() => router.push("/login")}>
-              <Text style={styles.loginText}>
-                Already have an account? Login
+          <View style={styles.signupContainer}>
+            <TouchableOpacity onPress={() => router.push("/auth/signup")}>
+              <Text style={styles.signupText}>
+                Don't have an account? Sign up
               </Text>
             </TouchableOpacity>
           </View>
@@ -208,7 +202,7 @@ const styles = StyleSheet.create({
   formContainer: {
     marginVertical: 20,
   },
-  signupButton: {
+  loginButton: {
     marginTop: 24,
   },
   orText: {
@@ -236,12 +230,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Montserrat_400Regular",
   },
-  loginContainer: {
+  signupContainer: {
     alignItems: "center",
     marginTop: 10,
     marginBottom: 30,
   },
-  loginText: {
+  signupText: {
     fontSize: 16,
     color: "#0066CC",
     fontFamily: "Montserrat_400Regular",

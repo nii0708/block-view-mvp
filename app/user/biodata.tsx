@@ -10,14 +10,16 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../services/AuthService";
+import { useAuth } from "../../context/AuthContext"; // ✅ Import from context
 import { MaterialIcons } from "@expo/vector-icons";
-import { Input, Button } from "../components/FormComponents";
+import { Input, Button } from "../../components/FormComponents";
+import { supabase } from "../../config/supabase"; // ✅ Import from config
 
 export default function BiodataScreen() {
-  const { user, updateUserProfile } = useAuth();
+  const { user, updateUserProfile, loading } = useAuth();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -28,17 +30,20 @@ export default function BiodataScreen() {
   const [location, setLocation] = useState("");
   const [password, setPassword] = useState("••••••••");
 
+  // Handle redirect and populate form
   useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/auth/login");
+      return;
+    }
+
     if (user) {
       setName(user.name || "");
       setEmail(user.email || "");
       setPhone(user.phone || "");
       setLocation(user.location || "");
-    } else {
-      // Redirect to login if not logged in
-      router.replace("/login");
     }
-  }, [user]);
+  }, [user, loading, router]);
 
   const handleUpdateProfile = async () => {
     if (!user) return;
@@ -51,26 +56,66 @@ export default function BiodataScreen() {
     setIsLoading(true);
 
     try {
-      const success = await updateUserProfile({
-        ...user,
-        name,
-        email,
-        phone,
-        location,
-      });
+      // Check if email or password changed
+      const emailChanged = email !== user.email;
+      const passwordChanged = password !== "••••••••" && password.length > 0;
+
+      // Validate password if changed
+      if (passwordChanged && password.length < 6) {
+        Alert.alert("Error", "Password must be at least 6 characters long");
+        setIsLoading(false);
+        return;
+      }
+
+      // Update profile using context method
+      const success = await updateUserProfile(
+        {
+          ...user,
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          location: location.trim(),
+        },
+        {
+          email: emailChanged ? email.trim() : undefined,
+          password: passwordChanged ? password : undefined,
+        }
+      );
 
       if (success) {
-        Alert.alert("Success", "Profile updated successfully");
+        let message = "Profile updated successfully";
+        if (emailChanged) {
+          message +=
+            "\nPlease check your email to confirm the new email address.";
+        }
+        if (passwordChanged) {
+          message += "\nPassword updated successfully.";
+          setPassword("••••••••"); // Reset password field
+        }
+
+        Alert.alert("Success", message);
       } else {
         Alert.alert("Error", "Failed to update profile");
       }
     } catch (error) {
       Alert.alert("Error", "An error occurred while updating profile");
+      console.error("Update profile error:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#0066CC" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Don't render anything if no user (will redirect)
   if (!user) return null;
 
   // Take first letter of name (or email) for avatar
@@ -157,6 +202,7 @@ export default function BiodataScreen() {
               onChangeText={setPassword}
               secureTextEntry
               style={styles.lastInput}
+              placeholder="Enter new password"
             />
 
             <Button
@@ -178,6 +224,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  centered: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#666",
+    fontFamily: "Montserrat_400Regular",
   },
   header: {
     flexDirection: "row",

@@ -1,3 +1,4 @@
+// app/index.tsx - Fixed hooks order
 import React, { useState, useRef, useEffect } from "react";
 import {
   StyleSheet,
@@ -18,7 +19,7 @@ import {
 import { MaterialIcons, Feather } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import * as FileService from "../services/FileService";
-import { useAuth } from "../services/AuthService"; // Import useAuth
+import { useAuth } from "@/context/AuthContext";
 
 // SwipeableItem component for list items
 const SwipeableItem = ({
@@ -44,7 +45,6 @@ const SwipeableItem = ({
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to horizontal swipes and when not in selection mode
         return (
           !isSelectionMode &&
           Math.abs(gestureState.dx) > 5 &&
@@ -64,15 +64,13 @@ const SwipeableItem = ({
       onPanResponderRelease: (_, gestureState) => {
         pan.flattenOffset();
 
-        // If swiped right enough, show actions
         if (gestureState.dx > 50) {
           Animated.spring(pan, {
-            toValue: { x: 100, y: 0 }, // Increased for wider buttons
+            toValue: { x: 100, y: 0 },
             useNativeDriver: false,
           }).start();
           setShowActions(true);
         } else {
-          // Reset position
           Animated.spring(pan, {
             toValue: { x: 0, y: 0 },
             useNativeDriver: false,
@@ -91,7 +89,6 @@ const SwipeableItem = ({
     setShowActions(false);
   };
 
-  // Reset position when selection mode changes
   useEffect(() => {
     if (isSelectionMode) {
       resetPosition();
@@ -100,7 +97,6 @@ const SwipeableItem = ({
 
   return (
     <View style={styles.swipeableContainer}>
-      {/* Actions shown when swiped */}
       <View style={styles.actionsContainer}>
         <View style={styles.actionButtonsContainer}>
           <TouchableOpacity
@@ -124,7 +120,6 @@ const SwipeableItem = ({
         </View>
       </View>
 
-      {/* The actual item */}
       <Animated.View
         style={[
           styles.fileItemContainer,
@@ -159,12 +154,12 @@ const SwipeableItem = ({
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { isLoggedIn } = useAuth(); // Use auth context
+
+  // ✅ ALL HOOKS CALLED FIRST - BEFORE ANY EARLY RETURNS
+  const { isLoggedIn, loading: authLoading } = useAuth();
   const [files, setFiles] = useState<FileService.MiningDataFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
-
-  // States for CRUD operations
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -176,24 +171,43 @@ export default function HomeScreen() {
     useState<FileService.MiningDataFile | null>(null);
   const [editFileName, setEditFileName] = useState("");
 
-  // Add function to handle profile button click
-  const handleProfileClick = () => {
-    if (isLoggedIn) {
-      router.push("/profile");
-    } else {
-      router.push("/login");
+  // 🔐 AUTH PROTECTION - After all hooks
+  useEffect(() => {
+    if (!authLoading && !isLoggedIn) {
+      console.log("User not logged in, redirecting to login...");
+      router.replace("/auth/login");
     }
-  };
+  }, [isLoggedIn, authLoading, router]);
 
   // Load files when the screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      loadFiles();
-      // Reset selection mode and selections when screen comes into focus
-      setIsSelectionMode(false);
-      setSelectedFiles(new Set());
-    }, [])
+      if (isLoggedIn) {
+        // Only load files if logged in
+        loadFiles();
+        setIsSelectionMode(false);
+        setSelectedFiles(new Set());
+      }
+    }, [isLoggedIn])
   );
+
+  // ✅ EARLY RETURNS AFTER ALL HOOKS
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#0066CC" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Don't render anything if no user (will redirect)
+  if (!isLoggedIn) {
+    return null;
+  }
 
   const loadFiles = async () => {
     setLoading(true);
@@ -213,7 +227,6 @@ export default function HomeScreen() {
       )
     : files;
 
-  // Handle file selection for multi-select
   const handleSelectFile = (file: FileService.MiningDataFile) => {
     setIsSelectionMode(true);
     setSelectedFiles((prev) => {
@@ -227,14 +240,12 @@ export default function HomeScreen() {
     });
   };
 
-  // Check if all files are selected
   const areAllFilesSelected = () => {
     return (
       filteredFiles.length > 0 && selectedFiles.size === filteredFiles.length
     );
   };
 
-  // Toggle select all files
   const toggleSelectAll = () => {
     if (areAllFilesSelected()) {
       setSelectedFiles(new Set());
@@ -243,34 +254,27 @@ export default function HomeScreen() {
     }
   };
 
-  // Exit selection mode
   const exitSelectionMode = () => {
     setIsSelectionMode(false);
     setSelectedFiles(new Set());
   };
 
-  // Handle edit dialog open
   const handleEdit = (file: FileService.MiningDataFile) => {
     setFileToEdit(file);
     setEditFileName(file.name);
     setShowEditDialog(true);
   };
 
-  // Handle delete dialog open
   const handleDelete = (file: FileService.MiningDataFile) => {
     setFileToDelete(file);
     setShowDeleteDialog(true);
   };
 
-  // Submit edit changes
   const submitEdit = async () => {
     if (!fileToEdit || !editFileName.trim()) return;
 
     try {
-      // Get all files
       const allFiles = await FileService.getFileInfo();
-
-      // Check if name already exists
       const nameExists = allFiles.some(
         (file) => file.name === editFileName && file.name !== fileToEdit.name
       );
@@ -280,7 +284,6 @@ export default function HomeScreen() {
         return;
       }
 
-      // Update file name
       const updatedFiles = allFiles.map((file) => {
         if (file.name === fileToEdit.name) {
           return { ...file, name: editFileName };
@@ -288,10 +291,7 @@ export default function HomeScreen() {
         return file;
       });
 
-      // Save updated files
       await FileService.saveFileInfo(updatedFiles);
-
-      // Close dialog and refresh
       setShowEditDialog(false);
       loadFiles();
     } catch (error) {
@@ -300,7 +300,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Confirm delete
   const confirmDelete = async () => {
     if (!fileToDelete) return;
 
@@ -314,7 +313,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Delete selected files
   const deleteSelectedFiles = async () => {
     if (selectedFiles.size === 0) return;
 
@@ -334,7 +332,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Navigate to coordinateSelection instead of directly to topDownView
   const handleFilePress = (file: FileService.MiningDataFile) => {
     console.log("Selected file:", file.name);
     router.push({
@@ -343,7 +340,10 @@ export default function HomeScreen() {
     });
   };
 
-  // Render file item
+  const handleProfileClick = () => {
+    router.push("/user/profile");
+  };
+
   const renderFileItem = ({ item }: { item: FileService.MiningDataFile }) => (
     <SwipeableItem
       item={item}
@@ -406,9 +406,9 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      {/* Content Container - Holds Search and Files */}
+      {/* Content Container */}
       <View style={styles.contentContainer}>
-        {/* Search Box - Only shows when there are files and not in selection mode */}
+        {/* Search Box */}
         {files.length > 0 && !isSelectionMode && (
           <View style={styles.searchContainer}>
             <TextInput
@@ -447,7 +447,7 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {/* Delete Selected Button (when in selection mode) */}
+      {/* Delete Selected Button */}
       {isSelectionMode && selectedFiles.size > 0 && (
         <View style={styles.deleteSelectedContainer}>
           <TouchableOpacity
@@ -460,7 +460,7 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Add Button (only when not in selection mode) */}
+      {/* Add Button */}
       {!isSelectionMode && (
         <View style={styles.addButtonContainer}>
           <TouchableOpacity
@@ -472,7 +472,7 @@ export default function HomeScreen() {
         </View>
       )}
 
-      {/* Edit Dialog */}
+      {/* Modals */}
       <Modal
         visible={showEditDialog}
         transparent={true}
@@ -506,7 +506,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Delete Dialog */}
       <Modal
         visible={showDeleteDialog}
         transparent={true}
@@ -539,7 +538,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Delete All Dialog */}
       <Modal
         visible={showDeleteAllDialog}
         transparent={true}
@@ -681,16 +679,16 @@ const styles = StyleSheet.create({
     height: 45,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#288338", // Green color specified
-    borderRadius: 0, // No border radius for connected buttons
+    backgroundColor: "#288338",
+    borderRadius: 0,
   },
   deleteButton: {
     width: 45,
     height: 45,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#AD0F0F", // Red color specified
-    borderRadius: 0, // No border radius for connected buttons
+    backgroundColor: "#AD0F0F",
+    borderRadius: 0,
   },
   fileItemContainer: {
     width: "100%",
@@ -702,9 +700,6 @@ const styles = StyleSheet.create({
     elevation: 1,
     flexDirection: "row",
     alignItems: "center",
-  },
-  fileItemFullWidth: {
-    width: "100%",
   },
   radioContainer: {
     marginRight: 10,
@@ -741,6 +736,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  loadingText: {
+    fontSize: 16,
+    fontFamily: "Montserrat_400Regular",
+    color: "#666",
+    marginTop: 12,
   },
   emptyText: {
     fontSize: 16,

@@ -1,3 +1,4 @@
+// app/auth/signup.tsx
 import React, { useState } from "react";
 import {
   StyleSheet,
@@ -13,19 +14,19 @@ import {
   ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../services/AuthService";
+import { useAuth } from "@/context/AuthContext";
 import { MaterialIcons, FontAwesome } from "@expo/vector-icons";
-import { Input, Button } from "../components/FormComponents";
+import { Input, Button } from "../../components/FormComponents";
 
-export default function LoginScreen() {
+export default function SignupScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { login } = useAuth();
+  const { signup } = useAuth();
   const router = useRouter();
 
-  const handleLogin = async () => {
+  const handleSignup = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert("Error", "Please enter both email and password");
       return;
@@ -34,36 +35,37 @@ export default function LoginScreen() {
     setIsLoading(true);
 
     try {
-      const success = await login(email, password);
+      const success = await signup(email, password);
 
       if (success) {
-        router.replace("/profile");
+        Alert.alert(
+          "Account Created! 🎉",
+          "Please check your email to confirm your account before signing in.",
+          [
+            {
+              text: "OK",
+              onPress: () => router.push("/auth/login"),
+            },
+          ]
+        );
       } else {
-        Alert.alert("Login Failed", "Invalid email or password");
+        Alert.alert("Signup Failed", "Failed to create account");
       }
     } catch (error) {
-      Alert.alert("Error", "An error occurred during login");
+      Alert.alert("Error", "An error occurred during signup");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleLogin = () => {
-    // Mock Google login for demo
-    login("nadhif@gmail.com", "password123").then((success) => {
-      if (success) {
-        router.replace("/profile");
-      }
-    });
+  const handleGoogleSignup = () => {
+    // TODO: Implement Google OAuth
+    Alert.alert("Info", "Google signup will be available soon!");
   };
 
-  const handleFacebookLogin = () => {
-    // Mock Facebook login for demo
-    login("nadhif@gmail.com", "password123").then((success) => {
-      if (success) {
-        router.replace("/profile");
-      }
-    });
+  const handleFacebookSignup = () => {
+    // TODO: Implement Facebook OAuth
+    Alert.alert("Info", "Facebook signup will be available soon!");
   };
 
   return (
@@ -72,13 +74,13 @@ export default function LoginScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Login User</Text>
-        <TouchableOpacity
+        <Text style={styles.headerTitle}>Signup User</Text>
+        {/* <TouchableOpacity
           style={styles.homeButton}
           onPress={() => router.push("/")}
         >
           <MaterialIcons name="home" size={24} color="black" />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       <KeyboardAvoidingView
@@ -91,7 +93,7 @@ export default function LoginScreen() {
         >
           <View style={styles.logoContainer}>
             <Image
-              source={require("../assets/images/logo.png")}
+              source={require("../../assets/images/logo.png")}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -118,19 +120,19 @@ export default function LoginScreen() {
             />
 
             <Button
-              title="Login"
-              onPress={handleLogin}
+              title="Signup"
+              onPress={handleSignup}
               isLoading={isLoading}
-              style={styles.loginButton}
+              style={styles.signupButton}
             />
           </View>
 
-          <Text style={styles.orText}>or continue with</Text>
+          <Text style={styles.orText}>or register with</Text>
 
           <View style={styles.socialButtonsContainer}>
             <TouchableOpacity
               style={styles.socialButton}
-              onPress={handleGoogleLogin}
+              onPress={handleGoogleSignup}
             >
               <FontAwesome name="google" size={22} color="#DB4437" />
               <Text style={styles.socialButtonText}>Google</Text>
@@ -138,17 +140,17 @@ export default function LoginScreen() {
 
             <TouchableOpacity
               style={styles.socialButton}
-              onPress={handleFacebookLogin}
+              onPress={handleFacebookSignup}
             >
               <FontAwesome name="facebook" size={22} color="#1877F2" />
               <Text style={styles.socialButtonText}>Facebook</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.signupContainer}>
-            <TouchableOpacity onPress={() => router.push("/signup")}>
-              <Text style={styles.signupText}>
-                Don't have an account? Sign up
+          <View style={styles.loginContainer}>
+            <TouchableOpacity onPress={() => router.push("/auth/login")}>
+              <Text style={styles.loginText}>
+                Already have an account? Login
               </Text>
             </TouchableOpacity>
           </View>
@@ -208,7 +210,7 @@ const styles = StyleSheet.create({
   formContainer: {
     marginVertical: 20,
   },
-  loginButton: {
+  signupButton: {
     marginTop: 24,
   },
   orText: {
@@ -236,12 +238,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: "Montserrat_400Regular",
   },
-  signupContainer: {
+  loginContainer: {
     alignItems: "center",
     marginTop: 10,
     marginBottom: 30,
   },
-  signupText: {
+  loginText: {
     fontSize: 16,
     color: "#0066CC",
     fontFamily: "Montserrat_400Regular",
