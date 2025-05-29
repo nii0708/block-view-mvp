@@ -1,64 +1,98 @@
 import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Constants from "expo-constants";
 
-// 🔥 MULTIPLE FALLBACK SOURCES untuk environment variables
+// Safe environment variable access with multiple fallbacks
 const getEnvVar = (key: string): string => {
-  // 1. Try process.env first (development)
-  let value = process.env[key];
-
-  // 2. Try Constants.expoConfig.extra (production build)
-  if (!value && Constants.expoConfig?.extra) {
-    const extraKey = key.replace("EXPO_PUBLIC_", "").toLowerCase();
-    if (extraKey === "supabase_url") {
-      value = Constants.expoConfig.extra.supabaseUrl;
-    } else if (extraKey === "supabase_anon_key") {
-      value = Constants.expoConfig.extra.supabaseAnonKey;
+  try {
+    // 1. Try process.env first (development)
+    if (process.env[key]) {
+      return process.env[key];
     }
-  }
 
-  // 3. Try Constants.manifest.extra (fallback)
-  if (!value && Constants.manifest?.extra) {
-    const extraKey = key.replace("EXPO_PUBLIC_", "").toLowerCase();
-    if (extraKey === "supabase_url") {
-      value = Constants.manifest.extra.supabaseUrl;
-    } else if (extraKey === "supabase_anon_key") {
-      value = Constants.manifest.extra.supabaseAnonKey;
+    // 2. Try Constants (only if available)
+    try {
+      const Constants = require("expo-constants");
+      if (Constants?.expoConfig?.extra) {
+        const extraKey = key.replace("EXPO_PUBLIC_", "").toLowerCase();
+        if (
+          extraKey === "supabase_url" &&
+          Constants.expoConfig.extra.supabaseUrl
+        ) {
+          return Constants.expoConfig.extra.supabaseUrl;
+        }
+        if (
+          extraKey === "supabase_anon_key" &&
+          Constants.expoConfig.extra.supabaseAnonKey
+        ) {
+          return Constants.expoConfig.extra.supabaseAnonKey;
+        }
+      }
+    } catch (constantsError) {
+      console.warn("Constants not available:", (constantsError as Error).message);
     }
-  }
 
-  return value || "";
+    return "";
+  } catch (error) {
+    console.warn(`Error accessing ${key}:`, error);
+    return "";
+  }
 };
 
-const supabaseUrl = getEnvVar("EXPO_PUBLIC_SUPABASE_URL");
-const supabaseAnonKey = getEnvVar("EXPO_PUBLIC_SUPABASE_ANON_KEY");
+// Get environment variables with safe fallbacks
+let supabaseUrl = "";
+let supabaseAnonKey = "";
 
-// 🚨 DEBUG LOGGING - Hapus di production
-console.log("🔧 Supabase Config Debug:");
-console.log("URL exists:", !!supabaseUrl);
-console.log("Key exists:", !!supabaseAnonKey);
-console.log("URL length:", supabaseUrl.length);
-console.log("Key length:", supabaseAnonKey.length);
-console.log("Constants.expoConfig:", !!Constants.expoConfig);
-console.log("Constants.manifest:", !!Constants.manifest);
+try {
+  supabaseUrl = getEnvVar("EXPO_PUBLIC_SUPABASE_URL");
+  supabaseAnonKey = getEnvVar("EXPO_PUBLIC_SUPABASE_ANON_KEY");
+} catch (error) {
+  console.error("Error loading environment variables:", error);
+}
 
+// 🚨 TEMPORARY FALLBACK - HAPUS SETELAH TESTING!
+// Uncomment jika masih crash, ganti dengan values asli Anda:
+// if (!supabaseUrl) {
+//   supabaseUrl = 'YOUR_ACTUAL_SUPABASE_URL_HERE';
+// }
+// if (!supabaseAnonKey) {
+//   supabaseAnonKey = 'YOUR_ACTUAL_SUPABASE_ANON_KEY_HERE';
+// }
+
+// Validate environment variables
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("❌ Missing Supabase environment variables:");
-  console.error("URL:", supabaseUrl ? "✅" : "❌");
-  console.error("Key:", supabaseAnonKey ? "✅" : "❌");
-  throw new Error(
-    `Missing Supabase environment variables: URL=${!!supabaseUrl}, KEY=${!!supabaseAnonKey}`
+  console.error("❌ Supabase configuration missing:");
+  console.error("URL:", supabaseUrl ? "✅ Found" : "❌ Missing");
+  console.error("Key:", supabaseAnonKey ? "✅ Found" : "❌ Missing");
+
+  // Don't throw error - let app start but log warning
+  console.warn(
+    "⚠️  Supabase will not work until environment variables are properly configured"
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-});
+// Create supabase client with safe configuration
+export const supabase = createClient(
+  supabaseUrl || "https://placeholder.supabase.co", // Safe fallback
+  supabaseAnonKey || "placeholder-key", // Safe fallback
+  {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  }
+);
+
+// Export helper function to check if Supabase is properly configured
+export const isSupabaseConfigured = () => {
+  return !!(
+    supabaseUrl &&
+    supabaseAnonKey &&
+    supabaseUrl !== "https://placeholder.supabase.co" &&
+    supabaseAnonKey !== "placeholder-key"
+  );
+};
 
 // Types for our database
 export interface Database {
