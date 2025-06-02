@@ -52,13 +52,6 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow mine.lite to use your location."
         }
-      ],
-      [
-        "@sentry/react-native/expo",
-        {
-          "organization": "your-sentry-org-slug",
-          "project": "mine-lite"
-        }
       ]
     ],
     "experiments": {
