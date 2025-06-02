@@ -12,14 +12,22 @@ import { AuthService, User } from "../services/AuthService";
 interface AuthContextType {
   user: User | null;
   isLoggedIn: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
-  signup: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  login: (
+    email: string,
+    password: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  signup: (
+    email: string,
+    password: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
   updateUserProfile: (
     userData: User,
     options?: { email?: string; password?: string }
-  ) => Promise<boolean>;
+  ) => Promise<{ success: boolean; error?: string }>;
   loading: boolean;
+  connectionStatus: "connecting" | "connected" | "error";
+  lastError: string | null;
 }
 
 // Create context
@@ -31,20 +39,61 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connecting" | "connected" | "error"
+  >("connecting");
+  const [lastError, setLastError] = useState<string | null>(null);
 
   // Initialize and check login status
   useEffect(() => {
     const initializeAuth = async () => {
-      // Test connection first
-      await AuthService.testConnection();
+      try {
+        setConnectionStatus("connecting");
+        setLastError(null);
 
-      // Check current session
-      const { user: currentUser } = await AuthService.getCurrentSession();
-      if (currentUser) {
-        setUser(currentUser);
+        console.log("🚀 Initializing auth...");
+
+        // Test connection first dengan retry
+        const connectionTest = await AuthService.testConnection();
+
+        if (!connectionTest.success) {
+          console.error(
+            "❌ Failed to connect to Supabase:",
+            connectionTest.error
+          );
+          setConnectionStatus("error");
+          setLastError(connectionTest.error || "Connection failed");
+          setLoading(false);
+          return;
+        }
+
+        setConnectionStatus("connected");
+        console.log("✅ Supabase connection established");
+
+        // Check current session
+        const { user: currentUser, error } =
+          await AuthService.getCurrentSession();
+
+        if (error) {
+          console.warn("⚠️ Session check warning:", error);
+          setLastError(error);
+        }
+
+        if (currentUser) {
+          console.log("✅ Found existing session for:", currentUser.email);
+          setUser(currentUser);
+        } else {
+          console.log("ℹ️ No existing session found");
+        }
+      } catch (error) {
+        console.error("❌ Auth initialization error:", error);
+        setConnectionStatus("error");
+        setLastError(
+          error instanceof Error ? error.message : "Initialization failed"
+        );
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     initializeAuth();
@@ -53,73 +102,128 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event);
+      console.log("🔄 Auth state changed:", event);
 
-      if (event === "SIGNED_IN" && session?.user) {
-        const { user: updatedUser } = await AuthService.getCurrentSession();
-        if (updatedUser) {
-          setUser(updatedUser);
+      try {
+        if (event === "SIGNED_IN" && session?.user) {
+          const { user: updatedUser, error } =
+            await AuthService.getCurrentSession();
+          if (updatedUser) {
+            setUser(updatedUser);
+            setLastError(null);
+          } else if (error) {
+            setLastError(error);
+          }
+        } else if (event === "SIGNED_OUT") {
+          setUser(null);
+          setLastError(null);
+        } else if (event === "TOKEN_REFRESHED") {
+          console.log("🔄 Token refreshed successfully");
         }
-      } else if (event === "SIGNED_OUT") {
-        setUser(null);
+      } catch (error) {
+        console.error("❌ Auth state change error:", error);
+        setLastError(
+          error instanceof Error ? error.message : "Auth state error"
+        );
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      console.log("🧹 Cleaning up auth subscription");
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // Login wrapper
-  const login = async (email: string, password: string): Promise<boolean> => {
+  // Login wrapper dengan enhanced error handling
+  const login = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
     setLoading(true);
+    setLastError(null);
+
     try {
-      const { success, user: loggedInUser } = await AuthService.login(
-        email,
-        password
-      );
-      if (success && loggedInUser) {
-        setUser(loggedInUser);
-        return true;
+      console.log("🔐 Login attempt for:", email);
+
+      const result = await AuthService.login(email, password);
+
+      if (result.success && result.user) {
+        setUser(result.user);
+        console.log("✅ Login successful");
+        return { success: true };
+      } else {
+        const error = result.error || "Login failed";
+        setLastError(error);
+        console.error("❌ Login failed:", error);
+        return { success: false, error };
       }
-      return false;
     } catch (error) {
-      console.error("Login wrapper error:", error);
-      return false;
+      const errorMessage =
+        error instanceof Error ? error.message : "Login error";
+      setLastError(errorMessage);
+      console.error("❌ Login wrapper error:", error);
+      return { success: false, error: errorMessage };
     } finally {
       setLoading(false);
     }
   };
 
-  // Signup wrapper
-  const signup = async (email: string, password: string): Promise<boolean> => {
+  // Signup wrapper dengan enhanced error handling
+  const signup = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
     setLoading(true);
+    setLastError(null);
+
     try {
-      const { success, user: newUser } = await AuthService.signup(
-        email,
-        password
-      );
-      if (success && newUser) {
-        setUser(newUser);
-        return true;
+      console.log("📝 Signup attempt for:", email);
+
+      const result = await AuthService.signup(email, password);
+
+      if (result.success && result.user) {
+        setUser(result.user);
+        console.log("✅ Signup successful");
+        return { success: true };
+      } else {
+        const error = result.error || "Signup failed";
+        setLastError(error);
+        console.error("❌ Signup failed:", error);
+        return { success: false, error };
       }
-      return false;
     } catch (error) {
-      console.error("Signup wrapper error:", error);
-      return false;
+      const errorMessage =
+        error instanceof Error ? error.message : "Signup error";
+      setLastError(errorMessage);
+      console.error("❌ Signup wrapper error:", error);
+      return { success: false, error: errorMessage };
     } finally {
       setLoading(false);
     }
   };
 
   // Logout wrapper
-  const logout = async () => {
+  const logout = async (): Promise<void> => {
     setLoading(true);
+    setLastError(null);
+
     try {
-      const { success } = await AuthService.logout();
+      console.log("🚪 Logout attempt");
+
+      const { success, error } = await AuthService.logout();
+
       if (success) {
         setUser(null);
+        console.log("✅ Logout successful");
+      } else {
+        setLastError(error || "Logout failed");
+        console.error("❌ Logout failed:", error);
       }
     } catch (error) {
-      console.error("Logout wrapper error:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Logout error";
+      setLastError(errorMessage);
+      console.error("❌ Logout wrapper error:", error);
     } finally {
       setLoading(false);
     }
@@ -129,32 +233,47 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const updateUserProfile = async (
     userData: User,
     options?: { email?: string; password?: string }
-  ): Promise<boolean> => {
+  ): Promise<{ success: boolean; error?: string }> => {
     if (!user?.id) {
-      console.error("No user ID found");
-      return false;
+      const error = "No user ID found";
+      console.error("❌", error);
+      setLastError(error);
+      return { success: false, error };
     }
 
     setLoading(true);
+    setLastError(null);
+
     try {
-      const { success } = await AuthService.updateProfile(
+      console.log("📝 Profile update attempt");
+
+      const result = await AuthService.updateProfile(
         user.id,
         userData,
         options
       );
-      if (success) {
+
+      if (result.success) {
         // Update local state
         setUser({
           ...user,
           ...userData,
           email: options?.email || userData.email,
         });
-        return true;
+        console.log("✅ Profile update successful");
+        return { success: true };
+      } else {
+        const error = result.error || "Profile update failed";
+        setLastError(error);
+        console.error("❌ Profile update failed:", error);
+        return { success: false, error };
       }
-      return false;
     } catch (error) {
-      console.error("Update profile wrapper error:", error);
-      return false;
+      const errorMessage =
+        error instanceof Error ? error.message : "Profile update error";
+      setLastError(errorMessage);
+      console.error("❌ Update profile wrapper error:", error);
+      return { success: false, error: errorMessage };
     } finally {
       setLoading(false);
     }
@@ -168,6 +287,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     logout,
     updateUserProfile,
     loading,
+    connectionStatus,
+    lastError,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
