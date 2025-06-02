@@ -29,7 +29,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: 📦 Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: 🏗 Setup EAS CLI
         uses: expo/expo-github-action@v8
@@ -48,11 +48,30 @@ jobs:
             "platform-tools" \
             "cmdline-tools;latest"
 
+      # Debug environment variables
+      - name: 🔍 Debug Environment Variables
+        run: |
+          echo "🔍 Checking EAS environment variables..."
+          eas env:list --scope project
+          echo "🔍 Node version: $(node --version)"
+          echo "🔍 NPM version: $(npm --version)"
+
       - name: 🚀 Build APK (Local)
         run: |
           echo "🚀 Starting local build for APK at $(date)"
           echo "📋 Using EAS Environment Variables for Supabase config"
-          eas build --local --platform android --profile preview --output mine.lite.apk --non-interactive
+          
+          # Build dengan clear cache
+          eas build --local \
+            --platform android \
+            --profile preview \
+            --output mine.lite.apk \
+            --non-interactive \
+            --clear-cache
+        env:
+          # Explicitly set environment variables sebagai fallback
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
       - name: 📤 Upload APK as GitHub Artifact
         if: success()
@@ -70,26 +89,3 @@ jobs:
           echo "**Build #:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
           echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> $GITHUB_STEP_SUMMARY
           echo "**Download:** Check Artifacts section in this workflow run" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** Using EAS Environment Variables" >> $GITHUB_STEP_SUMMARY
-
-      - name: 💬 Comment on PR (if applicable)
-        if: github.event_name == 'pull_request' && success()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const apkStats = fs.statSync('mine.lite.apk');
-            const apkSize = (apkStats.size / 1024 / 1024).toFixed(2);
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🎉 **APK Build Completed!**
-              
-              📱 **mine.lite APK** has been built successfully!
-              📦 **Size:** ${apkSize} MB
-              🔗 **Download:** Check the Artifacts section in the [workflow run](${context.payload.pull_request.html_url}/checks)
-              
-              Built with local EAS build ⚡`
-            });
