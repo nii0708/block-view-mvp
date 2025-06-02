@@ -51,10 +51,10 @@ jobs:
       # Debug environment variables
       - name: 🔍 Debug Environment Variables
         run: |
-          echo "🔍 Checking EAS environment variables..."
-          eas env:list --scope project
           echo "🔍 Node version: $(node --version)"
           echo "🔍 NPM version: $(npm --version)"
+          echo "🔍 EAS CLI version: $(eas --version)"
+          echo "🔍 Environment check completed"
 
       - name: 🚀 Build APK (Local)
         run: |
