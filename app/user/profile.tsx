@@ -61,6 +61,30 @@ export default function ProfileScreen() {
     );
   };
 
+  // ✅ TAMBAHKAN: Handler untuk tombol Subscribe
+  const handleSubscribe = async () => {
+    Alert.alert(
+      "Subscribe Premium",
+      "Fitur berlangganan akan segera tersedia! Dapatkan akses ke fitur premium dan konten eksklusif.",
+      [
+        {
+          text: "Batal",
+          style: "cancel",
+        },
+        {
+          text: "Beritahu Saya",
+          onPress: () => {
+            Alert.alert(
+              "Terima kasih!",
+              "Kami akan memberitahu Anda ketika fitur ini tersedia."
+            );
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   // Take first letter of email (or name if available) for avatar
   const avatarText = (user.name || user.email || "U")[0].toUpperCase();
 
@@ -95,15 +119,14 @@ export default function ProfileScreen() {
           <MaterialIcons name="chevron-right" size={24} color="#777" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        {/* ✅ TAMBAHKAN: onPress handler untuk Subscribe */}
+        <TouchableOpacity style={styles.menuItem} onPress={handleSubscribe}>
           <View style={styles.menuIcon}>
             <MaterialIcons name="card-membership" size={24} color="#333" />
           </View>
           <View style={styles.menuContent}>
             <Text style={styles.menuTitle}>Subscribe</Text>
-            <Text style={styles.menuSubtitle}>
-              get full access with promos!
-            </Text>
+            <Text style={styles.menuSubtitle}>coming soon!</Text>
           </View>
           <MaterialIcons name="chevron-right" size={24} color="#777" />
         </TouchableOpacity>

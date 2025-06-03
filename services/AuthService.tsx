@@ -5,16 +5,37 @@ export interface User {
   id?: string;
   email: string;
   name?: string;
-  phone?: string;
+  phone?: string; // Full phone with country code
+  phone_number?: string; // Phone number only
+  country_code?: string; // Country code only
   location?: string;
 }
 
 export interface UpdateProfileData {
   name?: string;
   phone?: string;
+  phone_number?: string;
+  country_code?: string;
   location?: string;
   email?: string;
   password?: string;
+}
+
+// Enhanced update profile options
+export interface UpdateProfileOptions {
+  email?: string;
+  password?: string;
+  sendEmailConfirmation?: boolean; // Control email confirmation
+  emailTemplate?: "default" | "custom"; // Choose email template
+}
+
+// Result interfaces
+export interface UpdateProfileResult {
+  success: boolean;
+  error?: string;
+  requiresEmailConfirmation?: boolean;
+  requiresPasswordReset?: boolean;
+  updatedFields?: string[];
 }
 
 // Error types untuk kategorisasi error
@@ -27,6 +48,7 @@ export enum AuthErrorType {
   EMAIL_NOT_CONFIRMED = "EMAIL_NOT_CONFIRMED",
   CONNECTION_ERROR = "CONNECTION_ERROR",
   TIMEOUT_ERROR = "TIMEOUT_ERROR",
+  PHONE_INVALID = "PHONE_INVALID",
   UNKNOWN_ERROR = "UNKNOWN_ERROR",
 }
 
@@ -129,7 +151,12 @@ export class AuthService {
           id: data.user.id,
           email: data.user.email!,
           name: profile?.name || data.user.email?.split("@")[0],
-          phone: profile?.phone,
+          phone:
+            profile?.country_code && profile?.phone_number
+              ? `${profile.country_code}${profile.phone_number}`
+              : profile?.phone,
+          phone_number: profile?.phone_number,
+          country_code: profile?.country_code || "+62",
           location: profile?.location,
         };
 
@@ -155,44 +182,49 @@ export class AuthService {
     }
   }
 
-  // Check if email already exists
+  // Check if email already exists - FIXED VERSION
   static async checkEmailExists(email: string): Promise<boolean> {
     try {
       console.log("🔍 Checking if email exists:", email);
-      
-      // Method 1: Use database function (lebih efisien)
-      const { data, error } = await supabase
-        .rpc('check_email_exists', { check_email: email.toLowerCase() });
-      
-      if (error) {
-        console.error("❌ Error calling check_email_exists:", error);
-        // Fallback to method 2
-      } else if (data === true) {
-        console.log("📧 Email found via RPC:", email);
-        return true;
+
+      // Method 1: Use database function (RECOMMENDED)
+      try {
+        const { data, error } = await supabase.rpc("check_email_exists", {
+          email_input: email.toLowerCase().trim(),
+        });
+
+        if (!error && typeof data === "boolean") {
+          if (data === true) {
+            console.log("📧 Email found via RPC:", email);
+            return true;
+          } else {
+            console.log("✅ Email available via RPC:", email);
+            return false;
+          }
+        } else {
+          console.warn(
+            "⚠️ RPC method failed, falling back to profiles check:",
+            error
+          );
+        }
+      } catch (rpcError) {
+        console.warn("⚠️ RPC error, using fallback:", rpcError);
       }
 
-      // Method 2: Check di profiles table directly
+      // Method 2: Check di profiles table directly (FALLBACK)
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('email', email.toLowerCase())
+        .from("profiles")
+        .select("email")
+        .eq("email", email.toLowerCase().trim())
         .maybeSingle();
-      
+
+      if (profileError) {
+        console.warn("⚠️ Profile check error:", profileError);
+        return false;
+      }
+
       if (profile) {
         console.log("📧 Email found in profiles:", email);
-        return true;
-      }
-
-      // Method 3: Try to sign in with a dummy password to check if user exists
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.toLowerCase(),
-        password: 'dummy_password_to_check_existence_12345'
-      });
-
-      // Jika error adalah "Invalid login credentials" berarti user ada
-      if (signInError && signInError.message.toLowerCase().includes('invalid login credentials')) {
-        console.log("📧 Email exists (confirmed via auth):", email);
         return true;
       }
 
@@ -204,7 +236,7 @@ export class AuthService {
     }
   }
 
-  // Signup function dengan better error handling
+  // Signup function dengan better error handling - FIXED VERSION
   static async signup(
     email: string,
     password: string
@@ -213,6 +245,7 @@ export class AuthService {
     user?: User;
     error?: string;
     errorType?: AuthErrorType;
+    needsEmailConfirmation?: boolean;
   }> {
     try {
       // Test connection first
@@ -233,7 +266,8 @@ export class AuthService {
         console.log("❌ Email already registered:", email);
         return {
           success: false,
-          error: "Email sudah terdaftar. Silakan gunakan email lain atau login.",
+          error:
+            "Email sudah terdaftar. Silakan gunakan email lain atau login.",
           errorType: AuthErrorType.USER_EXISTS,
         };
       }
@@ -245,7 +279,7 @@ export class AuthService {
 
       if (error) {
         console.error("❌ Signup error:", error.message);
-        console.error("❌ Full error object:", error); // Log full error untuk debugging
+        console.error("❌ Full error object:", error);
         const authError = this.parseAuthError(error.message);
         return {
           success: false,
@@ -255,17 +289,32 @@ export class AuthService {
       }
 
       if (data.user) {
-        // Profile akan dibuat otomatis oleh trigger, tidak perlu insert manual
-        console.log("✅ User created, profile will be created by trigger");
-        
-        const user: User = {
-          id: data.user.id,
-          email: data.user.email!,
-          name: data.user.email?.split("@")[0],
-        };
+        console.log("✅ User created, email confirmation required");
 
-        console.log("✅ Signup successful for:", data.user.email);
-        return { success: true, user };
+        // ✅ FIXED: Jangan return user object sebelum email confirmed
+        // Cek apakah user sudah confirmed atau belum
+        if (data.user.email_confirmed_at) {
+          // Jika sudah confirmed (jarang terjadi di signup)
+          const user: User = {
+            id: data.user.id,
+            email: data.user.email!,
+            name: data.user.email?.split("@")[0],
+            country_code: "+62",
+          };
+
+          console.log(
+            "✅ Signup successful and confirmed for:",
+            data.user.email
+          );
+          return { success: true, user };
+        } else {
+          // ✅ EXPECTED CASE: User perlu konfirmasi email
+          console.log("📧 Email confirmation required for:", data.user.email);
+          return {
+            success: true,
+            needsEmailConfirmation: true,
+          };
+        }
       }
 
       return {
@@ -307,14 +356,14 @@ export class AuthService {
     }
   }
 
-  // Update profile function dengan better error handling
+  // SIMPLIFIED Update Profile function
   static async updateProfile(
     userId: string,
-    userData: User,
-    options?: { email?: string; password?: string }
-  ): Promise<{ success: boolean; error?: string }> {
+    currentUser: User,
+    profileData: UpdateProfileData,
+    authOptions?: UpdateProfileOptions
+  ): Promise<UpdateProfileResult> {
     try {
-      // Test connection first
       const connectionTest = await this.testConnection();
       if (!connectionTest.success) {
         return {
@@ -323,47 +372,199 @@ export class AuthService {
         };
       }
 
-      // 1. Update email in Supabase Auth (if changed)
-      if (options?.email) {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: options.email,
-        });
+      console.log("📝 Profile update attempt for user:", userId);
+      console.log("📝 Profile data:", profileData);
+      console.log("📝 Auth options:", authOptions);
 
-        if (emailError) {
-          console.error("❌ Update email error:", emailError.message);
-          return { success: false, error: emailError.message };
+      const updatedFields: string[] = [];
+      let requiresEmailConfirmation = false;
+
+      // 1. Handle Email Update FIRST (Supabase Auth)
+      if (authOptions?.email && authOptions.email !== currentUser.email) {
+        try {
+          console.log(
+            "📧 Updating email from",
+            currentUser.email,
+            "to",
+            authOptions.email
+          );
+
+          const { error: emailError } = await supabase.auth.updateUser({
+            email: authOptions.email,
+          });
+
+          if (emailError) {
+            console.error("❌ Update email error:", emailError.message);
+            return {
+              success: false,
+              error: `Gagal update email: ${emailError.message}`,
+            };
+          }
+
+          updatedFields.push("email");
+          requiresEmailConfirmation = true;
+          console.log("✅ Email update initiated, confirmation required");
+        } catch (error) {
+          console.error("❌ Email update error:", error);
+          return {
+            success: false,
+            error: "Gagal mengupdate email",
+          };
         }
       }
 
-      // 2. Update password in Supabase Auth (if provided)
-      if (options?.password && options.password !== "••••••••") {
-        const { error: passwordError } = await supabase.auth.updateUser({
-          password: options.password,
-        });
+      // 2. Handle Password Update (Supabase Auth)
+      if (
+        authOptions?.password &&
+        authOptions.password !== "••••••••" &&
+        authOptions.password.length > 0
+      ) {
+        try {
+          console.log("🔐 Updating password");
 
-        if (passwordError) {
-          console.error("❌ Update password error:", passwordError.message);
-          return { success: false, error: passwordError.message };
+          if (authOptions.password.length < 6) {
+            return {
+              success: false,
+              error: "Password minimal 6 karakter",
+            };
+          }
+
+          const { error: passwordError } = await supabase.auth.updateUser({
+            password: authOptions.password,
+          });
+
+          if (passwordError) {
+            console.error("❌ Update password error:", passwordError.message);
+            return {
+              success: false,
+              error: `Gagal update password: ${passwordError.message}`,
+            };
+          }
+
+          updatedFields.push("password");
+          console.log("✅ Password updated successfully");
+        } catch (error) {
+          console.error("❌ Password update error:", error);
+          return {
+            success: false,
+            error: "Gagal mengupdate password",
+          };
         }
       }
 
-      // 3. Update profile in database dengan upsert
-      const { error } = await supabase.from("profiles").upsert({
-        id: userId,
-        name: userData.name,
-        phone: userData.phone,
-        location: userData.location,
-        email: options?.email || userData.email,
-        updated_at: new Date().toISOString(),
-      });
+      // 3. Check if there are any profile changes
+      const hasProfileChanges =
+        (profileData.name && profileData.name !== currentUser.name) ||
+        (profileData.location &&
+          profileData.location !== currentUser.location) ||
+        (profileData.country_code &&
+          profileData.country_code !== currentUser.country_code) ||
+        (profileData.phone_number &&
+          profileData.phone_number !== currentUser.phone_number);
 
-      if (error) {
-        console.error("❌ Update profile error:", error.message);
-        return { success: false, error: error.message };
+      console.log("📝 Has profile changes:", hasProfileChanges);
+
+      // 4. Update Profile Data (Database) - ONLY if there are profile changes
+      if (hasProfileChanges) {
+        try {
+          console.log("📝 Updating profile data in database");
+
+          // Method 1: Try using the database function (if available)
+          try {
+            const { data: updateResult, error: functionError } =
+              await supabase.rpc("update_user_profile_simple", {
+                p_user_id: userId,
+                p_name: profileData.name || null,
+                p_phone_number: profileData.phone_number || null,
+                p_country_code: profileData.country_code || null,
+                p_location: profileData.location || null,
+              });
+
+            if (functionError) {
+              throw new Error("Function not available, using direct update");
+            }
+
+            console.log("✅ Profile updated using database function");
+
+            // Add profile update success to fields
+            if (profileData.name) updatedFields.push("name");
+            if (profileData.location) updatedFields.push("location");
+            if (profileData.country_code) updatedFields.push("country_code");
+            if (profileData.phone_number) updatedFields.push("phone_number");
+          } catch (functionError) {
+            // Method 2: Fallback to direct table update
+            console.log("📝 Using direct table update as fallback");
+
+            const updateData: any = {
+              updated_at: new Date().toISOString(),
+            };
+
+            // Only add fields that are changing
+            if (profileData.name && profileData.name !== currentUser.name) {
+              updateData.name = profileData.name;
+              updatedFields.push("name");
+            }
+            if (
+              profileData.location &&
+              profileData.location !== currentUser.location
+            ) {
+              updateData.location = profileData.location;
+              updatedFields.push("location");
+            }
+            if (
+              profileData.country_code &&
+              profileData.country_code !== currentUser.country_code
+            ) {
+              updateData.country_code = profileData.country_code;
+              updatedFields.push("country_code");
+            }
+            if (
+              profileData.phone_number &&
+              profileData.phone_number !== currentUser.phone_number
+            ) {
+              updateData.phone_number = profileData.phone_number;
+              updatedFields.push("phone_number");
+            }
+
+            const { error: profileError } = await supabase
+              .from("profiles")
+              .update(updateData)
+              .eq("id", userId);
+
+            if (profileError) {
+              console.error("❌ Update profile error:", profileError.message);
+              return {
+                success: false,
+                error: `Gagal update profil: ${profileError.message}`,
+              };
+            }
+
+            console.log("✅ Profile updated using direct table update");
+          }
+        } catch (error) {
+          console.error("❌ Profile database update error:", error);
+          return {
+            success: false,
+            error: "Gagal menyimpan perubahan profil",
+          };
+        }
       }
 
-      console.log("✅ Profile updated successfully");
-      return { success: true };
+      // 5. Check if anything was actually updated
+      if (updatedFields.length === 0 && !hasProfileChanges) {
+        return {
+          success: false,
+          error: "Tidak ada perubahan yang perlu disimpan",
+        };
+      }
+
+      console.log("✅ Update successful, fields updated:", updatedFields);
+
+      return {
+        success: true,
+        requiresEmailConfirmation,
+        updatedFields,
+      };
     } catch (error) {
       console.error("❌ Update profile error:", error);
       return {
@@ -412,7 +613,12 @@ export class AuthService {
           id: session.user.id,
           email: session.user.email!,
           name: profile?.name || session.user.email?.split("@")[0],
-          phone: profile?.phone,
+          phone:
+            profile?.country_code && profile?.phone_number
+              ? `${profile.country_code}${profile.phone_number}`
+              : profile?.phone,
+          phone_number: profile?.phone_number,
+          country_code: profile?.country_code || "+62",
           location: profile?.location,
         };
 
@@ -518,11 +724,5 @@ export class AuthService {
       message: errorMessage,
       originalError: errorMessage,
     };
-  }
-
-  // Helper function untuk error messages yang user-friendly (deprecated, gunakan parseAuthError)
-  private static getFriendlyErrorMessage(errorMessage: string): string {
-    const authError = this.parseAuthError(errorMessage);
-    return authError.message;
   }
 }

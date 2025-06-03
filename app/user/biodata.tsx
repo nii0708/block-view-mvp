@@ -13,10 +13,11 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "../../context/AuthContext"; // ✅ Import from context
+import { useAuth } from "../../context/AuthContext";
 import { MaterialIcons } from "@expo/vector-icons";
 import { Input, Button } from "../../components/FormComponents";
-import { supabase } from "../../config/supabase"; // ✅ Import from config
+import PhoneInput from "../../components/PhoneInput";
+import { UpdateProfileData, UpdateProfileOptions } from "@/services/AuthService";
 
 export default function BiodataScreen() {
   const { user, updateUserProfile, loading } = useAuth();
@@ -26,9 +27,15 @@ export default function BiodataScreen() {
   // Form state
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+62");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [fullPhone, setFullPhone] = useState("");
   const [location, setLocation] = useState("");
   const [password, setPassword] = useState("••••••••");
+
+  // Validation states
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
 
   // Handle redirect and populate form
   useEffect(() => {
@@ -40,66 +47,176 @@ export default function BiodataScreen() {
     if (user) {
       setName(user.name || "");
       setEmail(user.email || "");
-      setPhone(user.phone || "");
       setLocation(user.location || "");
+      setCountryCode(user.country_code || "+62");
+      setPhoneNumber(user.phone_number || "");
+      setFullPhone(user.phone || "");
     }
   }, [user, loading, router]);
+
+  // Validation functions
+  const validateEmail = (emailValue: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailValue.trim()) {
+      setEmailError("Email wajib diisi");
+      return false;
+    }
+    if (!emailRegex.test(emailValue)) {
+      setEmailError("Format email tidak valid");
+      return false;
+    }
+    setEmailError("");
+    return true;
+  };
+
+  const validatePassword = (passwordValue: string): boolean => {
+    if (
+      passwordValue !== "••••••••" &&
+      passwordValue.length > 0 &&
+      passwordValue.length < 6
+    ) {
+      setPasswordError("Password minimal 6 karakter");
+      return false;
+    }
+    setPasswordError("");
+    return true;
+  };
+
+  const handlePhoneChange = (
+    fullNumber: string,
+    code: string,
+    numberOnly: string
+  ) => {
+    setFullPhone(fullNumber);
+    setCountryCode(code);
+    setPhoneNumber(numberOnly);
+  };
 
   const handleUpdateProfile = async () => {
     if (!user) return;
 
-    if (!name.trim() || !email.trim()) {
-      Alert.alert("Error", "Name and email are required");
+    // Validate form first
+    if (!name.trim()) {
+      Alert.alert("Error", "Nama wajib diisi");
+      return;
+    }
+
+    // Check what actually changed
+    const nameChanged = name.trim() !== user.name;
+    const locationChanged = location.trim() !== user.location;
+    const phoneChanged =
+      phoneNumber !== user.phone_number || countryCode !== user.country_code;
+    const emailChanged = email !== user.email;
+    const passwordChanged = password !== "••••••••" && password.length > 0;
+
+    console.log("🔄 Changes detected:", {
+      nameChanged,
+      locationChanged,
+      phoneChanged,
+      emailChanged,
+      passwordChanged,
+    });
+
+    // Validate only if fields are changing
+    if (emailChanged && !validateEmail(email)) {
+      Alert.alert("Error", "Format email tidak valid");
+      return;
+    }
+
+    if (passwordChanged && !validatePassword(password)) {
+      Alert.alert("Error", "Password minimal 6 karakter");
+      return;
+    }
+
+    // Check if anything actually changed
+    if (
+      !nameChanged &&
+      !locationChanged &&
+      !phoneChanged &&
+      !emailChanged &&
+      !passwordChanged
+    ) {
+      Alert.alert("Info", "Tidak ada perubahan yang perlu disimpan");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Check if email or password changed
-      const emailChanged = email !== user.email;
-      const passwordChanged = password !== "••••••••" && password.length > 0;
+      // Prepare update data using your existing interface
+      const updateData: UpdateProfileData = {};
 
-      // Validate password if changed
-      if (passwordChanged && password.length < 6) {
-        Alert.alert("Error", "Password must be at least 6 characters long");
-        setIsLoading(false);
-        return;
+      // Only include changed fields
+      if (nameChanged) {
+        updateData.name = name.trim();
       }
 
-      // Update profile using context method
-      const success = await updateUserProfile(
-        {
-          ...user,
-          name: name.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-          location: location.trim(),
-        },
-        {
-          email: emailChanged ? email.trim() : undefined,
-          password: passwordChanged ? password : undefined,
-        }
-      );
+      if (locationChanged) {
+        updateData.location = location.trim();
+      }
 
-      if (success) {
-        let message = "Profile updated successfully";
-        if (emailChanged) {
-          message +=
-            "\nPlease check your email to confirm the new email address.";
+      if (phoneChanged) {
+        updateData.country_code = countryCode;
+        updateData.phone_number = phoneNumber;
+      }
+
+      // Prepare auth options
+      const authOptions: UpdateProfileOptions = {};
+
+      if (emailChanged) {
+        authOptions.email = email.trim();
+      }
+
+      if (passwordChanged) {
+        authOptions.password = password;
+      }
+
+      console.log("📝 Calling updateUserProfile with:", {
+        updateData,
+        authOptions,
+      });
+
+      // Call update profile with your existing interface
+      const result = await updateUserProfile(updateData, authOptions);
+
+      if (result.success) {
+        // Create success message based on what was updated
+        let successMessages: string[] = [];
+
+        if (result.updatedFields?.includes("name")) {
+          successMessages.push("✅ Nama berhasil diperbarui");
         }
-        if (passwordChanged) {
-          message += "\nPassword updated successfully.";
+        if (result.updatedFields?.includes("location")) {
+          successMessages.push("✅ Lokasi berhasil diperbarui");
+        }
+        if (
+          result.updatedFields?.includes("phone_number") ||
+          result.updatedFields?.includes("country_code")
+        ) {
+          successMessages.push("✅ Nomor telepon berhasil diperbarui");
+        }
+        if (result.updatedFields?.includes("password")) {
+          successMessages.push("✅ Password berhasil diperbarui");
           setPassword("••••••••"); // Reset password field
         }
 
-        Alert.alert("Success", message);
+        let alertMessage =
+          successMessages.length > 0
+            ? successMessages.join("\n")
+            : "✅ Profil berhasil diperbarui";
+
+        if (result.requiresEmailConfirmation) {
+          alertMessage +=
+            "\n\n📧 Email konfirmasi telah dikirim ke alamat email baru Anda. Silakan cek email untuk mengkonfirmasi perubahan email.";
+        }
+
+        Alert.alert("Berhasil! 🎉", alertMessage);
       } else {
-        Alert.alert("Error", "Failed to update profile");
+        Alert.alert("Error", result.error || "Gagal memperbarui profil");
       }
     } catch (error) {
-      Alert.alert("Error", "An error occurred while updating profile");
-      console.error("Update profile error:", error);
+      console.error("❌ Update profile error:", error);
+      Alert.alert("Error", "Terjadi kesalahan saat memperbarui profil");
     } finally {
       setIsLoading(false);
     }
@@ -127,7 +244,7 @@ export default function BiodataScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Biodata user</Text>
+        <Text style={styles.headerTitle}>Biodata User</Text>
         <TouchableOpacity
           style={styles.homeButton}
           onPress={() => router.push("/")}
@@ -149,64 +266,78 @@ export default function BiodataScreen() {
               {user.name || user.email.split("@")[0]}
             </Text>
             <Text style={styles.emailText}>{user.email}</Text>
+            {fullPhone && <Text style={styles.phoneText}>{fullPhone}</Text>}
           </View>
 
           <View style={styles.formContainer}>
             <Input
-              label="Name"
+              label="Nama Lengkap"
               value={name}
               onChangeText={setName}
               autoCapitalize="words"
+              placeholder="Masukkan nama lengkap"
             />
 
-            <Input
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-            />
-
-            <View style={styles.phoneContainer}>
-              <Text style={styles.label}>Phone number</Text>
-              <View style={styles.phoneInputContainer}>
-                <View style={styles.countryCode}>
-                  <MaterialIcons name="flag" size={20} color="#555" />
-                  <Text style={styles.countryCodeText}>+62</Text>
-                  <MaterialIcons
-                    name="arrow-drop-down"
-                    size={20}
-                    color="#555"
-                  />
-                </View>
-                <View style={styles.phoneInput}>
-                  <Input
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                    style={{ marginBottom: 0 }}
-                  />
-                </View>
-              </View>
+            <View style={styles.inputGroup}>
+              <Input
+                label="Email"
+                value={email}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  if (emailError) setEmailError("");
+                }}
+                keyboardType="email-address"
+                placeholder="contoh@email.com"
+                autoCapitalize="none"
+              />
+              {emailError ? (
+                <Text style={styles.errorText}>{emailError}</Text>
+              ) : null}
+              {email !== user.email && (
+                <Text style={styles.helpText}>
+                  ⚠️ Mengubah email akan mengirim konfirmasi ke email baru
+                </Text>
+              )}
             </View>
 
+            <PhoneInput
+              label="Nomor Telepon"
+              value={fullPhone}
+              countryCode={countryCode}
+              numberOnly={phoneNumber}
+              onChangeText={handlePhoneChange}
+            />
+
             <Input
-              label="Location"
+              label="Lokasi"
               value={location}
               onChangeText={setLocation}
               autoCapitalize="words"
+              placeholder="Kota, Provinsi"
             />
 
-            <Input
-              label="Change password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              style={styles.lastInput}
-              placeholder="Enter new password"
-            />
+            <View style={styles.inputGroup}>
+              <Input
+                label="Ubah Password"
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  if (passwordError) setPasswordError("");
+                }}
+                secureTextEntry
+                style={styles.lastInput}
+                placeholder="Masukkan password baru"
+              />
+              {passwordError ? (
+                <Text style={styles.errorText}>{passwordError}</Text>
+              ) : null}
+              <Text style={styles.helpText}>
+                Kosongkan jika tidak ingin mengubah password
+              </Text>
+            </View>
 
             <Button
-              title="Update profile"
+              title="Perbarui Profil"
               onPress={handleUpdateProfile}
               isLoading={isLoading}
               style={styles.updateButton}
@@ -284,46 +415,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#555",
     fontFamily: "Montserrat_400Regular",
+    marginBottom: 2,
+  },
+  phoneText: {
+    fontSize: 14,
+    color: "#555",
+    fontFamily: "Montserrat_400Regular",
   },
   formContainer: {
     paddingHorizontal: 24,
     marginTop: 16,
   },
-  phoneContainer: {
+  inputGroup: {
     marginBottom: 16,
   },
-  label: {
-    fontSize: 16,
-    color: "#000",
-    marginBottom: 8,
+  errorText: {
+    fontSize: 12,
+    color: "#ff4444",
+    marginTop: 4,
     fontFamily: "Montserrat_400Regular",
   },
-  phoneInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  countryCode: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-    paddingHorizontal: 8,
-    height: 48,
-    borderRadius: 8,
-    marginRight: 10,
-  },
-  countryCodeText: {
-    marginHorizontal: 8,
-    fontSize: 16,
+  helpText: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
     fontFamily: "Montserrat_400Regular",
-  },
-  phoneInput: {
-    flex: 1,
   },
   lastInput: {
-    marginBottom: 24,
+    marginBottom: 0,
   },
   updateButton: {
-    marginTop: 16,
+    marginTop: 24,
     marginBottom: 30,
   },
   divider: {

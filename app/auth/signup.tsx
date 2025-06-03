@@ -55,26 +55,39 @@ export default function SignupScreen() {
       const result = await signup(email.trim().toLowerCase(), password);
 
       if (result.success) {
-        // ✅ BERHASIL - Show success message dan arahkan ke email check
-        Alert.alert(
-          "Pendaftaran Berhasil! 🎉",
-          `Kami telah mengirim email konfirmasi ke:\n${email}\n\nSilakan periksa inbox Anda dan klik link konfirmasi untuk mengaktifkan akun.`,
-          [
-            {
-              text: "Mengerti",
-              onPress: () => {
-                // Redirect ke screen khusus untuk check email atau ke login
-                router.push({
-                  pathname: "/auth/login",
-                  params: { 
-                    email: email.trim().toLowerCase(),
-                    fromSignup: "true" 
-                  },
-                });
+        if (result.needsEmailConfirmation) {
+          // ✅ EXPECTED CASE: Perlu konfirmasi email
+          Alert.alert(
+            "Pendaftaran Berhasil! 🎉",
+            `Kami telah mengirim email konfirmasi ke:\n${email}\n\nSilakan periksa inbox Anda dan klik link konfirmasi untuk mengaktifkan akun.`,
+            [
+              {
+                text: "Mengerti",
+                onPress: () => {
+                  // ✅ FIXED: Arahkan ke check-email screen
+                  router.push({
+                    pathname: "/auth/check-email",
+                    params: {
+                      email: email.trim().toLowerCase(),
+                    },
+                  });
+                },
               },
-            },
-          ]
-        );
+            ]
+          );
+        } else {
+          // Rare case: User sudah confirmed langsung
+          Alert.alert(
+            "Pendaftaran Berhasil! 🎉",
+            "Akun Anda berhasil dibuat dan langsung aktif!",
+            [
+              {
+                text: "Lanjut",
+                onPress: () => router.replace("/"),
+              },
+            ]
+          );
+        }
       } else {
         // ❌ GAGAL - Show error message based on error type
         const errorMessage = result.error || lastError || "Gagal membuat akun";
@@ -90,12 +103,13 @@ export default function SignupScreen() {
             "Email Sudah Terdaftar",
             `Email ${email} sudah digunakan. Silakan login atau gunakan email lain.`,
             [
-              { 
-                text: "Login", 
-                onPress: () => router.push({
-                  pathname: "/auth/login",
-                  params: { email: email.trim().toLowerCase() }
-                }) 
+              {
+                text: "Login",
+                onPress: () =>
+                  router.push({
+                    pathname: "/auth/login",
+                    params: { email: email.trim().toLowerCase() },
+                  }),
               },
               { text: "Coba Email Lain", style: "cancel" },
             ]
@@ -105,14 +119,10 @@ export default function SignupScreen() {
         } else if (errorMessage.toLowerCase().includes("format email")) {
           Alert.alert("Email Tidak Valid", errorMessage);
         } else if (errorMessage.toLowerCase().includes("koneksi")) {
-          Alert.alert(
-            "Masalah Koneksi",
-            errorMessage,
-            [
-              { text: "Coba Lagi", onPress: handleSignup },
-              { text: "Batal", style: "cancel" },
-            ]
-          );
+          Alert.alert("Masalah Koneksi", errorMessage, [
+            { text: "Coba Lagi", onPress: handleSignup },
+            { text: "Batal", style: "cancel" },
+          ]);
         } else {
           Alert.alert("Pendaftaran Gagal", errorMessage);
         }

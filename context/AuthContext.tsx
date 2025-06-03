@@ -6,7 +6,13 @@ import React, {
   ReactNode,
 } from "react";
 import { supabase } from "../config/supabase";
-import { AuthService, User } from "../services/AuthService";
+import {
+  AuthService,
+  User,
+  UpdateProfileData,
+  UpdateProfileOptions,
+  UpdateProfileResult,
+} from "../services/AuthService";
 
 // Context interface
 interface AuthContextType {
@@ -19,12 +25,16 @@ interface AuthContextType {
   signup: (
     email: string,
     password: string
-  ) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    needsEmailConfirmation?: boolean;
+  }>;
   logout: () => Promise<void>;
   updateUserProfile: (
-    userData: User,
-    options?: { email?: string; password?: string }
-  ) => Promise<{ success: boolean; error?: string }>;
+    userData: UpdateProfileData,
+    options?: UpdateProfileOptions
+  ) => Promise<UpdateProfileResult>;
   loading: boolean;
   connectionStatus: "connecting" | "connected" | "error";
   lastError: string | null;
@@ -172,7 +182,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const signup = async (
     email: string,
     password: string
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    needsEmailConfirmation?: boolean;
+  }> => {
     setLoading(true);
     setLastError(null);
 
@@ -181,16 +195,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
       const result = await AuthService.signup(email, password);
 
-      if (result.success && result.user) {
-        setUser(result.user);
-        console.log("✅ Signup successful");
-        return { success: true };
-      } else {
-        const error = result.error || "Signup failed";
-        setLastError(error);
-        console.error("❌ Signup failed:", error);
-        return { success: false, error };
+      if (result.success) {
+        if (result.user) {
+          // Jika user sudah confirmed langsung (rare case)
+          setUser(result.user);
+          console.log("✅ Signup successful and confirmed");
+          return { success: true };
+        } else if (result.needsEmailConfirmation) {
+          // ✅ EXPECTED: User perlu konfirmasi email
+          console.log("📧 Signup successful, email confirmation needed");
+          return { success: true, needsEmailConfirmation: true };
+        }
       }
+
+      // Handle error cases
+      const error = result.error || "Signup failed";
+      setLastError(error);
+      console.error("❌ Signup failed:", error);
+      return { success: false, error };
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Signup error";
@@ -229,11 +251,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
   };
 
-  // Update profile wrapper
+  // Enhanced update profile wrapper
   const updateUserProfile = async (
-    userData: User,
-    options?: { email?: string; password?: string }
-  ): Promise<{ success: boolean; error?: string }> => {
+    userData: UpdateProfileData,
+    options?: UpdateProfileOptions
+  ): Promise<UpdateProfileResult> => {
     if (!user?.id) {
       const error = "No user ID found";
       console.error("❌", error);
@@ -246,27 +268,50 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
     try {
       console.log("📝 Profile update attempt");
+      console.log("📝 Current user:", user);
+      console.log("📝 Update data:", userData);
+      console.log("📝 Options:", options);
 
       const result = await AuthService.updateProfile(
         user.id,
+        user, // Pass current user data for comparison
         userData,
         options
       );
 
       if (result.success) {
-        // Update local state
-        setUser({
+        // Update local state with new data
+        const updatedUser: User = {
           ...user,
-          ...userData,
-          email: options?.email || userData.email,
-        });
-        console.log("✅ Profile update successful");
-        return { success: true };
+          // Only update fields that were actually changed
+          name: userData.name !== undefined ? userData.name : user.name,
+          location:
+            userData.location !== undefined ? userData.location : user.location,
+          country_code:
+            userData.country_code !== undefined
+              ? userData.country_code
+              : user.country_code,
+          phone_number:
+            userData.phone_number !== undefined
+              ? userData.phone_number
+              : user.phone_number,
+          phone:
+            userData.country_code && userData.phone_number
+              ? `${userData.country_code}${userData.phone_number}`
+              : user.phone,
+          // Email stays the same until confirmation (only changes after user confirms new email)
+          email: user.email, // Don't change email immediately
+        };
+
+        setUser(updatedUser);
+        console.log("✅ Local user state updated:", updatedUser);
+
+        return result;
       } else {
         const error = result.error || "Profile update failed";
         setLastError(error);
         console.error("❌ Profile update failed:", error);
-        return { success: false, error };
+        return result;
       }
     } catch (error) {
       const errorMessage =

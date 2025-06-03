@@ -25,6 +25,7 @@ interface InputProps {
   keyboardType?: KeyboardTypeOptions;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   error?: string;
+  editable?: boolean; // <-- Tambahkan prop editable di sini
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -39,6 +40,7 @@ export const Input: React.FC<InputProps> = ({
   keyboardType = "default",
   autoCapitalize = "none",
   error,
+  editable = true, // <-- Tambahkan editable di sini dengan default true
 }) => {
   return (
     <View style={[styles.inputContainer, style]}>
@@ -46,13 +48,20 @@ export const Input: React.FC<InputProps> = ({
         <Text style={[styles.inputLabel, labelStyle]}>{label}</Text>
       ) : null}
       <TextInput
-        style={[styles.input, error && styles.inputError, inputStyle]}
+        style={[
+          styles.input,
+          error && styles.inputError,
+          !editable && styles.disabledInput, // <-- Tambahkan style untuk disabled
+          inputStyle,
+        ]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        editable={editable} // <-- Teruskan prop editable ke TextInput
+        placeholderTextColor={!editable ? "#999" : "#ccc"} // <-- Ubah warna placeholder saat disabled
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
@@ -109,7 +118,7 @@ export const Button: React.FC<ButtonProps> = ({
   );
 };
 
-// ====== Loading Button Component (untuk loading yang lebih prominent) ======
+// ====== Loading Button Component ======
 interface LoadingButtonProps extends ButtonProps {
   loadingColor?: string;
   loadingText?: string;
@@ -122,7 +131,7 @@ export const LoadingButton: React.FC<LoadingButtonProps> = ({
   textStyle,
   isLoading = false,
   disabled = false,
-  loadingColor = "#CFE625", // Warna yang sama dengan LoadingScreen
+  loadingColor = "#CFE625",
   loadingText,
   variant = "primary",
 }) => {
@@ -178,6 +187,11 @@ const styles = StyleSheet.create({
     color: "#000",
     backgroundColor: "#fff",
     fontFamily: "Montserrat_400Regular",
+  },
+  disabledInput: {
+    // <-- Style untuk input yang tidak editable
+    backgroundColor: "#f0f0f0",
+    color: "#999",
   },
   inputError: {
     borderColor: "#ff4444",

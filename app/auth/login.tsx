@@ -22,12 +22,15 @@ import {
   Montserrat_500Medium,
   Montserrat_600SemiBold,
 } from "@expo-google-fonts/montserrat";
+import PrivacyConsentPopup from "@/components/PrivacyConsentPopup";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showConsentPopup, setShowConsentPopup] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Montserrat_400Regular,
@@ -55,15 +58,42 @@ export default function LoginScreen() {
 
       if (error) {
         Alert.alert("Login Gagal", error.message);
+        setIsLoading(false);
         return;
       }
 
       console.log("Login berhasil:", data);
-      router.replace("/");
+
+      const consentGiven = await AsyncStorage.getItem("@privacyConsentGiven");
+      console.log("Consent Status from Storage:", consentGiven);
+
+      if (consentGiven === "true") {
+        console.log("Consent already given, navigating to home.");
+        router.replace("/"); // Langsung ke halaman utama (index)
+      } else {
+        console.log("Consent not given, showing popup.");
+        setShowConsentPopup(true);
+        setIsLoading(false);
+      }
     } catch (error) {
       console.error("Login error:", error);
       Alert.alert("Error", "Terjadi kesalahan saat login");
-    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAgreeToPrivacy = async () => {
+    console.log("Agree button pressed in popup.");
+    try {
+      setIsLoading(true);
+      await AsyncStorage.setItem("@privacyConsentGiven", "true");
+      console.log("Consent status saved to storage.");
+      setShowConsentPopup(false);
+      console.log("Navigating to home after consent.");
+      router.replace("/"); // Arahkan ke halaman utama (index) setelah setuju
+    } catch (error) {
+      console.error("Error saving consent or navigating:", error);
+      Alert.alert("Error", "Gagal menyimpan persetujuan.");
       setIsLoading(false);
     }
   };
@@ -80,7 +110,7 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header */}
+      {/* Header - Style dikembalikan ke semula */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Login User</Text>
       </View>
@@ -96,7 +126,7 @@ export default function LoginScreen() {
           {/* Logo Section */}
           <View style={styles.logoContainer}>
             <Image
-              source={require("../../assets/images/logo.png")}
+              source={require("../../assets/images/logo.png")} // Pastikan path ini benar
               style={styles.logo}
               resizeMode="contain"
             />
@@ -114,6 +144,7 @@ export default function LoginScreen() {
               placeholder="email@example.com"
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={!(isLoading || showConsentPopup)}
             />
 
             <Input
@@ -122,6 +153,7 @@ export default function LoginScreen() {
               onChangeText={setPassword}
               secureTextEntry
               placeholder="Password"
+              editable={!(isLoading || showConsentPopup)}
             />
 
             <Button
@@ -129,6 +161,7 @@ export default function LoginScreen() {
               onPress={handleLogin}
               isLoading={isLoading}
               style={styles.loginButton}
+              disabled={isLoading || showConsentPopup}
             />
           </View>
 
@@ -140,7 +173,7 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={styles.socialButton}
                 onPress={handleGoogleLogin}
-                disabled={isLoading}
+                disabled={isLoading || showConsentPopup}
               >
                 <FontAwesome name="google" size={22} color="#DB4437" />
                 <Text style={styles.socialButtonText}>Google</Text>
@@ -149,7 +182,7 @@ export default function LoginScreen() {
               <TouchableOpacity
                 style={styles.socialButton}
                 onPress={handleFacebookLogin}
-                disabled={isLoading}
+                disabled={isLoading || showConsentPopup}
               >
                 <FontAwesome name="facebook" size={22} color="#1877F2" />
                 <Text style={styles.socialButtonText}>Facebook</Text>
@@ -160,8 +193,8 @@ export default function LoginScreen() {
           {/* Signup Link */}
           <View style={styles.signupContainer}>
             <TouchableOpacity
-              onPress={() => router.push("/auth/signup")}
-              disabled={isLoading}
+              onPress={() => router.push("/auth/signup")} // Pastikan path ini benar
+              disabled={isLoading || showConsentPopup}
             >
               <Text style={styles.signupText}>
                 Belum punya akun?{" "}
@@ -171,10 +204,21 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Render Popup Consent di sini */}
+      <PrivacyConsentPopup
+        visible={showConsentPopup}
+        onAgree={handleAgreeToPrivacy}
+        onClose={() => {
+          setShowConsentPopup(false);
+        }}
+        isProcessing={isLoading}
+      />
     </SafeAreaView>
   );
 }
 
+// Styles dikembalikan untuk header
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -182,15 +226,18 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "space-between", // Kembali ke space-between jika ada ikon lain
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 12,
+    // borderBottomWidth: 1, // Hapus garis bawah
+    // borderBottomColor: "#eee", // Hapus garis bawah
   },
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",
-    flex: 1,
+    flex: 1, // Biarkan flex agar rata kiri jika hanya ada judul
+    // textAlign: "center", // Hapus rata tengah
   },
   keyboardAvoidingView: {
     flex: 1,
