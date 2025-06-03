@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { MaterialIcons, FontAwesome } from "@expo/vector-icons";
 import { Input, Button } from "../../components/FormComponents";
+import { AuthErrorType } from "@/services/AuthService";
 
 export default function SignupScreen() {
   const [email, setEmail] = useState("");
@@ -62,27 +63,54 @@ export default function SignupScreen() {
             {
               text: "Mengerti",
               onPress: () => {
-                // Redirect ke screen khusus untuk check email
+                // Redirect ke screen khusus untuk check email atau ke login
                 router.push({
-                  pathname: "/auth/check-email",
-                  params: { email: email.trim().toLowerCase() },
+                  pathname: "/auth/login",
+                  params: { 
+                    email: email.trim().toLowerCase(),
+                    fromSignup: "true" 
+                  },
                 });
               },
             },
           ]
         );
       } else {
-        // ❌ GAGAL - Show error message
+        // ❌ GAGAL - Show error message based on error type
         const errorMessage = result.error || lastError || "Gagal membuat akun";
 
-        // Cek jika email sudah terdaftar
-        if (errorMessage.toLowerCase().includes("already")) {
+        // Cek jika email sudah terdaftar berdasarkan error message
+        if (
+          errorMessage.toLowerCase().includes("sudah terdaftar") ||
+          errorMessage.toLowerCase().includes("already") ||
+          errorMessage.toLowerCase().includes("duplicate") ||
+          errorMessage.toLowerCase().includes("exists")
+        ) {
           Alert.alert(
             "Email Sudah Terdaftar",
-            "Email ini sudah digunakan. Silakan login atau gunakan email lain.",
+            `Email ${email} sudah digunakan. Silakan login atau gunakan email lain.`,
             [
-              { text: "Login", onPress: () => router.push("/auth/login") },
-              { text: "Coba Lagi", style: "cancel" },
+              { 
+                text: "Login", 
+                onPress: () => router.push({
+                  pathname: "/auth/login",
+                  params: { email: email.trim().toLowerCase() }
+                }) 
+              },
+              { text: "Coba Email Lain", style: "cancel" },
+            ]
+          );
+        } else if (errorMessage.toLowerCase().includes("password minimal")) {
+          Alert.alert("Password Terlalu Lemah", errorMessage);
+        } else if (errorMessage.toLowerCase().includes("format email")) {
+          Alert.alert("Email Tidak Valid", errorMessage);
+        } else if (errorMessage.toLowerCase().includes("koneksi")) {
+          Alert.alert(
+            "Masalah Koneksi",
+            errorMessage,
+            [
+              { text: "Coba Lagi", onPress: handleSignup },
+              { text: "Batal", style: "cancel" },
             ]
           );
         } else {

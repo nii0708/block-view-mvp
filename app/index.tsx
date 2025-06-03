@@ -1,4 +1,3 @@
-// app/index.tsx - Fixed hooks order
 import React, { useState, useRef, useEffect } from "react";
 import {
   StyleSheet,
@@ -155,8 +154,8 @@ const SwipeableItem = ({
 export default function HomeScreen() {
   const router = useRouter();
 
-  // ✅ ALL HOOKS CALLED FIRST - BEFORE ANY EARLY RETURNS
-  const { isLoggedIn, loading: authLoading } = useAuth();
+  // // ✅ ALL HOOKS CALLED FIRST - BEFORE ANY EARLY RETURNS
+  // const { isLoggedIn, loading: authLoading } = useAuth();
   const [files, setFiles] = useState<FileService.MiningDataFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState("");
@@ -171,43 +170,40 @@ export default function HomeScreen() {
     useState<FileService.MiningDataFile | null>(null);
   const [editFileName, setEditFileName] = useState("");
 
-  // 🔐 AUTH PROTECTION - After all hooks
-  useEffect(() => {
-    if (!authLoading && !isLoggedIn) {
-      console.log("User not logged in, redirecting to login...");
-      router.replace("/auth/login");
-    }
-  }, [isLoggedIn, authLoading, router]);
+  // // 🔐 AUTH PROTECTION - After all hooks
+  // useEffect(() => {
+  //   if (!authLoading && !isLoggedIn) {
+  //     console.log("User not logged in, redirecting to login...");
+  //     router.replace("/auth/login");
+  //   }
+  // }, [isLoggedIn, authLoading, router]);
 
   // Load files when the screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
-      if (isLoggedIn) {
-        // Only load files if logged in
-        loadFiles();
-        setIsSelectionMode(false);
-        setSelectedFiles(new Set());
-      }
-    }, [isLoggedIn])
+      loadFiles();
+      setIsSelectionMode(false);
+      setSelectedFiles(new Set());
+    }, [])
   );
 
-  // ✅ EARLY RETURNS AFTER ALL HOOKS
-  // Show loading while checking auth
-  if (authLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#0066CC" />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // // ✅ EARLY RETURNS AFTER ALL HOOKS
+  // // Show loading while checking auth
+  // if (authLoading) {
+  //   return (
+  //     <SafeAreaView style={styles.container}>
+  //       <View style={styles.centerContainer}>
+  //         <ActivityIndicator size="large" color="#0066CC" />
+  //         <Text style={styles.loadingText}>Loading...</Text>
+  //       </View>
+  //     </SafeAreaView>
+  //   );
+  // }
 
-  // Don't render anything if no user (will redirect)
-  if (!isLoggedIn) {
-    return null;
-  }
+  // // Don't render anything if no user (will redirect)
+  // if (!isLoggedIn) {
+  //   return null;
+  // }
 
   const loadFiles = async () => {
     setLoading(true);

@@ -155,6 +155,55 @@ export class AuthService {
     }
   }
 
+  // Check if email already exists
+  static async checkEmailExists(email: string): Promise<boolean> {
+    try {
+      console.log("🔍 Checking if email exists:", email);
+      
+      // Method 1: Use database function (lebih efisien)
+      const { data, error } = await supabase
+        .rpc('check_email_exists', { check_email: email.toLowerCase() });
+      
+      if (error) {
+        console.error("❌ Error calling check_email_exists:", error);
+        // Fallback to method 2
+      } else if (data === true) {
+        console.log("📧 Email found via RPC:", email);
+        return true;
+      }
+
+      // Method 2: Check di profiles table directly
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('email', email.toLowerCase())
+        .maybeSingle();
+      
+      if (profile) {
+        console.log("📧 Email found in profiles:", email);
+        return true;
+      }
+
+      // Method 3: Try to sign in with a dummy password to check if user exists
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase(),
+        password: 'dummy_password_to_check_existence_12345'
+      });
+
+      // Jika error adalah "Invalid login credentials" berarti user ada
+      if (signInError && signInError.message.toLowerCase().includes('invalid login credentials')) {
+        console.log("📧 Email exists (confirmed via auth):", email);
+        return true;
+      }
+
+      console.log("✅ Email is available:", email);
+      return false;
+    } catch (error) {
+      console.error("❌ Error checking email:", error);
+      return false;
+    }
+  }
+
   // Signup function dengan better error handling
   static async signup(
     email: string,
@@ -178,6 +227,17 @@ export class AuthService {
 
       console.log("📝 Attempting signup for:", email);
 
+      // Check if email already exists first
+      const emailExists = await this.checkEmailExists(email);
+      if (emailExists) {
+        console.log("❌ Email already registered:", email);
+        return {
+          success: false,
+          error: "Email sudah terdaftar. Silakan gunakan email lain atau login.",
+          errorType: AuthErrorType.USER_EXISTS,
+        };
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -185,6 +245,7 @@ export class AuthService {
 
       if (error) {
         console.error("❌ Signup error:", error.message);
+        console.error("❌ Full error object:", error); // Log full error untuk debugging
         const authError = this.parseAuthError(error.message);
         return {
           success: false,
@@ -194,6 +255,9 @@ export class AuthService {
       }
 
       if (data.user) {
+        // Profile akan dibuat otomatis oleh trigger, tidak perlu insert manual
+        console.log("✅ User created, profile will be created by trigger");
+        
         const user: User = {
           id: data.user.id,
           email: data.user.email!,
@@ -398,9 +462,15 @@ export class AuthService {
       };
     }
 
+    // UPDATED: Menambahkan lebih banyak variasi pesan error untuk email yang sudah terdaftar
     if (
       lowerMessage.includes("user already registered") ||
-      lowerMessage.includes("email address is already registered")
+      lowerMessage.includes("email address is already registered") ||
+      lowerMessage.includes("duplicate key value") ||
+      lowerMessage.includes("already been registered") ||
+      lowerMessage.includes("email already exists") ||
+      lowerMessage.includes("user with this email") ||
+      lowerMessage.includes("already exists")
     ) {
       return {
         type: AuthErrorType.USER_EXISTS,
@@ -441,7 +511,8 @@ export class AuthService {
       };
     }
 
-    // Default error
+    // Default error - tampilkan pesan asli untuk debugging
+    console.log("⚠️ Unhandled error message:", errorMessage);
     return {
       type: AuthErrorType.UNKNOWN_ERROR,
       message: errorMessage,
