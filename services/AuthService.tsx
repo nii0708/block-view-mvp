@@ -17,6 +17,25 @@ export interface UpdateProfileData {
   password?: string;
 }
 
+// Error types untuk kategorisasi error
+export enum AuthErrorType {
+  NETWORK_ERROR = "NETWORK_ERROR",
+  INVALID_CREDENTIALS = "INVALID_CREDENTIALS",
+  USER_EXISTS = "USER_EXISTS",
+  WEAK_PASSWORD = "WEAK_PASSWORD",
+  INVALID_EMAIL = "INVALID_EMAIL",
+  EMAIL_NOT_CONFIRMED = "EMAIL_NOT_CONFIRMED",
+  CONNECTION_ERROR = "CONNECTION_ERROR",
+  TIMEOUT_ERROR = "TIMEOUT_ERROR",
+  UNKNOWN_ERROR = "UNKNOWN_ERROR",
+}
+
+export interface AuthError {
+  type: AuthErrorType;
+  message: string;
+  originalError?: string;
+}
+
 // Authentication Service Functions
 export class AuthService {
   // Test connection dengan retry mechanism
@@ -59,14 +78,20 @@ export class AuthService {
   static async login(
     email: string,
     password: string
-  ): Promise<{ success: boolean; user?: User; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    user?: User;
+    error?: string;
+    errorType?: AuthErrorType;
+  }> {
     try {
       // Test connection first
       const connectionTest = await this.testConnection();
       if (!connectionTest.success) {
         return {
           success: false,
-          error: `Cannot connect to Supabase: ${connectionTest.error}`,
+          error: `Tidak dapat terhubung ke server: ${connectionTest.error}`,
+          errorType: AuthErrorType.CONNECTION_ERROR,
         };
       }
 
@@ -79,9 +104,11 @@ export class AuthService {
 
       if (error) {
         console.error("❌ Login error:", error.message);
+        const authError = this.parseAuthError(error.message);
         return {
           success: false,
-          error: this.getFriendlyErrorMessage(error.message),
+          error: authError.message,
+          errorType: authError.type,
         };
       }
 
@@ -110,15 +137,20 @@ export class AuthService {
         return { success: true, user };
       }
 
-      return { success: false, error: "Login failed - no user data received" };
-    } catch (error) {
-      console.error("❌ Login error:", error);
       return {
         success: false,
-        error:
-          error instanceof Error
-            ? this.getFriendlyErrorMessage(error.message)
-            : "An unexpected error occurred during login",
+        error: "Login gagal - tidak ada data user yang diterima",
+        errorType: AuthErrorType.UNKNOWN_ERROR,
+      };
+    } catch (error) {
+      console.error("❌ Login error:", error);
+      const authError = this.parseAuthError(
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      return {
+        success: false,
+        error: authError.message,
+        errorType: authError.type,
       };
     }
   }
@@ -127,14 +159,20 @@ export class AuthService {
   static async signup(
     email: string,
     password: string
-  ): Promise<{ success: boolean; user?: User; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    user?: User;
+    error?: string;
+    errorType?: AuthErrorType;
+  }> {
     try {
       // Test connection first
       const connectionTest = await this.testConnection();
       if (!connectionTest.success) {
         return {
           success: false,
-          error: `Cannot connect to Supabase: ${connectionTest.error}`,
+          error: `Tidak dapat terhubung ke server: ${connectionTest.error}`,
+          errorType: AuthErrorType.CONNECTION_ERROR,
         };
       }
 
@@ -147,9 +185,11 @@ export class AuthService {
 
       if (error) {
         console.error("❌ Signup error:", error.message);
+        const authError = this.parseAuthError(error.message);
         return {
           success: false,
-          error: this.getFriendlyErrorMessage(error.message),
+          error: authError.message,
+          errorType: authError.type,
         };
       }
 
@@ -164,15 +204,20 @@ export class AuthService {
         return { success: true, user };
       }
 
-      return { success: false, error: "Signup failed - no user data received" };
-    } catch (error) {
-      console.error("❌ Signup error:", error);
       return {
         success: false,
-        error:
-          error instanceof Error
-            ? this.getFriendlyErrorMessage(error.message)
-            : "An unexpected error occurred during signup",
+        error: "Pendaftaran gagal - tidak ada data user yang diterima",
+        errorType: AuthErrorType.UNKNOWN_ERROR,
+      };
+    } catch (error) {
+      console.error("❌ Signup error:", error);
+      const authError = this.parseAuthError(
+        error instanceof Error ? error.message : "Unknown error"
+      );
+      return {
+        success: false,
+        error: authError.message,
+        errorType: authError.type,
       };
     }
   }
@@ -193,7 +238,7 @@ export class AuthService {
       console.error("❌ Logout error:", error);
       return {
         success: false,
-        error: "An unexpected error occurred during logout",
+        error: "Terjadi kesalahan saat logout",
       };
     }
   }
@@ -210,7 +255,7 @@ export class AuthService {
       if (!connectionTest.success) {
         return {
           success: false,
-          error: `Cannot connect to Supabase: ${connectionTest.error}`,
+          error: `Tidak dapat terhubung ke server: ${connectionTest.error}`,
         };
       }
 
@@ -259,7 +304,7 @@ export class AuthService {
       console.error("❌ Update profile error:", error);
       return {
         success: false,
-        error: "An unexpected error occurred while updating profile",
+        error: "Terjadi kesalahan saat memperbarui profil",
       };
     }
   }
@@ -319,27 +364,94 @@ export class AuthService {
     }
   }
 
-  // Helper function untuk error messages yang user-friendly
-  private static getFriendlyErrorMessage(errorMessage: string): string {
-    const errorMap: { [key: string]: string } = {
-      "Invalid login credentials": "Email atau password salah",
-      "User already registered": "Email sudah terdaftar",
-      "Password should be at least 6 characters": "Password minimal 6 karakter",
-      "Unable to validate email address: invalid format":
-        "Format email tidak valid",
-      "Network request failed":
-        "Gagal terhubung ke server. Periksa koneksi internet Anda",
-      "fetch is not defined": "Masalah jaringan. Coba restart aplikasi",
-      timeout: "Koneksi timeout. Coba lagi dalam beberapa saat",
-    };
+  // Enhanced error parsing dengan kategori yang lebih spesifik
+  private static parseAuthError(errorMessage: string): AuthError {
+    const lowerMessage = errorMessage.toLowerCase();
 
-    // Check for partial matches
-    for (const [key, value] of Object.entries(errorMap)) {
-      if (errorMessage.toLowerCase().includes(key.toLowerCase())) {
-        return value;
-      }
+    // Network dan connection errors
+    if (lowerMessage.includes("network") || lowerMessage.includes("fetch")) {
+      return {
+        type: AuthErrorType.NETWORK_ERROR,
+        message:
+          "Masalah koneksi internet. Periksa koneksi Anda dan coba lagi.",
+        originalError: errorMessage,
+      };
     }
 
-    return errorMessage;
+    if (lowerMessage.includes("timeout")) {
+      return {
+        type: AuthErrorType.TIMEOUT_ERROR,
+        message: "Koneksi timeout. Silakan coba lagi.",
+        originalError: errorMessage,
+      };
+    }
+
+    // Auth specific errors
+    if (
+      lowerMessage.includes("invalid login credentials") ||
+      lowerMessage.includes("invalid email or password")
+    ) {
+      return {
+        type: AuthErrorType.INVALID_CREDENTIALS,
+        message: "Email atau password salah. Silakan periksa kembali.",
+        originalError: errorMessage,
+      };
+    }
+
+    if (
+      lowerMessage.includes("user already registered") ||
+      lowerMessage.includes("email address is already registered")
+    ) {
+      return {
+        type: AuthErrorType.USER_EXISTS,
+        message:
+          "Email sudah terdaftar. Silakan gunakan email lain atau login.",
+        originalError: errorMessage,
+      };
+    }
+
+    if (lowerMessage.includes("password should be at least")) {
+      return {
+        type: AuthErrorType.WEAK_PASSWORD,
+        message: "Password minimal 6 karakter.",
+        originalError: errorMessage,
+      };
+    }
+
+    if (
+      lowerMessage.includes("invalid email") ||
+      lowerMessage.includes("unable to validate email")
+    ) {
+      return {
+        type: AuthErrorType.INVALID_EMAIL,
+        message: "Format email tidak valid.",
+        originalError: errorMessage,
+      };
+    }
+
+    if (
+      lowerMessage.includes("email not confirmed") ||
+      lowerMessage.includes("please confirm your email")
+    ) {
+      return {
+        type: AuthErrorType.EMAIL_NOT_CONFIRMED,
+        message:
+          "Email belum dikonfirmasi. Periksa email Anda untuk link konfirmasi.",
+        originalError: errorMessage,
+      };
+    }
+
+    // Default error
+    return {
+      type: AuthErrorType.UNKNOWN_ERROR,
+      message: errorMessage,
+      originalError: errorMessage,
+    };
+  }
+
+  // Helper function untuk error messages yang user-friendly (deprecated, gunakan parseAuthError)
+  private static getFriendlyErrorMessage(errorMessage: string): string {
+    const authError = this.parseAuthError(errorMessage);
+    return authError.message;
   }
 }

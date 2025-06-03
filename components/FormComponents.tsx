@@ -24,6 +24,7 @@ interface InputProps {
   inputStyle?: StyleProp<TextStyle>;
   keyboardType?: KeyboardTypeOptions;
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
+  error?: string;
 }
 
 export const Input: React.FC<InputProps> = ({
@@ -37,6 +38,7 @@ export const Input: React.FC<InputProps> = ({
   inputStyle,
   keyboardType = "default",
   autoCapitalize = "none",
+  error,
 }) => {
   return (
     <View style={[styles.inputContainer, style]}>
@@ -44,7 +46,7 @@ export const Input: React.FC<InputProps> = ({
         <Text style={[styles.inputLabel, labelStyle]}>{label}</Text>
       ) : null}
       <TextInput
-        style={[styles.input, inputStyle]}
+        style={[styles.input, error && styles.inputError, inputStyle]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -52,6 +54,7 @@ export const Input: React.FC<InputProps> = ({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
       />
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
 };
@@ -64,6 +67,7 @@ interface ButtonProps {
   textStyle?: StyleProp<TextStyle>;
   isLoading?: boolean;
   disabled?: boolean;
+  variant?: "primary" | "secondary";
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -73,17 +77,80 @@ export const Button: React.FC<ButtonProps> = ({
   textStyle,
   isLoading = false,
   disabled = false,
+  variant = "primary",
 }) => {
+  const buttonStyle =
+    variant === "primary" ? styles.button : styles.buttonSecondary;
+  const buttonTextStyle =
+    variant === "primary" ? styles.buttonText : styles.buttonTextSecondary;
+
   return (
     <TouchableOpacity
-      style={[styles.button, style, disabled && styles.disabledButton]}
+      style={[
+        buttonStyle,
+        style,
+        (disabled || isLoading) && styles.disabledButton,
+      ]}
       onPress={onPress}
       disabled={disabled || isLoading}
+      activeOpacity={0.8}
     >
       {isLoading ? (
-        <ActivityIndicator color="#000" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color="#000" />
+          <Text style={[buttonTextStyle, textStyle, styles.loadingText]}>
+            {title}...
+          </Text>
+        </View>
       ) : (
-        <Text style={[styles.buttonText, textStyle]}>{title}</Text>
+        <Text style={[buttonTextStyle, textStyle]}>{title}</Text>
+      )}
+    </TouchableOpacity>
+  );
+};
+
+// ====== Loading Button Component (untuk loading yang lebih prominent) ======
+interface LoadingButtonProps extends ButtonProps {
+  loadingColor?: string;
+  loadingText?: string;
+}
+
+export const LoadingButton: React.FC<LoadingButtonProps> = ({
+  title,
+  onPress,
+  style,
+  textStyle,
+  isLoading = false,
+  disabled = false,
+  loadingColor = "#CFE625", // Warna yang sama dengan LoadingScreen
+  loadingText,
+  variant = "primary",
+}) => {
+  const buttonStyle =
+    variant === "primary" ? styles.button : styles.buttonSecondary;
+  const buttonTextStyle =
+    variant === "primary" ? styles.buttonText : styles.buttonTextSecondary;
+
+  return (
+    <TouchableOpacity
+      style={[
+        buttonStyle,
+        style,
+        (disabled || isLoading) && styles.disabledButton,
+      ]}
+      onPress={onPress}
+      disabled={disabled || isLoading}
+      activeOpacity={0.8}
+    >
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color={loadingColor} />
+          <Text style={[buttonTextStyle, textStyle, styles.loadingText]}>
+            {loadingText || `${title}...`}
+          </Text>
+        </View>
+      ) : (
+        <Text style={[buttonTextStyle, textStyle]}>{title}</Text>
       )}
     </TouchableOpacity>
   );
@@ -112,6 +179,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     fontFamily: "Montserrat_400Regular",
   },
+  inputError: {
+    borderColor: "#ff4444",
+    borderWidth: 1.5,
+  },
+  errorText: {
+    fontSize: 14,
+    color: "#ff4444",
+    marginTop: 4,
+    fontFamily: "Montserrat_400Regular",
+  },
 
   // Button styles
   button: {
@@ -126,13 +203,36 @@ const styles = StyleSheet.create({
     shadowRadius: 1.5,
     elevation: 2,
   },
+  buttonSecondary: {
+    backgroundColor: "#f5f5f5",
+    height: 50,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#ccc",
+  },
   disabledButton: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   buttonText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#000",
     fontFamily: "Montserrat_600SemiBold",
+  },
+  buttonTextSecondary: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    fontFamily: "Montserrat_600SemiBold",
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginLeft: 8,
   },
 });

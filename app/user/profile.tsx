@@ -71,12 +71,6 @@ export default function ProfileScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>User Profile</Text>
-        <TouchableOpacity
-          style={styles.homeButton}
-          onPress={() => router.push("/")}
-        >
-          <MaterialIcons name="home" size={24} color="black" />
-        </TouchableOpacity>
       </View>
 
       <View style={styles.profileSection}>
@@ -131,7 +125,10 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.menuContainer}>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/docs/help-support")}
+        >
           <View style={styles.menuIcon}>
             <Feather name="help-circle" size={24} color="#333" />
           </View>
@@ -141,7 +138,10 @@ export default function ProfileScreen() {
           <MaterialIcons name="chevron-right" size={24} color="#777" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/docs/about-us")}
+        >
           <View style={styles.menuIcon}>
             <Feather name="info" size={24} color="#333" />
           </View>
@@ -150,9 +150,20 @@ export default function ProfileScreen() {
           </View>
           <MaterialIcons name="chevron-right" size={24} color="#777" />
         </TouchableOpacity>
-      </View>
 
-      <View style={styles.divider} />
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/docs/privacy-policy")}
+        >
+          <View style={styles.menuIcon}>
+            <MaterialIcons name="security" size={24} color="#333" />
+          </View>
+          <View style={styles.menuContent}>
+            <Text style={styles.menuTitle}>Privacy Policy</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={24} color="#777" />
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -182,11 +193,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",
-  },
-  homeButton: {
-    padding: 8,
-    alignItems: "center",
-    justifyContent: "center",
   },
   profileSection: {
     alignItems: "center",
@@ -256,13 +262,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#555",
     fontFamily: "Montserrat_600SemiBold",
-  },
-  divider: {
-    height: 5,
-    width: 60,
-    backgroundColor: "#ddd",
-    alignSelf: "center",
-    borderRadius: 5,
-    marginTop: 30,
   },
 });

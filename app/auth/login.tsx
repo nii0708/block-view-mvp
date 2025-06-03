@@ -1,4 +1,3 @@
-// app/auth/login.tsx
 import React, { useState } from "react";
 import {
   StyleSheet,
@@ -9,55 +8,72 @@ import {
   Image,
   TouchableOpacity,
   Alert,
-  Platform,
-  KeyboardAvoidingView,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "@/context/AuthContext";
-import { MaterialIcons, FontAwesome } from "@expo/vector-icons";
+import { FontAwesome, MaterialIcons } from "@expo/vector-icons";
 import { Input, Button } from "../../components/FormComponents";
+import { supabase } from "../../config/supabase";
+import { useFonts } from "expo-font";
+import {
+  Montserrat_400Regular,
+  Montserrat_500Medium,
+  Montserrat_600SemiBold,
+} from "@expo-google-fonts/montserrat";
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { login } = useAuth();
-  const router = useRouter();
+  const [fontsLoaded] = useFonts({
+    Montserrat_400Regular,
+    Montserrat_500Medium,
+    Montserrat_600SemiBold,
+  });
+
+  if (!fontsLoaded) {
+    return null;
+  }
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert("Error", "Please enter both email and password");
+    if (!email || !password) {
+      Alert.alert("Error", "Silakan isi semua field");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      const success = await login(email, password);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-      if (success) {
-        // 🏠 Redirect to main app (home screen) after successful login
-        router.replace("/");
-      } else {
-        Alert.alert("Login Failed", "Invalid email or password");
+      if (error) {
+        Alert.alert("Login Gagal", error.message);
+        return;
       }
+
+      console.log("Login berhasil:", data);
+      router.replace("/");
     } catch (error) {
-      Alert.alert("Error", "An error occurred during login");
+      console.error("Login error:", error);
+      Alert.alert("Error", "Terjadi kesalahan saat login");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGoogleLogin = () => {
-    // TODO: Implement Google OAuth
-    Alert.alert("Info", "Google login will be available soon!");
+  const handleGoogleLogin = async () => {
+    Alert.alert("Info", "Google login akan segera tersedia");
   };
 
-  const handleFacebookLogin = () => {
-    // TODO: Implement Facebook OAuth
-    Alert.alert("Info", "Facebook login will be available soon!");
+  const handleFacebookLogin = async () => {
+    Alert.alert("Info", "Facebook login akan segera tersedia");
   };
 
   return (
@@ -67,12 +83,6 @@ export default function LoginScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Login User</Text>
-        {/* <TouchableOpacity
-          style={styles.homeButton}
-          onPress={() => router.push("/")}
-        >
-          <MaterialIcons name="home" size={24} color="black" />
-        </TouchableOpacity> */}
       </View>
 
       <KeyboardAvoidingView
@@ -83,6 +93,7 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Logo Section */}
           <View style={styles.logoContainer}>
             <Image
               source={require("../../assets/images/logo.png")}
@@ -94,6 +105,7 @@ export default function LoginScreen() {
             </Text>
           </View>
 
+          {/* Form Section */}
           <View style={styles.formContainer}>
             <Input
               label="Email"
@@ -101,6 +113,7 @@ export default function LoginScreen() {
               onChangeText={setEmail}
               placeholder="email@example.com"
               keyboardType="email-address"
+              autoCapitalize="none"
             />
 
             <Input
@@ -119,35 +132,43 @@ export default function LoginScreen() {
             />
           </View>
 
-          <Text style={styles.orText}>or continue with</Text>
+          {/* Social Login Section */}
+          <View style={styles.socialSection}>
+            <Text style={styles.orText}>atau lanjutkan dengan</Text>
 
-          <View style={styles.socialButtonsContainer}>
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleGoogleLogin}
-            >
-              <FontAwesome name="google" size={22} color="#DB4437" />
-              <Text style={styles.socialButtonText}>Google</Text>
-            </TouchableOpacity>
+            <View style={styles.socialButtonsContainer}>
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={handleGoogleLogin}
+                disabled={isLoading}
+              >
+                <FontAwesome name="google" size={22} color="#DB4437" />
+                <Text style={styles.socialButtonText}>Google</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.socialButton}
-              onPress={handleFacebookLogin}
-            >
-              <FontAwesome name="facebook" size={22} color="#1877F2" />
-              <Text style={styles.socialButtonText}>Facebook</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.socialButton}
+                onPress={handleFacebookLogin}
+                disabled={isLoading}
+              >
+                <FontAwesome name="facebook" size={22} color="#1877F2" />
+                <Text style={styles.socialButtonText}>Facebook</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
+          {/* Signup Link */}
           <View style={styles.signupContainer}>
-            <TouchableOpacity onPress={() => router.push("/auth/signup")}>
+            <TouchableOpacity
+              onPress={() => router.push("/auth/signup")}
+              disabled={isLoading}
+            >
               <Text style={styles.signupText}>
-                Don't have an account? Sign up
+                Belum punya akun?{" "}
+                <Text style={styles.signupLink}>Daftar di sini</Text>
               </Text>
             </TouchableOpacity>
           </View>
-
-          <View style={styles.divider} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -169,82 +190,81 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",
-  },
-  homeButton: {
-    padding: 8,
-    alignItems: "center",
-    justifyContent: "center",
+    flex: 1,
   },
   keyboardAvoidingView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingBottom: 20,
   },
   logoContainer: {
     alignItems: "center",
-    marginTop: 20,
-    marginBottom: 30,
+    marginTop: 30,
+    marginBottom: 40,
   },
   logo: {
     width: 300,
     height: 60,
+    marginBottom: 12,
   },
   tagline: {
-    fontSize: 16,
-    textAlign: "center",
-    color: "#555",
-    marginTop: 8,
+    fontSize: 14,
     fontFamily: "Montserrat_400Regular",
+    color: "#666",
+    textAlign: "center",
+    lineHeight: 20,
   },
   formContainer: {
-    marginVertical: 20,
+    marginBottom: 30,
   },
   loginButton: {
+    backgroundColor: "#CFE625",
     marginTop: 24,
   },
+  socialSection: {
+    marginBottom: 30,
+  },
   orText: {
-    textAlign: "center",
-    color: "#555",
-    marginVertical: 20,
+    fontSize: 14,
     fontFamily: "Montserrat_400Regular",
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 20,
   },
   socialButtonsContainer: {
-    flexDirection: "column",
-    justifyContent: "space-between",
-    marginBottom: 20,
+    gap: 12,
   },
   socialButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F5F5F5",
-    borderRadius: 8,
-    paddingVertical: 12,
-    marginBottom: 10,
+    paddingVertical: 14,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
   },
   socialButtonText: {
-    marginLeft: 10,
     fontSize: 16,
-    fontFamily: "Montserrat_400Regular",
+    fontFamily: "Montserrat_500Medium",
+    color: "#333",
+    marginLeft: 12,
   },
   signupContainer: {
     alignItems: "center",
-    marginTop: 10,
-    marginBottom: 30,
+    marginTop: 20,
   },
   signupText: {
-    fontSize: 16,
-    color: "#0066CC",
+    fontSize: 14,
+    color: "#666",
     fontFamily: "Montserrat_400Regular",
+    textAlign: "center",
   },
-  divider: {
-    height: 5,
-    width: 60,
-    backgroundColor: "#ddd",
-    alignSelf: "center",
-    borderRadius: 5,
+  signupLink: {
+    color: "#CFE625",
+    fontFamily: "Montserrat_600SemiBold",
   },
 });
