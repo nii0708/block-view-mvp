@@ -80,6 +80,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
   // Refs
   const prevAttributeTypeRef = useRef<string | null>(null);
   const initializationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasBeenInitializedRef = useRef<boolean>(false);
 
   const { setPickedAttribute } = useMiningData();
 
@@ -103,16 +104,23 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
     setShowAttributeTypeDropdown(false);
     setShowAttributeDropdown(false);
     setIsInitialized(false);
+    hasBeenInitializedRef.current = false;
+    prevAttributeTypeRef.current = null; // Reset this too
     if (initializationTimeoutRef.current) {
       clearTimeout(initializationTimeoutRef.current);
       initializationTimeoutRef.current = null;
     }
   }, []);
 
-  // Initialize dialog when visible
+  // Initialize dialog when visible (ONLY when first opened)
   useEffect(() => {
     if (!visible) {
       resetDialog();
+      return;
+    }
+
+    // Only initialize if this is the first time opening the dialog
+    if (hasBeenInitializedRef.current) {
       return;
     }
 
@@ -138,7 +146,8 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       }
 
       setIsInitialized(true);
-    }, 100); // Small delay for smooth initialization
+      hasBeenInitializedRef.current = true;
+    }, 100);
 
     return () => {
       if (initializationTimeoutRef.current) {
@@ -146,15 +155,16 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
         initializationTimeoutRef.current = null;
       }
     };
-  }, [
-    visible,
-    currentColors,
-    pickingAttributes,
-    attributeTypeList,
-    resetDialog,
-  ]);
+  }, [visible]); // ONLY depend on visible now
 
-  // Handle attribute type changes
+  // Separate effect for color mapping updates (when currentColors change from outside)
+  useEffect(() => {
+    if (visible && isInitialized) {
+      setColorMapping(currentColors);
+    }
+  }, [currentColors, visible, isInitialized]);
+
+  // Handle attribute type changes (only update context, don't reset user selections)
   useEffect(() => {
     if (!pickingAttributes || !selectedAttributeType || !isInitialized) return;
 
@@ -166,12 +176,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       setPickedAttribute(selectedPickedAttribute);
       prevAttributeTypeRef.current = selectedAttributeType;
     }
-  }, [
-    pickingAttributes,
-    selectedAttributeType,
-    setPickedAttribute,
-    isInitialized,
-  ]);
+  }, [selectedAttributeType, setPickedAttribute, isInitialized]); // Removed pickingAttributes dependency
 
   // Memoized color check function
   const isColorUsed = useCallback(
@@ -237,13 +242,16 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
 
   const handleAttributeTypeSelect = useCallback(
     (attrType: string) => {
-      if (!isInitialized) return;
+      if (!isInitialized || !pickingAttributes) return;
 
       setSelectedAttributeType(attrType);
       setShowAttributeTypeDropdown(false);
 
       // Reset selected attribute and set first attribute as default
-      if (pickingAttributes && pickingAttributes[attrType].length > 0) {
+      if (
+        pickingAttributes[attrType] &&
+        pickingAttributes[attrType].length > 0
+      ) {
         setSelectedAttribute(pickingAttributes[attrType][0]);
       } else {
         setSelectedAttribute("");
@@ -564,37 +572,39 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
         </View>
 
         {/* Attribute Type Dropdown */}
-        {showAttributeTypeDropdown && attributeTypeList.length > 0 && (
-          <View style={styles.dropdownOverlay}>
-            <TouchableWithoutFeedback
-              onPress={() => setShowAttributeTypeDropdown(false)}
-            >
-              <View style={styles.dropdownBackdrop} />
-            </TouchableWithoutFeedback>
-            <View style={styles.dropdownModalContent}>
-              <ScrollView nestedScrollEnabled={true}>
-                {attributeTypeList.map((attrType) => (
-                  <TouchableOpacity
-                    key={attrType}
-                    style={[
-                      styles.dropdownItem,
-                      selectedAttributeType === attrType &&
-                        styles.selectedDropdownItem,
-                    ]}
-                    onPress={() => handleAttributeTypeSelect(attrType)}
-                  >
-                    <Text style={styles.dropdownItemText}>
-                      {attrType.charAt(0).toUpperCase() + attrType.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+        {showAttributeTypeDropdown &&
+          attributeTypeList.length > 0 &&
+          isInitialized && (
+            <View style={styles.dropdownOverlay}>
+              <TouchableWithoutFeedback
+                onPress={() => setShowAttributeTypeDropdown(false)}
+              >
+                <View style={styles.dropdownBackdrop} />
+              </TouchableWithoutFeedback>
+              <View style={styles.dropdownModalContent}>
+                <ScrollView nestedScrollEnabled={true}>
+                  {attributeTypeList.map((attrType) => (
+                    <TouchableOpacity
+                      key={attrType}
+                      style={[
+                        styles.dropdownItem,
+                        selectedAttributeType === attrType &&
+                          styles.selectedDropdownItem,
+                      ]}
+                      onPress={() => handleAttributeTypeSelect(attrType)}
+                    >
+                      <Text style={styles.dropdownItemText}>
+                        {attrType.charAt(0).toUpperCase() + attrType.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             </View>
-          </View>
-        )}
+          )}
 
         {/* Attribute Dropdown */}
-        {showAttributeDropdown && attributeList.length > 0 && (
+        {showAttributeDropdown && attributeList.length > 0 && isInitialized && (
           <View style={styles.dropdownOverlay}>
             <TouchableWithoutFeedback
               onPress={() => setShowAttributeDropdown(false)}
