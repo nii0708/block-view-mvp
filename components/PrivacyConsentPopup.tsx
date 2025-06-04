@@ -1,152 +1,293 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Modal,
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
-  StatusBar,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 
 interface PrivacyConsentPopupProps {
   visible: boolean;
-  onAgree: () => void; // Fungsi ini akan menangani penyimpanan & navigasi
-  onClose: () => void; // Fungsi untuk menutup popup (misal, jika ada tombol close)
-  isProcessing?: boolean; // Opsional: Menunjukkan proses sedang berjalan (misal, saat menyimpan persetujuan)
+  onAgree: () => void;
+  onClose: () => void;
+  isProcessing?: boolean;
 }
 
 const PrivacyConsentPopup: React.FC<PrivacyConsentPopupProps> = ({
   visible,
   onAgree,
-  onClose, // Gunakan onClose jika diperlukan
-  isProcessing = false, // Default value
+  onClose,
+  isProcessing = false,
 }) => {
-  // Tidak perlu state 'agreed' internal lagi, logika di handle oleh parent
+  const [hasAcceptedTerms, setHasAcceptedTerms] = useState(false);
+  const [hasAcceptedPrivacy, setHasAcceptedPrivacy] = useState(false);
+
+  // Reset checkboxes when modal becomes visible
+  React.useEffect(() => {
+    if (visible) {
+      setHasAcceptedTerms(false);
+      setHasAcceptedPrivacy(false);
+    }
+  }, [visible]);
 
   const handleAgree = () => {
-    if (!isProcessing) {
-      onAgree(); // Panggil prop onAgree yang diberikan oleh parent (LoginScreen)
+    if (!isProcessing && hasAcceptedTerms && hasAcceptedPrivacy) {
+      onAgree();
     }
   };
 
-  // Jangan render jika tidak visible
-  if (!visible) return null;
+  const isAgreementComplete = hasAcceptedTerms && hasAcceptedPrivacy;
 
   return (
     <Modal
-      animationType="fade" // Gunakan fade seperti dialog lain
-      transparent={true} // Buat transparan untuk overlay
+      animationType="slide"
+      transparent={true}
       visible={visible}
-      onRequestClose={!isProcessing ? onClose : undefined} // Tutup modal jika tidak sedang proses
+      onRequestClose={!isProcessing ? onClose : undefined}
     >
-      <View style={styles.centeredView}>
-        {" "}
-        // Container untuk memusatkan modal
-        <View style={styles.modalView}>
-          {" "}
-          // Container modal dengan style konsisten
+      <View style={styles.overlay}>
+        <View style={styles.modalContainer}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Privacy Policy Agreement</Text>
-            {/* Tambahkan tombol close jika diinginkan, panggil onClose */}
-            {/* <TouchableOpacity onPress={onClose} style={styles.closeButton} disabled={isProcessing}>
-              <MaterialIcons name="close" size={24} color="#666" />
-            </TouchableOpacity> */}
+            <Text style={styles.headerTitle}>Terms & Privacy Agreement</Text>
+            <Text style={styles.headerSubtitle}>
+              Please review and accept our terms to continue
+            </Text>
           </View>
-          {/* Konten Kebijakan Privasi (Scrollable) */}
-          <ScrollView style={styles.scrollContainer}>
+
+          {/* Content */}
+          <ScrollView
+            style={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.content}>
-              {/* Introduction */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  🔒 Your Data, Your Control
-                </Text>
-                <Text style={styles.paragraph}>
-                  At Mine.Lite, we understand that your mining data is highly
-                  sensitive and valuable. We've designed our application with
-                  privacy-first principles to ensure your geological and mining
-                  data remains completely under your control.
+              {/* App Introduction */}
+              <View style={styles.introSection}>
+                <Image
+                  source={require("../assets/images/logo.png")}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+                <Text style={styles.appDescription}>
+                  Professional Mining Data Visualization & Analysis Tool
                 </Text>
               </View>
 
-              {/* Local Storage Section */}
+              {/* Key Privacy Points */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>📱 Local Data Storage</Text>
-                <Text style={styles.paragraph}>
-                  All your mining data is stored exclusively on your device:
+                <Text style={styles.sectionTitle}>
+                  🔒 Data Privacy & Security
                 </Text>
-                <View style={styles.dataBox}>
-                  <Text style={styles.dataTitle}>
-                    ✅ Stored Locally on Your Device:
-                  </Text>
-                  <Text style={styles.dataItem}>
-                    • Block Model data (CSV files)
-                  </Text>
-                  <Text style={styles.dataItem}>
-                    • Elevation and topography data (STR/DXF files)
-                  </Text>
-                  <Text style={styles.dataItem}>
-                    • Pit boundary information
-                  </Text>
-                  <Text style={styles.dataItem}>
-                    • Geospatial PDF maps and overlays
-                  </Text>
+
+                <View style={styles.bulletContainer}>
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>✅</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Local Storage:</Text> All
+                      your mining data (CSV, DXF, PDF files) stays on your
+                      device
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>☁️</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Cloud Data:</Text> Only
+                      account info (email, encrypted password) stored securely
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>🚫</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>No Data Mining:</Text> We
+                      never access, view, or sell your geological data
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>🔐</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Enterprise Security:</Text>{" "}
+                      End-to-end encryption for all communications
+                    </Text>
+                  </View>
                 </View>
               </View>
 
-              {/* Cloud Data Section */}
+              {/* Usage Terms */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>
-                  ☁️ What We Store in Cloud
-                </Text>
-                <Text style={styles.paragraph}>
-                  Only essential account information is stored securely in our
-                  cloud infrastructure:
-                </Text>
-                <View style={styles.cloudBox}>
-                  <Text style={styles.cloudTitle}>
-                    ☁️ Cloud Storage (Encrypted):
-                  </Text>
-                  <Text style={styles.cloudItem}>
-                    • Email address (for account identification)
-                  </Text>
-                  <Text style={styles.cloudItem}>
-                    • Encrypted password (using industry-standard security)
-                  </Text>
+                <Text style={styles.sectionTitle}>📋 Terms of Service</Text>
+
+                <View style={styles.bulletContainer}>
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>💼</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Professional Use:</Text>{" "}
+                      Licensed for commercial mining operations and analysis
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>🔄</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Data Export:</Text> Full
+                      export capabilities - no vendor lock-in
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>⚖️</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Compliance:</Text> User
+                      responsible for industry regulations and data governance
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>🛡️</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Liability:</Text> Software
+                      provided "as-is" for analytical purposes
+                    </Text>
+                  </View>
                 </View>
               </View>
 
-              {/* Promise Section */}
-              <View style={styles.promiseSection}>
-                <Text style={styles.promiseTitle}>🤝 Our Privacy Promise</Text>
-                <Text style={styles.promiseText}>
-                  "Your mining data stays with you, always. We build tools that
-                  respect your data ownership and privacy."
+              {/* User Rights */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>
+                  🎛️ Your Rights & Control
                 </Text>
-                <Text style={styles.promiseSubtext}>— Mine.Lite Team</Text>
+
+                <View style={styles.bulletContainer}>
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>🗑️</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Data Deletion:</Text> Delete
+                      files and account data anytime
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>📤</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Data Portability:</Text>{" "}
+                      Export your data in standard formats
+                    </Text>
+                  </View>
+
+                  <View style={styles.bulletPoint}>
+                    <Text style={styles.bulletIcon}>📞</Text>
+                    <Text style={styles.bulletText}>
+                      <Text style={styles.boldText}>Support:</Text> Contact
+                      softroc@proton.me for privacy questions
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Legal Notice */}
+              <View style={styles.legalNotice}>
+                <Text style={styles.legalText}>
+                  By using Mine.Lite, you acknowledge that you have read,
+                  understood, and agree to be bound by these terms and our
+                  privacy policy. This agreement is governed by Indonesian law.
+                </Text>
+                <Text style={styles.legalSubtext}>
+                  Last updated: June 2025 • Version 1.0
+                </Text>
               </View>
             </View>
           </ScrollView>
-          {/* Tombol Persetujuan (Footer) */}
-          <View style={styles.footer}>
+
+          {/* Agreement Checkboxes */}
+          <View style={styles.agreementSection}>
+            {/* Terms Checkbox */}
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => setHasAcceptedTerms(!hasAcceptedTerms)}
+              disabled={isProcessing}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  hasAcceptedTerms && styles.checkboxChecked,
+                ]}
+              >
+                {hasAcceptedTerms && (
+                  <MaterialIcons name="check" size={16} color="#000" />
+                )}
+              </View>
+              <Text style={styles.checkboxText}>
+                I agree to the{" "}
+                <Text style={styles.linkText}>Terms of Service</Text> and
+                acknowledge that I have read the terms above
+              </Text>
+            </TouchableOpacity>
+
+            {/* Privacy Checkbox */}
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => setHasAcceptedPrivacy(!hasAcceptedPrivacy)}
+              disabled={isProcessing}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  hasAcceptedPrivacy && styles.checkboxChecked,
+                ]}
+              >
+                {hasAcceptedPrivacy && (
+                  <MaterialIcons name="check" size={16} color="#000" />
+                )}
+              </View>
+              <Text style={styles.checkboxText}>
+                I consent to the{" "}
+                <Text style={styles.linkText}>Privacy Policy</Text> and
+                understand how my data is handled
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.buttonContainer}>
             {isProcessing ? (
               <View style={styles.processingContainer}>
-                <ActivityIndicator size="small" color="#198754" />
-                <Text style={styles.processingText}>Processing...</Text>
+                <ActivityIndicator size="small" color="#CFE625" />
+                <Text style={styles.processingText}>
+                  Setting up your account...
+                </Text>
               </View>
             ) : (
-              <TouchableOpacity
-                style={styles.agreeButton} // Style tombol konsisten
-                onPress={handleAgree}
-                disabled={isProcessing}
-              >
-                {/* Ganti checkbox dengan teks tombol standar */}
-                <Text style={styles.agreeButtonText}>Agree and Continue</Text>
-              </TouchableOpacity>
+              <>
+                <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.agreeButton,
+                    !isAgreementComplete && styles.agreeButtonDisabled,
+                  ]}
+                  onPress={handleAgree}
+                  disabled={!isAgreementComplete}
+                >
+                  <Text
+                    style={[
+                      styles.agreeButtonText,
+                      !isAgreementComplete && styles.agreeButtonTextDisabled,
+                    ]}
+                  >
+                    Accept & Continue
+                  </Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
         </View>
@@ -155,186 +296,208 @@ const PrivacyConsentPopup: React.FC<PrivacyConsentPopupProps> = ({
   );
 };
 
-// Styles disesuaikan agar mirip ExportDialog/ColorPickerDialog
 const styles = StyleSheet.create({
-  centeredView: {
+  overlay: {
     flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.4)", // Overlay background
+    padding: 20,
   },
-  modalView: {
-    width: "90%", // Lebar modal
-    maxHeight: "80%", // Batas tinggi modal
+  modalContainer: {
     backgroundColor: "white",
-    borderRadius: 20,
-    padding: 0, // Padding diatur di dalam header, content, footer
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    borderRadius: 16,
+    width: "100%",
+    maxHeight: "90%",
     elevation: 8,
-    overflow: "hidden", // Mencegah konten keluar dari border radius
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   header: {
-    flexDirection: "row",
-    justifyContent: "center", // Pusatkan judul
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    position: "relative",
+    borderBottomColor: "#f0f0f0",
+    alignItems: "center",
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: "Montserrat_600SemiBold",
-    color: "#212529",
+    color: "#1a1a1a",
+    textAlign: "center",
+    marginBottom: 4,
   },
-  closeButton: {
-    // Style jika tombol close ditambahkan
-    position: "absolute",
-    right: 15,
-    top: 15,
-    padding: 5,
+  headerSubtitle: {
+    fontSize: 14,
+    fontFamily: "Montserrat_400Regular",
+    color: "#666",
+    textAlign: "center",
   },
-  scrollContainer: {
-    // flex: 1, // Biarkan ScrollView mengambil sisa ruang
-    // Max height bisa diatur di modalView
+  contentContainer: {
+    maxHeight: 300,
   },
   content: {
     padding: 20,
+  },
+  introSection: {
+    alignItems: "center",
+    marginBottom: 24,
+    paddingVertical: 16,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+  },
+  logo: {
+    width: 200,
+    height: 40,
+    marginBottom: 8,
+  },
+  appDescription: {
+    fontSize: 13,
+    fontFamily: "Montserrat_400Regular",
+    color: "#666",
+    textAlign: "center",
   },
   section: {
     marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 17, // Sedikit lebih kecil dari header
-    fontFamily: "Montserrat_600SemiBold",
-    marginBottom: 10,
-    color: "#333",
-  },
-  paragraph: {
-    fontSize: 15,
-    fontFamily: "Montserrat_400Regular",
-    lineHeight: 22,
-    textAlign: "justify",
-    color: "#555",
-  },
-  // Styles untuk dataBox, cloudBox, promiseSection bisa dipertahankan atau disesuaikan
-  dataBox: {
-    backgroundColor: "#e8f5e8",
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: "#28a745",
-  },
-  dataTitle: {
-    fontSize: 15,
-    fontFamily: "Montserrat_600SemiBold",
-    color: "#155724",
-    marginBottom: 8,
-  },
-  dataItem: {
-    fontSize: 14,
-    fontFamily: "Montserrat_400Regular",
-    color: "#155724",
-    lineHeight: 20,
-    marginBottom: 4,
-  },
-  cloudBox: {
-    backgroundColor: "#e7f3ff",
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 10,
-    borderLeftWidth: 4,
-    borderLeftColor: "#007bff",
-  },
-  cloudTitle: {
-    fontSize: 15,
-    fontFamily: "Montserrat_600SemiBold",
-    color: "#004085",
-    marginBottom: 8,
-  },
-  cloudItem: {
-    fontSize: 14,
-    fontFamily: "Montserrat_400Regular",
-    color: "#004085",
-    lineHeight: 20,
-    marginBottom: 4,
-  },
-  promiseSection: {
-    backgroundColor: "#CFE625", // Warna khas aplikasi
-    padding: 20,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 15,
-  },
-  promiseTitle: {
     fontSize: 16,
     fontFamily: "Montserrat_600SemiBold",
-    color: "#333",
-    textAlign: "center",
-    marginBottom: 10,
+    color: "#1a1a1a",
+    marginBottom: 12,
   },
-  promiseText: {
-    fontSize: 15,
+  bulletContainer: {
+    gap: 8,
+  },
+  bulletPoint: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  bulletIcon: {
+    fontSize: 14,
+    marginTop: 2,
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 13,
     fontFamily: "Montserrat_400Regular",
-    color: "#333",
-    textAlign: "center",
-    lineHeight: 22,
-    fontStyle: "italic",
+    color: "#444",
+    lineHeight: 18,
+  },
+  boldText: {
+    fontFamily: "Montserrat_600SemiBold",
+    color: "#1a1a1a",
+  },
+  legalNotice: {
+    backgroundColor: "#f8f9fa",
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#CFE625",
+  },
+  legalText: {
+    fontSize: 12,
+    fontFamily: "Montserrat_400Regular",
+    color: "#555",
+    lineHeight: 16,
+    textAlign: "justify",
     marginBottom: 8,
   },
-  promiseSubtext: {
-    fontSize: 14,
-    fontFamily: "Montserrat_500Medium",
-    color: "#555",
+  legalSubtext: {
+    fontSize: 11,
+    fontFamily: "Montserrat_400Regular",
+    color: "#888",
     textAlign: "center",
   },
-  // Footer dan Tombol
-  footer: {
+  agreementSection: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: "#eee",
-    backgroundColor: "#fff", // Pastikan footer punya background
+    borderTopColor: "#f0f0f0",
+    gap: 12,
+  },
+  checkboxContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: "#ddd",
+    borderRadius: 4,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: "#CFE625",
+    borderColor: "#CFE625",
+  },
+  checkboxText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Montserrat_400Regular",
+    color: "#333",
+    lineHeight: 20,
+  },
+  linkText: {
+    color: "#007bff",
+    fontFamily: "Montserrat_500Medium",
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    padding: 20,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontFamily: "Montserrat_500Medium",
+    color: "#666",
   },
   agreeButton: {
-    backgroundColor: "#CFE625", // Warna tombol utama aplikasi
+    flex: 2,
     paddingVertical: 14,
-    paddingHorizontal: 20,
     borderRadius: 12,
+    backgroundColor: "#CFE625",
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  },
+  agreeButtonDisabled: {
+    backgroundColor: "#f0f0f0",
   },
   agreeButtonText: {
     fontSize: 16,
     fontFamily: "Montserrat_600SemiBold",
-    color: "#000", // Teks hitam di atas tombol kuning
+    color: "#000",
+  },
+  agreeButtonTextDisabled: {
+    color: "#999",
   },
   processingContainer: {
+    flex: 1,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    height: 50, // Sesuaikan tinggi dengan tombol
+    paddingVertical: 14,
+    gap: 12,
   },
   processingText: {
-    marginLeft: 12,
-    fontSize: 16,
-    color: "#495057",
+    fontSize: 14,
     fontFamily: "Montserrat_400Regular",
+    color: "#666",
   },
 });
 

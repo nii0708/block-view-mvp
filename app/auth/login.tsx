@@ -86,14 +86,25 @@ export default function LoginScreen() {
     console.log("Agree button pressed in popup.");
     try {
       setIsLoading(true);
+
+      // ✅ STEP 1: Simpan consent ke AsyncStorage
       await AsyncStorage.setItem("@privacyConsentGiven", "true");
       console.log("Consent status saved to storage.");
+
+      // ✅ STEP 2: Tutup popup dulu
       setShowConsentPopup(false);
+
+      // ✅ STEP 3: Tunggu sebentar untuk memastikan state update
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       console.log("Navigating to home after consent.");
-      router.replace("/"); // Arahkan ke halaman utama (index) setelah setuju
+
+      // ✅ STEP 4: Navigate ke home
+      router.replace("/");
     } catch (error) {
       console.error("Error saving consent or navigating:", error);
       Alert.alert("Error", "Gagal menyimpan persetujuan.");
+    } finally {
       setIsLoading(false);
     }
   };

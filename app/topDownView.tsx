@@ -814,13 +814,9 @@ export default function TopDownViewScreen() {
       return;
     }
 
-    // Tutup dropdown dulu, baru buka color picker
     setShowDropdown(false);
 
-    // Gunakan setTimeout untuk menghindari race condition
-    setTimeout(() => {
-      setShowColorPicker(true);
-    }, 150); // Delay sedikit untuk smooth transition
+    setShowColorPicker(true);
   }, [hasBlockModelData]);
 
   const toggleDropdown = useCallback(() => {

@@ -75,9 +75,11 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
     useState(false);
   const [showAttributeDropdown, setShowAttributeDropdown] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Refs
   const prevAttributeTypeRef = useRef<string | null>(null);
+  const initializationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { setPickedAttribute } = useMiningData();
 
@@ -96,39 +98,65 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
     return pickingAttributes[selectedAttributeType] || [];
   }, [pickingAttributes, selectedAttributeType]);
 
-  // Optimized initialization effect
+  // Reset function
+  const resetDialog = useCallback(() => {
+    setShowAttributeTypeDropdown(false);
+    setShowAttributeDropdown(false);
+    setIsInitialized(false);
+    if (initializationTimeoutRef.current) {
+      clearTimeout(initializationTimeoutRef.current);
+      initializationTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Initialize dialog when visible
   useEffect(() => {
     if (!visible) {
-      setShowAttributeTypeDropdown(false);
-      setShowAttributeDropdown(false);
+      resetDialog();
       return;
     }
 
-    // Initialize langsung tanpa delay
-    setColorMapping(currentColors);
+    // Clear any existing timeout
+    if (initializationTimeoutRef.current) {
+      clearTimeout(initializationTimeoutRef.current);
+    }
 
-    // Initialize attribute selection
-    if (pickingAttributes && attributeTypeList.length > 0) {
-      const firstAttributeType = attributeTypeList[0];
-      if (!selectedAttributeType) {
+    // Initialize with a small delay to ensure smooth rendering
+    initializationTimeoutRef.current = setTimeout(() => {
+      // Initialize color mapping
+      setColorMapping(currentColors);
+
+      // Initialize attribute selection
+      if (pickingAttributes && attributeTypeList.length > 0) {
+        const firstAttributeType = attributeTypeList[0];
         setSelectedAttributeType(firstAttributeType);
+
         const firstTypeAttributes = pickingAttributes[firstAttributeType];
         if (firstTypeAttributes && firstTypeAttributes.length > 0) {
           setSelectedAttribute(firstTypeAttributes[0]);
         }
       }
-    }
+
+      setIsInitialized(true);
+    }, 100); // Small delay for smooth initialization
+
+    return () => {
+      if (initializationTimeoutRef.current) {
+        clearTimeout(initializationTimeoutRef.current);
+        initializationTimeoutRef.current = null;
+      }
+    };
   }, [
     visible,
     currentColors,
     pickingAttributes,
     attributeTypeList,
-    selectedAttributeType,
+    resetDialog,
   ]);
 
-  // Optimized attribute type change effect
+  // Handle attribute type changes
   useEffect(() => {
-    if (!pickingAttributes || !selectedAttributeType) return;
+    if (!pickingAttributes || !selectedAttributeType || !isInitialized) return;
 
     // Only update if the attribute type has actually changed
     if (prevAttributeTypeRef.current !== selectedAttributeType) {
@@ -138,7 +166,12 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       setPickedAttribute(selectedPickedAttribute);
       prevAttributeTypeRef.current = selectedAttributeType;
     }
-  }, [pickingAttributes, selectedAttributeType, setPickedAttribute]);
+  }, [
+    pickingAttributes,
+    selectedAttributeType,
+    setPickedAttribute,
+    isInitialized,
+  ]);
 
   // Memoized color check function
   const isColorUsed = useCallback(
@@ -153,10 +186,10 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
     [colorMapping, currentTypeAttributes]
   );
 
-  // Optimized event handlers
+  // Event handlers
   const handleColorSelect = useCallback(
     (color: string) => {
-      if (!selectedAttribute || isLoading) return;
+      if (!selectedAttribute || isLoading || !isInitialized) return;
 
       if (isColorUsed(color, selectedAttribute)) {
         return;
@@ -169,12 +202,12 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       };
       setColorMapping(newMapping);
     },
-    [selectedAttribute, isLoading, isColorUsed, colorMapping]
+    [selectedAttribute, isLoading, isInitialized, isColorUsed, colorMapping]
   );
 
   const handleOpacityChange = useCallback(
     (opacity: number) => {
-      if (!selectedAttribute || isLoading) return;
+      if (!selectedAttribute || isLoading || !isInitialized) return;
 
       const currentColor = colorMapping[selectedAttribute]?.color || "#808080";
       const newMapping = {
@@ -183,25 +216,29 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       };
       setColorMapping(newMapping);
     },
-    [selectedAttribute, isLoading, colorMapping]
+    [selectedAttribute, isLoading, isInitialized, colorMapping]
   );
 
   const handleApply = useCallback(() => {
+    if (!isInitialized) return;
+
     setIsLoading(true);
     onColorChange(colorMapping, () => {
       setIsLoading(false);
       onClose();
     });
-  }, [colorMapping, onColorChange, onClose]);
+  }, [colorMapping, onColorChange, onClose, isInitialized]);
 
   const handleReset = useCallback(() => {
-    if (!isLoading) {
+    if (!isLoading && isInitialized) {
       setColorMapping(currentColors);
     }
-  }, [currentColors, isLoading]);
+  }, [currentColors, isLoading, isInitialized]);
 
   const handleAttributeTypeSelect = useCallback(
     (attrType: string) => {
+      if (!isInitialized) return;
+
       setSelectedAttributeType(attrType);
       setShowAttributeTypeDropdown(false);
 
@@ -212,16 +249,20 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
         setSelectedAttribute("");
       }
     },
-    [pickingAttributes]
+    [pickingAttributes, isInitialized]
   );
 
-  const handleAttributeSelect = useCallback((attr: string) => {
-    setSelectedAttribute(attr);
-    setShowAttributeDropdown(false);
-  }, []);
+  const handleAttributeSelect = useCallback(
+    (attr: string) => {
+      if (!isInitialized) return;
+      setSelectedAttribute(attr);
+      setShowAttributeDropdown(false);
+    },
+    [isInitialized]
+  );
 
   const handleBackdropPress = useCallback(() => {
-    if (isLoading) return; // Hapus isInitializing check
+    if (isLoading || !isInitialized) return;
 
     if (showAttributeTypeDropdown) {
       setShowAttributeTypeDropdown(false);
@@ -232,16 +273,41 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
       return;
     }
     onClose();
-  }, [isLoading, showAttributeTypeDropdown, showAttributeDropdown, onClose]);
+  }, [
+    isLoading,
+    isInitialized,
+    showAttributeTypeDropdown,
+    showAttributeDropdown,
+    onClose,
+  ]);
 
   // Don't render if not visible
   if (!visible) return null;
+
+  // Show loading state while initializing
+  if (!isInitialized) {
+    return (
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="none"
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.initializingContainer}>
+            <ActivityIndicator size="large" color="#CFE625" />
+            <Text style={styles.initializingText}>Preparing colors...</Text>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
       visible={visible}
       transparent={true}
-      animationType="fade"
+      animationType="none" // Changed from "fade" to "none" to prevent animation conflicts
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>
@@ -283,6 +349,7 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
                   isLoading && styles.disabledButton,
                 ]}
                 onPress={() => {
+                  if (isLoading) return;
                   setShowAttributeDropdown(false);
                   setShowAttributeTypeDropdown(!showAttributeTypeDropdown);
                 }}
@@ -318,7 +385,11 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
                     styles.disabledButton,
                 ]}
                 onPress={() => {
-                  if (!selectedAttributeType || attributeList.length === 0)
+                  if (
+                    !selectedAttributeType ||
+                    attributeList.length === 0 ||
+                    isLoading
+                  )
                     return;
                   setShowAttributeTypeDropdown(false);
                   setShowAttributeDropdown(!showAttributeDropdown);
@@ -566,7 +637,6 @@ const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
 };
 
 const styles = StyleSheet.create({
-  // ... (same styles as before, plus new ones)
   modalOverlay: {
     flex: 1,
     justifyContent: "center",

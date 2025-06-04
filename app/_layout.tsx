@@ -11,6 +11,7 @@ import * as Linking from "expo-linking";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { MiningDataProvider } from "../context/MiningDataContext";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -23,30 +24,102 @@ function LoadingScreen() {
   );
 }
 
+// ✨ FIXED: Privacy Consent Hook with Manual Refresh
+function usePrivacyConsent() {
+  const [hasConsent, setHasConsent] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const checkConsent = async () => {
+    try {
+      const consent = await AsyncStorage.getItem("@privacyConsentGiven");
+      const consentValue = consent === "true";
+      setHasConsent(consentValue);
+      console.log("🔍 Privacy consent check:", consentValue);
+      return consentValue;
+    } catch (error) {
+      console.error("❌ Privacy consent check error:", error);
+      setHasConsent(false);
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const initialCheck = async () => {
+      await checkConsent();
+      setIsLoading(false);
+    };
+    initialCheck();
+  }, []);
+
+  // ✨ Return function untuk manual refresh
+  return { hasConsent, isLoading, refreshConsent: checkConsent };
+}
+
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const segments = useSegments();
-  const { isLoggedIn, loading } = useAuth();
+  const { isLoggedIn, loading: authLoading } = useAuth();
+  const {
+    hasConsent,
+    isLoading: consentLoading,
+    refreshConsent,
+  } = usePrivacyConsent(); // ✨ TAMBAH refreshConsent
   const [isNavigationReady, setIsNavigationReady] = useState(false);
 
   // Check if we're in auth group
   const inAuthGroup = segments[0] === "auth";
 
+  // ✨ TAMBAH: Listen untuk perubahan di AsyncStorage
   useEffect(() => {
-    if (!loading && isNavigationReady) {
-      // If not logged in and not in auth screens, redirect to login
-      if (!isLoggedIn && !inAuthGroup) {
-        console.log("🔒 Not logged in, redirecting to login");
-        router.replace("/auth/login");
+    const checkForConsentChanges = async () => {
+      if (!authLoading && !consentLoading && isNavigationReady) {
+        // ✨ Refresh consent state sebelum decision
+        const currentConsent = await refreshConsent();
+
+        console.log("🔍 AuthGuard decision:", {
+          isLoggedIn,
+          hasConsent: currentConsent, // ✨ Gunakan current consent
+          inAuthGroup,
+          currentPath: `/${segments.join("/")}`,
+        });
+
+        // If not logged in and not in auth screens, redirect to login
+        if (!isLoggedIn && !inAuthGroup) {
+          console.log("🔒 Not logged in, redirecting to login");
+          router.replace("/auth/login");
+        }
+        // ✨ MODIFIKASI: Gunakan currentConsent
+        else if (isLoggedIn && inAuthGroup) {
+          if (currentConsent) {
+            console.log("✅ Logged in with consent, redirecting to home");
+            router.replace("/");
+          } else {
+            console.log(
+              "📋 Logged in but no consent, staying in login for privacy agreement"
+            );
+          }
+        }
+        // ✨ MODIFIKASI: Gunakan currentConsent
+        else if (isLoggedIn && !inAuthGroup && !currentConsent) {
+          console.log(
+            "🔒 No consent, redirecting to login for privacy agreement"
+          );
+          router.replace("/auth/login");
+        }
       }
-      // If logged in and in auth screens, redirect to home
-      else if (isLoggedIn && inAuthGroup) {
-        console.log("✅ Already logged in, redirecting to home");
-        router.replace("/");
-      }
-    }
-  }, [isLoggedIn, loading, inAuthGroup, isNavigationReady]);
+    };
+
+    checkForConsentChanges();
+  }, [
+    isLoggedIn,
+    authLoading,
+    consentLoading,
+    hasConsent,
+    inAuthGroup,
+    isNavigationReady,
+    segments, // ✨ TAMBAH segments dependency
+  ]);
 
   // Set navigation ready after a small delay
   useEffect(() => {
@@ -56,8 +129,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, []);
 
-  // Show loading while checking auth
-  if (loading) {
+  // Show loading while checking auth OR consent
+  if (authLoading || consentLoading) {
     return <LoadingScreen />;
   }
 
