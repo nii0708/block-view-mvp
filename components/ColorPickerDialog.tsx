@@ -36,24 +36,24 @@ interface ColorPickerDialogProps {
 }
 
 const predefinedColors = [
-  "#FF0000",
-  "#00FF00",
-  "#0000FF",
-  "#FFFF00",
-  "#FF00FF",
-  "#00FFFF",
-  "#FFA500",
-  "#800080",
-  "#FFC0CB",
-  "#808080",
-  "#8B4513",
-  "#000000",
-  "#75499c",
-  "#b40c0d",
-  "#045993",
-  "#db6000",
-  "#118011",
-  "#6d392e",
+  "#FF3333", // Red
+  "#FF6666", // Light Red
+  "#FF69B4", // Hot Pink
+  "#BA55D3", // Medium Orchid
+  "#8A2BE2", // Blue Violet
+  "#4B0082", // Indigo
+  "#008B8B", // Dark Cyan
+  "#00CED1", // Dark Turquoise
+  "#40E0D0", // Turquoise
+  "#1E90FF", // Dodger Blue
+  "#6A5ACD", // Slate Blue
+  "#000080", // Navy Blue
+  "#228B22", // Forest Green
+  "#9ACD32", // Yellow Green
+  "#ADFF2F", // Green Yellow
+  "#FFD700", // Gold
+  "#FFA500", // Orange
+  "#FF7F50", // Coral
 ];
 
 const ColorPickerDialog: React.FC<ColorPickerDialogProps> = ({
