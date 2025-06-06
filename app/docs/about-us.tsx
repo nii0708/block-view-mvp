@@ -112,7 +112,10 @@ export default function AboutUsScreen() {
                 • East Indonesia: UTM Zones 50-51 (North & South hemispheres)
               </Text>
               <Text style={styles.featureItem}>
-                • Papua Region: UTM Zone 52 (North & South hemispheres)
+                • Maluku Region: UTM Zone 52 (North & South hemispheres)
+              </Text>
+              <Text style={styles.featureItem}>
+                • Papua Region: UTM Zone 53-54 (North & South hemispheres)
               </Text>
               <Text style={styles.featureItem}>
                 • Automatic coordinate transformation and projection handling

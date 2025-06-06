@@ -214,7 +214,7 @@ export default function HelpSupportScreen() {
                 Mine.Lite provides comprehensive coordinate system support for
                 Indonesian mining operations:
                 {"\n"}• WGS84 (EPSG:4326) for GPS data
-                {"\n"}• Complete UTM coverage: Zones 46N-52N and 46S-52S
+                {"\n"}• Complete UTM coverage: Zones 46N-54N and 46S-54S
                 {"\n"}• Regional support: West Indonesia (46-47), Central
                 (48-49), East (50-51), Papua (52)
                 {"\n"}• Automatic coordinate transformation ensures accurate

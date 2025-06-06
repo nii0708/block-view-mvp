@@ -55,7 +55,17 @@ const PROJECTIONS = [
   {
     code: "EPSG:32652",
     name: "UTM Zone 52N (EPSG:32652)",
-    description: "Papua (North)",
+    description: "North Maluku (North)",
+  },
+  {
+    code: "EPSG:32651",
+    name: "UTM Zone 53N (EPSG:32653)",
+    description: "West Papua (North)",
+  },
+  {
+    code: "EPSG:32652",
+    name: "UTM Zone 54N (EPSG:32654)",
+    description: "East Papua (North)",
   },
 
   // Southern hemisphere UTM zones - Indonesia
@@ -92,7 +102,17 @@ const PROJECTIONS = [
   {
     code: "EPSG:32752",
     name: "UTM Zone 52S (EPSG:32752)",
-    description: "Papua (South)",
+    description: "Maluku (South)",
+  },
+  {
+    code: "EPSG:32753",
+    name: "UTM Zone 53S (EPSG:32753)",
+    description: "West Papua (South)",
+  },
+  {
+    code: "EPSG:32754",
+    name: "UTM Zone 54S (EPSG:32754)",
+    description: "East Papua (South)",
   },
 ];
 
