@@ -58,7 +58,7 @@ const PROJECTIONS = [
     description: "North Maluku (North)",
   },
   {
-    code: "EPSG:32651",
+    code: "EPSG:32653",
     name: "UTM Zone 53N (EPSG:32653)",
     description: "West Papua (North)",
   },
