@@ -119,8 +119,6 @@ const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   };
 
-  // console.log("geoJsonData", geoJsonData.features[0]);
-
   // Update GeoJSON data and PDF overlay when changed
   useEffect(() => {
     if (mapIsReady && webViewRef.current) {
@@ -488,7 +486,6 @@ true;
         // Initialize map
         function initMap() {
           try {
-            console.log('DOM loaded, initializing map');
             
             // Configure Leaflet for better mobile performance
             L.Browser.mobile = true;
@@ -572,7 +569,6 @@ true;
               if (now - lastClick < 300) return;
               lastClick = now;
               
-              console.log('Map clicked at', e.latlng);
               window.ReactNativeWebView.postMessage(JSON.stringify({
                 type: 'mapClick',
                 data: {
@@ -594,7 +590,6 @@ true;
               }
             }));
             
-            console.log('Map initialization complete');
           } catch (error) {
             console.error('Error initializing map:', error);
           }
@@ -634,7 +629,6 @@ true;
             maximumAge: 0
           });
           
-          console.log('Started location tracking');
           
           // Inform React Native that location tracking has started
           window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -657,7 +651,6 @@ true;
             });
           }
           
-          console.log('Stopped location tracking');
           
           // Inform React Native that location tracking has stopped
           window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -669,7 +662,6 @@ true;
           const radius = e.accuracy;
           const latlng = e.latlng;
           
-          console.log('Location found:', latlng, 'accuracy:', radius);
           
           // Remove previous markers
           if (locationMarker) {
@@ -739,14 +731,7 @@ true;
         function addPointFromCrosshair() {
           try {
             const centerPoint = map.getCenter();
-            console.log("addPointFromCrosshair called, center:", centerPoint);
-            
-            // Check if we're still in drawing mode
-            if (!isDrawingMode) {
-              console.log("Not in drawing mode, ignoring point add");
-              return;
-            }
-            
+        
             if (!firstPoint) {
               // First point
               firstPoint = centerPoint;
@@ -782,7 +767,6 @@ true;
             } else {
               // Second point - complete the line
               const secondPoint = centerPoint;
-              console.log("Setting second point:", secondPoint);
               
               // Create marker for second point
               const marker = L.circleMarker(secondPoint, {
@@ -804,7 +788,6 @@ true;
                 color: lineColor,
                 weight: 3
               }).addTo(map);
-              console.log("Created permanent line between points");
               
               // Remove preview line
               if (tempLine) {
@@ -1093,7 +1076,6 @@ true;
             
             // If we have line points, add markers and potentially a line
             if (state.linePoints && state.linePoints.length > 0) {
-              console.log("Processing line points:", state.linePoints);
               
               // Add markers for each point
               state.linePoints.forEach(point => {
@@ -1110,7 +1092,6 @@ true;
               
               // If we have 2 points, draw a line
               if (state.linePoints.length === 2) {
-                console.log("Creating line between points");
                 lineLayer = L.polyline(state.linePoints, {
                   color: lineColor,
                   weight: 3

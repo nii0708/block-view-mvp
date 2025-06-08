@@ -24,6 +24,12 @@ import {
 } from "@expo-google-fonts/montserrat";
 import PrivacyConsentPopup from "@/components/PrivacyConsentPopup";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
+import { Session } from '@supabase/supabase-js';
+
+// Required for Expo AuthSession
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -37,6 +43,26 @@ export default function LoginScreen() {
     Montserrat_500Medium,
     Montserrat_600SemiBold,
   });
+
+  // Listen for auth state changes
+  React.useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state change:', event, session?.user?.email);
+        
+        if (event === 'SIGNED_IN' && session) {
+          console.log('✅ User signed in automatically via auth listener');
+          setIsLoading(false);
+          await checkConsentAndNavigate();
+        } else if (event === 'SIGNED_OUT') {
+          console.log('❌ User signed out');
+          setIsLoading(false);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   if (!fontsLoaded) {
     return null;
@@ -62,22 +88,23 @@ export default function LoginScreen() {
         return;
       }
 
-      console.log("Login berhasil:", data);
-
-      const consentGiven = await AsyncStorage.getItem("@privacyConsentGiven");
-      console.log("Consent Status from Storage:", consentGiven);
-
-      if (consentGiven === "true") {
-        console.log("Consent already given, navigating to home.");
-        router.replace("/"); // Langsung ke halaman utama (index)
-      } else {
-        console.log("Consent not given, showing popup.");
-        setShowConsentPopup(true);
-        setIsLoading(false);
-      }
+      await checkConsentAndNavigate();
     } catch (error) {
       console.error("Login error:", error);
       Alert.alert("Error", "Terjadi kesalahan saat login");
+      setIsLoading(false);
+    }
+  };
+
+  const checkConsentAndNavigate = async () => {
+    const consentGiven = await AsyncStorage.getItem("@privacyConsentGiven");
+
+    if (consentGiven === "true") {
+      console.log("Consent already given, navigating to home.");
+      router.replace("/");
+    } else {
+      console.log("Consent not given, showing popup.");
+      setShowConsentPopup(true);
       setIsLoading(false);
     }
   };
@@ -87,19 +114,13 @@ export default function LoginScreen() {
     try {
       setIsLoading(true);
 
-      // ✅ STEP 1: Simpan consent ke AsyncStorage
       await AsyncStorage.setItem("@privacyConsentGiven", "true");
       console.log("Consent status saved to storage.");
 
-      // ✅ STEP 2: Tutup popup dulu
       setShowConsentPopup(false);
-
-      // ✅ STEP 3: Tunggu sebentar untuk memastikan state update
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       console.log("Navigating to home after consent.");
-
-      // ✅ STEP 4: Navigate ke home
       router.replace("/");
     } catch (error) {
       console.error("Error saving consent or navigating:", error);
@@ -110,7 +131,87 @@ export default function LoginScreen() {
   };
 
   const handleGoogleLogin = async () => {
-    Alert.alert("Info", "Google login akan segera tersedia");
+    setIsLoading(true);
+    
+    try {
+      console.log('🚀 Starting Google OAuth...');
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'https://rtxqxaeehpstfxsiibxc.supabase.co/auth/v1/callback',
+        },
+      });
+
+      if (error) {
+        console.error('❌ Supabase OAuth error:', error);
+        Alert.alert("Login Gagal", error.message);
+        setIsLoading(false);
+        return;
+      }
+
+      if (data?.url) {
+        console.log('🌐 Opening OAuth URL in browser');
+        
+        // Show instruction before opening browser
+        Alert.alert(
+          "Login Google", 
+          "Browser akan terbuka. Setelah login berhasil, kembali ke aplikasi ini dan tekan 'Cek Status Login'",
+          [
+            { 
+              text: "Batal", 
+              style: "cancel",
+              onPress: () => setIsLoading(false)
+            },
+            { 
+              text: "Lanjutkan", 
+              onPress: async () => {
+                await WebBrowser.openBrowserAsync(data.url);
+                setIsLoading(false);
+              }
+            }
+          ]
+        );
+        
+      } else {
+        console.error('❌ No OAuth URL received');
+        Alert.alert("Login Gagal", "Tidak dapat memulai login Google");
+        setIsLoading(false);
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Google login error:', error);
+      Alert.alert("Login Gagal", "Terjadi kesalahan saat login dengan Google");
+      setIsLoading(false);
+    }
+  };
+
+  const checkLoginStatus = async () => {
+    setIsLoading(true);
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('❌ Error checking session:', error);
+        Alert.alert("Error", "Gagal memeriksa status login");
+        setIsLoading(false);
+        return;
+      }
+
+      if (session) {
+        console.log('✅ User is logged in!', session.user.email);
+        Alert.alert("Berhasil!", "Login Google berhasil!");
+        await checkConsentAndNavigate();
+      } else {
+        console.log('❌ No session found');
+        Alert.alert("Belum Login", "Silakan selesaikan login di browser terlebih dahulu");
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('❌ Error checking login status:', error);
+      Alert.alert("Error", "Terjadi kesalahan saat memeriksa status login");
+      setIsLoading(false);
+    }
   };
 
   const handleFacebookLogin = async () => {
@@ -121,7 +222,7 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header - Style dikembalikan ke semula */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Login User</Text>
       </View>
@@ -137,7 +238,7 @@ export default function LoginScreen() {
           {/* Logo Section */}
           <View style={styles.logoContainer}>
             <Image
-              source={require("../../assets/images/logo.png")} // Pastikan path ini benar
+              source={require("../../assets/images/logo.png")}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -190,6 +291,18 @@ export default function LoginScreen() {
                 <Text style={styles.socialButtonText}>Google</Text>
               </TouchableOpacity>
 
+              {/* Add Check Login Status Button */}
+              <TouchableOpacity
+                style={[styles.socialButton, { backgroundColor: '#e3f2fd' }]}
+                onPress={checkLoginStatus}
+                disabled={isLoading || showConsentPopup}
+              >
+                <MaterialIcons name="refresh" size={22} color="#1976d2" />
+                <Text style={[styles.socialButtonText, { color: '#1976d2' }]}>
+                  Cek Status Login
+                </Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.socialButton}
                 onPress={handleFacebookLogin}
@@ -199,12 +312,17 @@ export default function LoginScreen() {
                 <Text style={styles.socialButtonText}>Facebook</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Instructions for Google Login */}
+            <Text style={styles.instructionText}>
+              💡 Untuk login Google: tekan tombol Google → login di browser → kembali ke app → tekan "Cek Status Login"
+            </Text>
           </View>
 
           {/* Signup Link */}
           <View style={styles.signupContainer}>
             <TouchableOpacity
-              onPress={() => router.push("/auth/signup")} // Pastikan path ini benar
+              onPress={() => router.push("/auth/signup")}
               disabled={isLoading || showConsentPopup}
             >
               <Text style={styles.signupText}>
@@ -216,7 +334,7 @@ export default function LoginScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Render Popup Consent di sini */}
+      {/* Privacy Consent Popup */}
       <PrivacyConsentPopup
         visible={showConsentPopup}
         onAgree={handleAgreeToPrivacy}
@@ -229,7 +347,6 @@ export default function LoginScreen() {
   );
 }
 
-// Styles dikembalikan untuk header
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -237,18 +354,15 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between", // Kembali ke space-between jika ada ikon lain
+    justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 12,
-    // borderBottomWidth: 1, // Hapus garis bawah
-    // borderBottomColor: "#eee", // Hapus garis bawah
   },
   headerTitle: {
     fontSize: 18,
     fontFamily: "Montserrat_600SemiBold",
-    flex: 1, // Biarkan flex agar rata kiri jika hanya ada judul
-    // textAlign: "center", // Hapus rata tengah
+    flex: 1,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -324,5 +438,14 @@ const styles = StyleSheet.create({
   signupLink: {
     color: "#CFE625",
     fontFamily: "Montserrat_600SemiBold",
+  },
+  instructionText: {
+    fontSize: 12,
+    fontFamily: "Montserrat_400Regular",
+    color: "#888",
+    textAlign: "center",
+    marginTop: 16,
+    paddingHorizontal: 8,
+    lineHeight: 18,
   },
 });

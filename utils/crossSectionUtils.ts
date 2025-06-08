@@ -13,9 +13,7 @@ export function filterBlocksForCrossSection(
   endPoint: { lat: number; lng: number },
   corridorWidth = 100
 ) {
-  console.log(`Filtering ${blockModelData.length} blocks for cross-section`);
 
-  // Check first block for coordinate format
   if (blockModelData.length === 0) return [];
 
   const firstBlock = blockModelData[0];
@@ -124,7 +122,6 @@ export function filterElevationForCrossSection(
     return distance <= corridorWidth;
   });
 
-  console.log(`Filtered to ${filteredElevation.length} elevation points`);
   return filteredElevation;
 }
 
