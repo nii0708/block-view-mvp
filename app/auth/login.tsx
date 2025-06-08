@@ -277,48 +277,6 @@ export default function LoginScreen() {
             />
           </View>
 
-          {/* Social Login Section */}
-          <View style={styles.socialSection}>
-            <Text style={styles.orText}>atau lanjutkan dengan</Text>
-
-            <View style={styles.socialButtonsContainer}>
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={handleGoogleLogin}
-                disabled={isLoading || showConsentPopup}
-              >
-                <FontAwesome name="google" size={22} color="#DB4437" />
-                <Text style={styles.socialButtonText}>Google</Text>
-              </TouchableOpacity>
-
-              {/* Add Check Login Status Button */}
-              <TouchableOpacity
-                style={[styles.socialButton, { backgroundColor: '#e3f2fd' }]}
-                onPress={checkLoginStatus}
-                disabled={isLoading || showConsentPopup}
-              >
-                <MaterialIcons name="refresh" size={22} color="#1976d2" />
-                <Text style={[styles.socialButtonText, { color: '#1976d2' }]}>
-                  Cek Status Login
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.socialButton}
-                onPress={handleFacebookLogin}
-                disabled={isLoading || showConsentPopup}
-              >
-                <FontAwesome name="facebook" size={22} color="#1877F2" />
-                <Text style={styles.socialButtonText}>Facebook</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Instructions for Google Login */}
-            <Text style={styles.instructionText}>
-              💡 Untuk login Google: tekan tombol Google → login di browser → kembali ke app → tekan "Cek Status Login"
-            </Text>
-          </View>
-
           {/* Signup Link */}
           <View style={styles.signupContainer}>
             <TouchableOpacity
