@@ -180,7 +180,6 @@ export function generateD3Html(
           const now = Date.now();
           if (now - lastLogTime > 500) {
             lastLogTime = now;
-            console.log(message);
             
             if (window.ReactNativeWebView) {
               window.ReactNativeWebView.postMessage(JSON.stringify({

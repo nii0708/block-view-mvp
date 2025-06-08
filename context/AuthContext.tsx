@@ -230,7 +230,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     setLastError(null);
 
     try {
-      console.log("🚪 Logout attempt");
 
       const { success, error } = await AuthService.logout();
 
@@ -267,11 +266,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     setLastError(null);
 
     try {
-      console.log("📝 Profile update attempt");
-      console.log("📝 Current user:", user);
-      console.log("📝 Update data:", userData);
-      console.log("📝 Options:", options);
-
       const result = await AuthService.updateProfile(
         user.id,
         user, // Pass current user data for comparison

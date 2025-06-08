@@ -140,7 +140,6 @@ export const processElevationData = (
   }
 
   const startTime = Date.now();
-  // console.log(`Processing ${data.length} elevation data points...`);
 
   // Filter data by block model bounding box if provided
   let dataToProcess = data;
@@ -152,7 +151,6 @@ export const processElevationData = (
       latField
     );
 
-    // console.log(`Time to filter data: ${(Date.now() - startTime) / 1000}s`);
   }
 
   // If we still have too many points, sample them
@@ -162,7 +160,6 @@ export const processElevationData = (
     dataToProcess = dataToProcess.filter(
       (_, index) => index % sampleRate === 0
     );
-    // console.log(`Sampled ${dataToProcess.length} points from filtered data`);
   }
 
   // console.log(

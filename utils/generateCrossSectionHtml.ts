@@ -941,7 +941,6 @@ export function generateD3Html(
             }
             
             // Also check the elevRange that was passed in
-            console.log(\`Original elevRange: min=\${elevRange.min}, max=\${elevRange.max}\`);
             
             // If no valid data found from our calculations, use the original elevRange
             if (actualMinElev === Infinity || actualMaxElev === -Infinity) {

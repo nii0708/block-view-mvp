@@ -298,7 +298,6 @@ export const generateLeafletMapContent = (
                 color: lineColor,
                 weight: 3
               }).addTo(map);
-              console.log("Created permanent line between points");
               
               // Remove preview line
               if (tempLine) {

@@ -607,20 +607,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   logoContainer: {
-    alignItems: "center",
-    marginTop: 20,
-    marginBottom: 20,
+    alignItems: "center"
   },
   logo: {
     width: 300,
-    height: 60,
+    height: 200,
   },
   tagline: {
     fontFamily: "Montserrat_600SemiBold",
     fontSize: 20,
     color: "#666",
     textAlign: "center",
-    marginTop: 10,
+    marginBottom: 20,
   },
   contentContainer: {
     flex: 1,
