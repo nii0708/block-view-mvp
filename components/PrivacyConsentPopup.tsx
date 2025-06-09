@@ -106,7 +106,7 @@ const PrivacyConsentPopup: React.FC<PrivacyConsentPopupProps> = ({
                     <Text style={styles.bulletIcon}>🚫</Text>
                     <Text style={styles.bulletText}>
                       <Text style={styles.boldText}>No Data Mining:</Text> We
-                      never access, view, or sell your geological data
+                      never access, view, or sell your data
                     </Text>
                   </View>
 

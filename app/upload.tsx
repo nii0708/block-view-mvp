@@ -151,7 +151,7 @@ export default function UploadScreen() {
     if (hasBlockModel && !hasElevation) {
       Alert.alert(
         "Elevation Data Required",
-        "When uploading a Block Model, you must also upload Elevation Data. Please upload both files to proceed."
+        "When uploading a Block Model, you must also upload Topography Data. Please upload both files to proceed."
       );
       return;
     }
@@ -320,7 +320,7 @@ export default function UploadScreen() {
         )}
 
         <UploadButton
-          title="Upload Elevation Data"
+          title="Upload Topography Data"
           icon={<Feather name="layers" size={24} color="#555" />}
           onPress={handleLidarUpload}
         />
