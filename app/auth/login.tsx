@@ -24,9 +24,9 @@ import {
 } from "@expo-google-fonts/montserrat";
 import PrivacyConsentPopup from "@/components/PrivacyConsentPopup";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
-import { Session } from '@supabase/supabase-js';
+import * as AuthSession from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
+import { Session } from "@supabase/supabase-js";
 
 // Required for Expo AuthSession
 WebBrowser.maybeCompleteAuthSession();
@@ -44,22 +44,35 @@ export default function LoginScreen() {
     Montserrat_600SemiBold,
   });
 
+  const checkConsentAndNavigate = async () => {
+    const consentGiven = await AsyncStorage.getItem("@privacyConsentGiven");
+
+    if (consentGiven === "true") {
+      console.log("Consent already given, navigating to home.");
+      router.replace("/");
+    } else {
+      console.log("Consent not given, showing popup.");
+      setShowConsentPopup(true);
+      setIsLoading(false);
+    }
+  };
+
   // Listen for auth state changes
   React.useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('Auth state change:', event, session?.user?.email);
-        
-        if (event === 'SIGNED_IN' && session) {
-          console.log('✅ User signed in automatically via auth listener');
-          setIsLoading(false);
-          await checkConsentAndNavigate();
-        } else if (event === 'SIGNED_OUT') {
-          console.log('❌ User signed out');
-          setIsLoading(false);
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state change:", event, session?.user?.email);
+
+      if (event === "SIGNED_IN" && session) {
+        console.log("✅ User signed in automatically via auth listener");
+        setIsLoading(false);
+        await checkConsentAndNavigate();
+      } else if (event === "SIGNED_OUT") {
+        console.log("❌ User signed out");
+        setIsLoading(false);
       }
-    );
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -96,19 +109,6 @@ export default function LoginScreen() {
     }
   };
 
-  const checkConsentAndNavigate = async () => {
-    const consentGiven = await AsyncStorage.getItem("@privacyConsentGiven");
-
-    if (consentGiven === "true") {
-      console.log("Consent already given, navigating to home.");
-      router.replace("/");
-    } else {
-      console.log("Consent not given, showing popup.");
-      setShowConsentPopup(true);
-      setIsLoading(false);
-    }
-  };
-
   const handleAgreeToPrivacy = async () => {
     console.log("Agree button pressed in popup.");
     try {
@@ -132,55 +132,54 @@ export default function LoginScreen() {
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
-    
+
     try {
-      console.log('🚀 Starting Google OAuth...');
-      
+      console.log("🚀 Starting Google OAuth...");
+
       const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
-          redirectTo: 'https://rtxqxaeehpstfxsiibxc.supabase.co/auth/v1/callback',
+          redirectTo:
+            "https://rtxqxaeehpstfxsiibxc.supabase.co/auth/v1/callback",
         },
       });
 
       if (error) {
-        console.error('❌ Supabase OAuth error:', error);
+        console.error("❌ Supabase OAuth error:", error);
         Alert.alert("Login Gagal", error.message);
         setIsLoading(false);
         return;
       }
 
       if (data?.url) {
-        console.log('🌐 Opening OAuth URL in browser');
-        
+        console.log("🌐 Opening OAuth URL in browser");
+
         // Show instruction before opening browser
         Alert.alert(
-          "Login Google", 
+          "Login Google",
           "Browser akan terbuka. Setelah login berhasil, kembali ke aplikasi ini dan tekan 'Cek Status Login'",
           [
-            { 
-              text: "Batal", 
+            {
+              text: "Batal",
               style: "cancel",
-              onPress: () => setIsLoading(false)
+              onPress: () => setIsLoading(false),
             },
-            { 
-              text: "Lanjutkan", 
+            {
+              text: "Lanjutkan",
               onPress: async () => {
                 await WebBrowser.openBrowserAsync(data.url);
                 setIsLoading(false);
-              }
-            }
+              },
+            },
           ]
         );
-        
       } else {
-        console.error('❌ No OAuth URL received');
+        console.error("❌ No OAuth URL received");
         Alert.alert("Login Gagal", "Tidak dapat memulai login Google");
         setIsLoading(false);
       }
-      
     } catch (error: any) {
-      console.error('❌ Google login error:', error);
+      console.error("❌ Google login error:", error);
       Alert.alert("Login Gagal", "Terjadi kesalahan saat login dengan Google");
       setIsLoading(false);
     }
@@ -189,26 +188,32 @@ export default function LoginScreen() {
   const checkLoginStatus = async () => {
     setIsLoading(true);
     try {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession();
+
       if (error) {
-        console.error('❌ Error checking session:', error);
+        console.error("❌ Error checking session:", error);
         Alert.alert("Error", "Gagal memeriksa status login");
         setIsLoading(false);
         return;
       }
 
       if (session) {
-        console.log('✅ User is logged in!', session.user.email);
+        console.log("✅ User is logged in!", session.user.email);
         Alert.alert("Berhasil!", "Login Google berhasil!");
         await checkConsentAndNavigate();
       } else {
-        console.log('❌ No session found');
-        Alert.alert("Belum Login", "Silakan selesaikan login di browser terlebih dahulu");
+        console.log("❌ No session found");
+        Alert.alert(
+          "Belum Login",
+          "Silakan selesaikan login di browser terlebih dahulu"
+        );
         setIsLoading(false);
       }
     } catch (error) {
-      console.error('❌ Error checking login status:', error);
+      console.error("❌ Error checking login status:", error);
       Alert.alert("Error", "Terjadi kesalahan saat memeriksa status login");
       setIsLoading(false);
     }

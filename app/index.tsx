@@ -607,11 +607,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   logoContainer: {
-    alignItems: "center"
+    alignItems: "center",
   },
   logo: {
     width: 300,
-    height: 200,
+    height: 100,
   },
   tagline: {
     fontFamily: "Montserrat_600SemiBold",
