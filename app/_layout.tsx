@@ -24,7 +24,7 @@ function LoadingScreen() {
   );
 }
 
-// ✨ FIXED: Privacy Consent Hook with Manual Refresh
+// Privacy Consent Hook
 function usePrivacyConsent() {
   const [hasConsent, setHasConsent] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,12 +51,11 @@ function usePrivacyConsent() {
     initialCheck();
   }, []);
 
-  // ✨ Return function untuk manual refresh
   return { hasConsent, isLoading, refreshConsent: checkConsent };
 }
 
-// Auth Guard Component
-function AuthGuard({ children }: { children: React.ReactNode }) {
+// ✅ NEW APPROACH: AuthRedirect Hook - runs INSIDE navigator
+function useAuthRedirect() {
   const router = useRouter();
   const segments = useSegments();
   const { isLoggedIn, loading: authLoading } = useAuth();
@@ -64,77 +63,71 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     hasConsent,
     isLoading: consentLoading,
     refreshConsent,
-  } = usePrivacyConsent(); // ✨ TAMBAH refreshConsent
-  const [isNavigationReady, setIsNavigationReady] = useState(false);
+  } = usePrivacyConsent();
+  const [hasRedirected, setHasRedirected] = useState(false);
 
-  // Check if we're in auth group
   const inAuthGroup = segments[0] === "auth";
 
-  // ✨ TAMBAH: Listen untuk perubahan di AsyncStorage
   useEffect(() => {
-    const checkForConsentChanges = async () => {
-      if (!authLoading && !consentLoading && isNavigationReady) {
-        // ✨ Refresh consent state sebelum decision
+    const performRedirect = async () => {
+      // Don't redirect if still loading or already redirected
+      if (authLoading || consentLoading || hasRedirected) {
+        return;
+      }
+
+      try {
         const currentConsent = await refreshConsent();
 
-        console.log("🔍 AuthGuard decision:", {
+        console.log("🔍 Auth redirect check:", {
           isLoggedIn,
-          hasConsent: currentConsent, // ✨ Gunakan current consent
+          hasConsent: currentConsent,
           inAuthGroup,
           currentPath: `/${segments.join("/")}`,
         });
 
-        // If not logged in and not in auth screens, redirect to login
-        if (!isLoggedIn && !inAuthGroup) {
-          console.log("🔒 Not logged in, redirecting to login");
-          router.replace("/auth/login");
-        }
-        // ✨ MODIFIKASI: Gunakan currentConsent
-        else if (isLoggedIn && inAuthGroup) {
-          if (currentConsent) {
+        // Add delay to ensure navigation is fully ready
+        setTimeout(() => {
+          let shouldRedirect = false;
+          let redirectPath = "";
+
+          if (!isLoggedIn && !inAuthGroup) {
+            shouldRedirect = true;
+            redirectPath = "/auth/login";
+            console.log("🔒 Not logged in, redirecting to login");
+          } else if (isLoggedIn && inAuthGroup && currentConsent) {
+            shouldRedirect = true;
+            redirectPath = "/";
             console.log("✅ Logged in with consent, redirecting to home");
-            router.replace("/");
-          } else {
+          } else if (isLoggedIn && !inAuthGroup && !currentConsent) {
+            shouldRedirect = true;
+            redirectPath = "/auth/login";
             console.log(
-              "📋 Logged in but no consent, staying in login for privacy agreement"
+              "🔒 No consent, redirecting to login for privacy agreement"
             );
           }
-        }
-        // ✨ MODIFIKASI: Gunakan currentConsent
-        else if (isLoggedIn && !inAuthGroup && !currentConsent) {
-          console.log(
-            "🔒 No consent, redirecting to login for privacy agreement"
-          );
-          router.replace("/auth/login");
-        }
+
+          if (shouldRedirect) {
+            setHasRedirected(true);
+            router.replace({ pathname: redirectPath as typeof router.replace.arguments[0]["pathname"] });
+          }
+        }, 200); // Increased delay to ensure Stack is fully mounted
+      } catch (error) {
+        console.error("❌ Auth redirect error:", error);
       }
     };
 
-    checkForConsentChanges();
+    performRedirect();
   }, [
-    isLoggedIn,
     authLoading,
     consentLoading,
+    isLoggedIn,
     hasConsent,
     inAuthGroup,
-    isNavigationReady,
-    segments, // ✨ TAMBAH segments dependency
+    segments,
   ]);
 
-  // Set navigation ready after a small delay
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsNavigationReady(true);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Show loading while checking auth OR consent
-  if (authLoading || consentLoading) {
-    return <LoadingScreen />;
-  }
-
-  return <>{children}</>;
+  // Return loading state
+  return authLoading || consentLoading;
 }
 
 // Main Layout Component
@@ -143,9 +136,15 @@ function RootLayoutNav() {
   const [isLayoutReady, setIsLayoutReady] = useState(false);
   const [pendingDeepLink, setPendingDeepLink] = useState<string | null>(null);
 
+  // ✅ Use auth redirect hook INSIDE the navigator
+  const isAuthLoading = useAuthRedirect();
+
   // Mark layout as ready after mount
   useEffect(() => {
-    setIsLayoutReady(true);
+    const timer = setTimeout(() => {
+      setIsLayoutReady(true);
+    }, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   // Handle deep linking AFTER layout is ready
@@ -228,11 +227,12 @@ function RootLayoutNav() {
     return () => subscription?.remove();
   }, [router, isLayoutReady, pendingDeepLink]);
 
-  return (
-    <AuthGuard>
-      <Stack screenOptions={{ headerShown: false }} />
-    </AuthGuard>
-  );
+  // ✅ Show loading screen while auth is being processed
+  if (isAuthLoading) {
+    return <LoadingScreen />;
+  }
+
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
 
 // Root Layout with Providers
