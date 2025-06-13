@@ -574,7 +574,7 @@ export const extractPDFCoordinatesNative = async (
 
     let VP_array;
 
-    if (vpObj.array && vpObj.array.length > 1) {
+    if (vpObj.array && vpObj.array.length > 0) {
       VP_array = vpObj.array;
     } else {
       VP_array = vpObj.context;
