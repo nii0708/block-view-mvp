@@ -470,24 +470,27 @@ export default function CrossSectionViewScreen() {
                 <Text style={styles.infoValue}>{length.toFixed(1)} meters</Text>
               </View>
               {/* New row to show and select attribute */}
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Concentration:</Text>
-                <TouchableOpacity
-                  style={styles.concentrationButton}
-                  onPress={openAttributeModal}
-                >
-                  <View style={styles.buttonContent}>
-                    <Text style={styles.concentrationButtonText}>
-                      {selectedAttribute}
-                    </Text>
-                    <MaterialIcons
-                      name="arrow-drop-down"
-                      size={20}
-                      color="#333"
-                    />
-                  </View>
-                </TouchableOpacity>
-              </View>
+              {blockModelData && blockModelData.length > 0 ? (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Concentration:</Text>
+                  <TouchableOpacity
+                    style={styles.concentrationButton}
+                    onPress={openAttributeModal}
+                  >
+                    <View style={styles.buttonContent}>
+                      <Text style={styles.concentrationButtonText}>
+                        {selectedAttribute}
+                      </Text>
+                      <MaterialIcons
+                        name="arrow-drop-down"
+                        size={20}
+                        color="#333"
+                      />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               {/* Modified: Split displayed data into two lines */}
               <View style={[styles.infoRow, styles.displayedDataRow]}>
                 <Text style={styles.infoLabel}>Displayed Data:</Text>

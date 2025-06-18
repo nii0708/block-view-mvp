@@ -825,211 +825,205 @@ true;
         }
         
         async function updateMapData(data) {
-          try {
-            console.log("updateMapData called", data);
-            
-            // Block model GeoJSON handling
-            if (data.geoJsonData && data.geoJsonData !== null) {
-              if (geoJsonLayer) {
-                map.removeLayer(geoJsonLayer);
-                geoJsonLayer = null;
-              }
-              
-              if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
-                geoJsonLayer = L.geoJSON(data.geoJsonData, {
-                  style: function(feature) {
-                    return {
-                      fillColor: feature.properties.color || '#3388ff',
-                      weight: 1,
-                      opacity: 0.7,
-                      color: 'black',
-                      fillOpacity: feature.properties.opacity || 0.7  // Use opacity from properties
-                    };
-                  },
-                  onEachFeature: function(feature, layer) {
-                    if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
-                      const props = feature.properties;
-                      const popupContent = \`
-                        <div>
-                          <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
-                          <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}<br>
-                          <strong>Opacity:</strong> \${props.opacity ? Math.round(props.opacity * 100) : 70}%
-                        </div>
-                      \`;
-                      layer.bindPopup(popupContent);
-                    }
-                  }
-                }).addTo(map);
-              }
-            } else if (data.geoJsonData === null) {
-              // Remove the layer if data is null
-              if (geoJsonLayer) {
-                map.removeLayer(geoJsonLayer);
-                geoJsonLayer = null;
-              }
-            }
-            
-            // Pit GeoJSON handling with reduced opacity
-            if (data.pitGeoJsonData && data.pitGeoJsonData !== null) {
-              if (pitLayer) {
-                map.removeLayer(pitLayer);
-                pitLayer = null;
-              }
-              
-              if (data.pitGeoJsonData.features && data.pitGeoJsonData.features.length > 0) {
-                pitLayer = L.geoJSON(data.pitGeoJsonData, {
-                  style: function(feature) {
-                    return {
-                      color: '#FF6600',
-                      weight: 3, // Reduced from 4 to 3
-                      opacity: 0.8, // Reduced from 1.0 to 0.8
-                      dashArray: '5, 5'
-                    };
-                  },
-                  onEachFeature: function(feature, layer) {
-                    if (feature.properties) {
-                      const props = feature.properties;
-                      const popupContent = \`
-                        <div>
-                          <strong>Type:</strong> Pit Boundary<br>
-                          <strong>Elevation:</strong> \${props.level ? props.level.toFixed(2) : 'N/A'} m
-                        </div>
-                      \`;
-                      layer.bindPopup(popupContent);
-                    }
-                  }
-                }).addTo(map);
-              }
-            } else if (data.pitGeoJsonData === null) {
-              // Remove the layer if data is null
-              if (pitLayer) {
-                map.removeLayer(pitLayer);
-                pitLayer = null;
-              }
-            }
-            
-            if (data.pdfOverlayData) {
-              if (pdfLayer) {
-                map.removeLayer(pdfLayer);
-                pdfLayer = null;
-              }
-              
-              if (data.pdfOverlayData.bounds) {
-                if (data.pdfOverlayData.imageBase64) {
-                  // Ada image base64, tampilkan sebagai image overlay dengan opacity penuh
-                  console.log('Adding PDF as image overlay with full opacity...');
-                  
-                  // Gunakan format image yang benar
-                  const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
-                  
-                  pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
-                    opacity: 1.0, // Full opacity, no transparency
-                    interactive: true,
-                    className: 'pdf-overlay',
-                    attribution: 'PDF Map'
-                  }).addTo(map);
-                  
-                  pdfLayer.bindPopup(
-                    '<div class="pdf-popup">' +
-                    '<strong>PDF Map</strong><br>' +
-                    'Geospatial PDF Overlay<br>' +
-                    '<small>Click to see full extent</small>' +
-                    '</div>'
-                  );
-                  
-                  console.log('PDF image overlay created successfully with full opacity');
-                  
-                  // Auto-fit bounds for PDF if it's the primary data
-                  if (!data.skipFitBounds && data.pdfOverlayData.bounds) {
-                    console.log('Fitting PDF bounds...');
-                    const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
-                    map.fitBounds(pdfBounds, { 
-                      padding: [20, 20],
-                      maxZoom: data.pdfOverlayData.zoom || 14
-                    });
-                  }
-                } else {
-                  // Belum ada image, tampilkan sebagai marker sementara
-                  console.log('Adding PDF as marker (processing)...');
-                  
-                  const pdfCenter = [
-                    (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
-                    (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
-                  ];
-                  
-                  const pdfMarker = L.marker(pdfCenter, {
-                    icon: L.divIcon({
-                      className: 'pdf-processing-marker',
-                      html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
-                      iconSize: [120, 30],
-                      iconAnchor: [60, 15]
-                    })
-                  }).addTo(map)
-                  .bindPopup(
-                    '<div class="pdf-popup">' +
-                    '<strong>PDF Location</strong><br>' +
-                    'Converting to image...<br>' +
-                    '<small>Please wait</small>' +
-                    '</div>'
-                  );
-                  
-                  pdfLayer = pdfMarker;
-                  console.log('PDF processing marker created at:', pdfCenter);
-                  
-                  // Center map on PDF location if no other data
-                  if (!data.skipFitBounds) {
-                    map.setView(pdfCenter, data.pdfOverlayData.zoom || 14);
-                  }
+      try {
+        console.log("updateMapData called", data);
+        
+        // Track if we have any valid bounds from any data source
+        let hasValidBounds = false;
+        let combinedBounds = null;
+        
+        // Block model GeoJSON handling
+        if (data.geoJsonData && data.geoJsonData !== null) {
+          if (geoJsonLayer) {
+            map.removeLayer(geoJsonLayer);
+            geoJsonLayer = null;
+          }
+          
+          if (data.geoJsonData.features && data.geoJsonData.features.length > 0) {
+            geoJsonLayer = L.geoJSON(data.geoJsonData, {
+              style: function(feature) {
+                return {
+                  fillColor: feature.properties.color || '#3388ff',
+                  weight: 1,
+                  opacity: 0.7,
+                  color: 'black',
+                  fillOpacity: feature.properties.opacity || 0.7
+                };
+              },
+              onEachFeature: function(feature, layer) {
+                if (feature.properties && (feature.properties.rock === 'ore' || Math.random() < 0.01)) {
+                  const props = feature.properties;
+                  const popupContent = \`
+                    <div>
+                      <strong>Rock Type:</strong> \${props.rock || 'Unknown'}<br>
+                      <strong>Centroid Z:</strong> \${props.centroid_z ? props.centroid_z.toFixed(2) : 'N/A'}<br>
+                      <strong>Opacity:</strong> \${props.opacity ? Math.round(props.opacity * 100) : 70}%
+                    </div>
+                  \`;
+                  layer.bindPopup(popupContent);
                 }
               }
-            } else {
-              if (pdfLayer) {
-                console.log('Removing PDF layer due to toggle off');
-                map.removeLayer(pdfLayer);
-                pdfLayer = null;
-              }
-            }
+            }).addTo(map);
             
-            // Only fit bounds once on initial load, not on updates
-            if (!data.skipFitBounds) {
-              let finalBounds = null;
-              
-              if (geoJsonLayer && geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
-                finalBounds = geoJsonLayer.getBounds();
-                
-                if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
-                  finalBounds.extend(pitLayer.getBounds());
-                }
-              } else if (pitLayer && pitLayer.getBounds && pitLayer.getBounds().isValid()) {
-                finalBounds = pitLayer.getBounds();
-              }
-              
-              // Include PDF bounds if available
-              if (data.pdfOverlayData && data.pdfOverlayData.bounds) {
-                const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
-                
-                if (finalBounds) {
-                  finalBounds.extend(pdfBounds);
-                } else {
-                  finalBounds = pdfBounds;
-                }
-              }
-              
-              if (finalBounds && finalBounds.isValid()) {
-                map.fitBounds(finalBounds, { 
-                  padding: [30, 30],
-                  maxZoom: 14
-                });
-              } else if (data.mapCenter && data.mapCenter.length === 2) {
-                map.setView(data.mapCenter, data.mapZoom || 12);
-              }
+            // Get bounds from block model
+            if (geoJsonLayer.getBounds && geoJsonLayer.getBounds().isValid()) {
+              combinedBounds = geoJsonLayer.getBounds();
+              hasValidBounds = true;
             }
-            
-            console.log('Map data update complete');
-          } catch (error) {
-            console.error('Error updating map data:', error);
+          }
+        } else if (data.geoJsonData === null) {
+          if (geoJsonLayer) {
+            map.removeLayer(geoJsonLayer);
+            geoJsonLayer = null;
           }
         }
+        
+        // Pit GeoJSON handling
+        if (data.pitGeoJsonData && data.pitGeoJsonData !== null) {
+          if (pitLayer) {
+            map.removeLayer(pitLayer);
+            pitLayer = null;
+          }
+          
+          if (data.pitGeoJsonData.features && data.pitGeoJsonData.features.length > 0) {
+            pitLayer = L.geoJSON(data.pitGeoJsonData, {
+              style: function(feature) {
+                return {
+                  color: '#FF6600',
+                  weight: 3,
+                  opacity: 0.8,
+                  dashArray: '5, 5'
+                };
+              },
+              onEachFeature: function(feature, layer) {
+                if (feature.properties) {
+                  const props = feature.properties;
+                  const popupContent = \`
+                    <div>
+                      <strong>Type:</strong> Pit Boundary<br>
+                      <strong>Elevation:</strong> \${props.level ? props.level.toFixed(2) : 'N/A'} m
+                    </div>
+                  \`;
+                  layer.bindPopup(popupContent);
+                }
+              }
+            }).addTo(map);
+            
+            // Get bounds from pit data
+            if (pitLayer.getBounds && pitLayer.getBounds().isValid()) {
+              if (combinedBounds) {
+                combinedBounds.extend(pitLayer.getBounds());
+              } else {
+                combinedBounds = pitLayer.getBounds();
+                hasValidBounds = true;
+              }
+            }
+          }
+        } else if (data.pitGeoJsonData === null) {
+          if (pitLayer) {
+            map.removeLayer(pitLayer);
+            pitLayer = null;
+          }
+        }
+        
+        // PDF overlay handling
+        if (data.pdfOverlayData) {
+          if (pdfLayer) {
+            map.removeLayer(pdfLayer);
+            pdfLayer = null;
+          }
+          
+          if (data.pdfOverlayData.bounds) {
+            if (data.pdfOverlayData.imageBase64) {
+              console.log('Adding PDF as image overlay with full opacity...');
+              
+              const imageUrl = \`data:image/jpeg;base64,\${data.pdfOverlayData.imageBase64}\`;
+              
+              pdfLayer = L.imageOverlay(imageUrl, data.pdfOverlayData.bounds, {
+                opacity: 1.0,
+                interactive: true,
+                className: 'pdf-overlay',
+                attribution: 'PDF Map'
+              }).addTo(map);
+              
+              pdfLayer.bindPopup(
+                '<div class="pdf-popup">' +
+                '<strong>PDF Map</strong><br>' +
+                'Geospatial PDF Overlay<br>' +
+                '<small>Click to see full extent</small>' +
+                '</div>'
+              );
+              
+              console.log('PDF image overlay created successfully with full opacity');
+            } else {
+              console.log('Adding PDF as marker (processing)...');
+              
+              const pdfCenter = [
+                (data.pdfOverlayData.bounds[0][0] + data.pdfOverlayData.bounds[1][0]) / 2,
+                (data.pdfOverlayData.bounds[0][1] + data.pdfOverlayData.bounds[1][1]) / 2
+              ];
+              
+              const pdfMarker = L.marker(pdfCenter, {
+                icon: L.divIcon({
+                  className: 'pdf-processing-marker',
+                  html: '<div style="background: #ff0; padding: 5px 10px; border-radius: 3px; border: 1px solid #000; font-weight: bold;">PDF Processing...</div>',
+                  iconSize: [120, 30],
+                  iconAnchor: [60, 15]
+                })
+              }).addTo(map)
+              .bindPopup(
+                '<div class="pdf-popup">' +
+                '<strong>PDF Location</strong><br>' +
+                'Converting to image...<br>' +
+                '<small>Please wait</small>' +
+                '</div>'
+              );
+              
+              pdfLayer = pdfMarker;
+              console.log('PDF processing marker created at:', pdfCenter);
+            }
+            
+            // Include PDF bounds
+            const pdfBounds = L.latLngBounds(data.pdfOverlayData.bounds);
+            if (combinedBounds) {
+              combinedBounds.extend(pdfBounds);
+            } else {
+              combinedBounds = pdfBounds;
+              hasValidBounds = true;
+            }
+          }
+        } else {
+          if (pdfLayer) {
+            console.log('Removing PDF layer due to toggle off');
+            map.removeLayer(pdfLayer);
+            pdfLayer = null;
+          }
+        }
+        
+        // Smart centering logic - prioritize data bounds over provided center
+        if (!data.skipFitBounds) {
+          if (hasValidBounds && combinedBounds && combinedBounds.isValid()) {
+            // We have valid bounds from at least one data source
+            console.log('Fitting to combined bounds from available data');
+            map.fitBounds(combinedBounds, { 
+              padding: [30, 30],
+              maxZoom: 16
+            });
+          } else if (data.mapCenter && data.mapCenter.length === 2) {
+            // No valid bounds, but we have a center point
+            console.log('Setting view to provided center:', data.mapCenter);
+            map.setView(data.mapCenter, data.mapZoom || 14);
+          } else {
+            // No bounds and no valid center, keep current view
+            console.log('No valid bounds or center, keeping current view');
+          }
+        }
+        
+        console.log('Map data update complete');
+      } catch (error) {
+        console.error('Error updating map data:', error);
+      }
+    }
         
         // Function to update the selected points and drawing mode - IMPROVED
         function updateMapState(state) {

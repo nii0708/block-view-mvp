@@ -373,10 +373,11 @@ export default function TopDownViewScreen() {
         { maxPoints: 30000 }
       );
 
-      const blockModelBoundingBox = createBoundingBoxFromBlockModel(
-        blockModelData,
-        100
-      );
+      // Create bounding box from block model if available
+      const blockModelBoundingBox =
+        blockModelData.length > 0
+          ? createBoundingBoxFromBlockModel(blockModelData, 100)
+          : null;
 
       const processedElev = processElevationData(
         rawElevationData,
@@ -390,8 +391,41 @@ export default function TopDownViewScreen() {
       if (mounted) {
         setElevationData(processedElev);
         setProcessedElevation(processedElev);
+        setHasElevationData(true); // Set this BEFORE centering logic
+
+        // Calculate center from elevation data if no other data has set center
+        if (processedElev.length > 0) {
+          // Check current map center - if it's still at default, update it
+          const currentCenter = mapCenter;
+          const isDefaultCenter =
+            (currentCenter[0] === 0 && currentCenter[1] === 0) ||
+            (currentCenter[0] === -2.5 && currentCenter[1] === 120);
+
+          // Only update center if:
+          // 1. We're at default center, OR
+          // 2. No PDF was loaded AND no block model exists
+          if (
+            isDefaultCenter ||
+            (!pdfLoadedRef.current && blockModelData.length === 0)
+          ) {
+            const lats = processedElev.map((p) => p.lat);
+            const lngs = processedElev.map((p) => p.lng);
+
+            if (lats.length > 0 && lngs.length > 0) {
+              const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+              const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+
+              console.log("Setting map center from elevation data:", [
+                centerLat,
+                centerLng,
+              ]);
+              setMapCenter([centerLat, centerLng]);
+              setMapZoom(14);
+            }
+          }
+        }
       }
-      setHasElevationData(true);
+
       setLoadingProgress(0.8);
     } catch (error) {
       console.error("Error processing elevation data:", error);
@@ -409,10 +443,7 @@ export default function TopDownViewScreen() {
     setLoadingProgress(0.9);
 
     try {
-      const rawPitData = await FileService.parseLiDARFile(
-        file.files.pit.uri
-        // { maxPoints: 10000 }
-      );
+      const rawPitData = await FileService.parseLiDARFile(file.files.pit.uri);
       if (!mounted) return;
 
       // Process pit data immediately
@@ -449,13 +480,58 @@ export default function TopDownViewScreen() {
           const maxElev = Math.max(...validElevations);
           setElevationRange({ min: minElev, max: maxElev });
         }
+
+        // Calculate center from pit data if no other data has set the center
+        if (rawPitData.length > 0) {
+          // Extract coordinates from the GeoJSON result for more accurate centering
+          let allCoordinates: number[][] = [];
+
+          if (result.features && result.features.length > 0) {
+            result.features.forEach((feature: any) => {
+              if (feature.geometry && feature.geometry.coordinates) {
+                if (feature.geometry.type === "LineString") {
+                  allCoordinates = allCoordinates.concat(
+                    feature.geometry.coordinates
+                  );
+                }
+              }
+            });
+          }
+
+          if (allCoordinates.length > 0) {
+            const lngs = allCoordinates.map((coord) => coord[0]);
+            const lats = allCoordinates.map((coord) => coord[1]);
+
+            // Check current map center - if it's still at default, update it
+            const currentCenter = mapCenter;
+            const isDefaultCenter =
+              (currentCenter[0] === 0 && currentCenter[1] === 0) ||
+              (currentCenter[0] === -2.5 && currentCenter[1] === 120);
+
+            // Only update center if we're at default position
+            if (
+              isDefaultCenter ||
+              (!pdfLoadedRef.current &&
+                blockModelData.length === 0 &&
+                !hasElevationData)
+            ) {
+              const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+              const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+
+              console.log("Setting map center from pit data:", [
+                centerLat,
+                centerLng,
+              ]);
+              setMapCenter([centerLat, centerLng]);
+              setMapZoom(14);
+            }
+          }
+        }
       }
     } catch (error) {
       console.error("Error processing pit data:", error);
     }
   };
-
-  // Function to process block model with specific attribute
 
   const processBlockModelWithAttribute = (
     rawData: any[] | null,
@@ -684,7 +760,7 @@ export default function TopDownViewScreen() {
   }, [addPointFunc, coordinates, selectedPoints]);
 
   const handleCreateCrossSection = useCallback(() => {
-    // Cek apakah ada 2 titik
+    // Check if there are 2 points
     if (selectedPoints.length !== 2) {
       Alert.alert(
         "Error",
@@ -693,16 +769,7 @@ export default function TopDownViewScreen() {
       return;
     }
 
-    // Cek apakah ada data block model dan elevation
-    if (!hasBlockModelData || !hasElevationData) {
-      Alert.alert(
-        "Data Required",
-        "Block Model and Elevation data are required to create a cross section. Please upload both files first."
-      );
-      return;
-    }
-
-    // Lanjutkan dengan create cross section seperti biasa
+    // No data requirement check - proceed directly
     const colorMappingString = JSON.stringify(customColorMapping);
 
     router.push({
@@ -726,37 +793,15 @@ export default function TopDownViewScreen() {
     fileName,
     sourceProjection,
     customColorMapping,
-    hasBlockModelData,
-    hasElevationData,
     router,
   ]);
 
   const toggleRulerMode = useCallback(() => {
-    // Jika user mengaktifkan ruler mode tapi data tidak lengkap, beri warning
-    if (!isCreateLineMode && (!hasBlockModelData || !hasElevationData)) {
-      Alert.alert(
-        "Notice",
-        "Block Model and Elevation data are required to create cross sections. You can still draw lines for measurement.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Continue",
-            onPress: () => {
-              setIsCreateLineMode(true);
-              setSelectedPoints([]);
-              setLineLength(0);
-              processedMessagesRef.current.clear();
-            },
-          },
-        ]
-      );
-    } else {
-      setIsCreateLineMode((prev) => !prev);
-      setSelectedPoints([]);
-      setLineLength(0);
-      processedMessagesRef.current.clear();
-    }
-  }, [isCreateLineMode, hasBlockModelData, hasElevationData]);
+    setIsCreateLineMode((prev) => !prev);
+    setSelectedPoints([]);
+    setLineLength(0);
+    processedMessagesRef.current.clear();
+  }, []);
 
   const handleColorChange = useCallback(
     (
@@ -865,12 +910,7 @@ export default function TopDownViewScreen() {
   };
 
   const renderRockTypeLegend = () => {
-    // Only render legend if there's block model data
-    if (!hasBlockModelData || Object.keys(rockTypeLegend).length === 0) {
-      return null;
-    }
-
-    // Determine the attribute name to display
+    // Always render the legend container, even without data
     let attributeName = "";
 
     // If pickedAttribute exists and has data, use the first attribute type as the main attribute name
@@ -881,8 +921,9 @@ export default function TopDownViewScreen() {
         attributeName.charAt(0).toUpperCase() + attributeName.slice(1);
     }
 
-    // Check if we have many legend items (more than 4)
-    const hasManyItems = Object.keys(rockTypeLegend).length > 4;
+    // Check if we have data
+    const hasData = hasBlockModelData && Object.keys(rockTypeLegend).length > 0;
+    const hasManyItems = hasData && Object.keys(rockTypeLegend).length > 4;
 
     return (
       <View style={styles.legendContainer}>
@@ -891,35 +932,41 @@ export default function TopDownViewScreen() {
           <Text style={styles.attributeName}>{attributeName}</Text>
         </View>
 
-        {/* Use ScrollView for horizontal scrolling when many items exist */}
-        <ScrollView
-          horizontal={hasManyItems}
-          showsHorizontalScrollIndicator={hasManyItems}
-          contentContainerStyle={styles.legendItemsContainer}
-        >
-          {Object.entries(rockTypeLegend).map(([rockType, config]) => (
-            <View key={rockType} style={styles.legendItem}>
-              <View
-                style={[
-                  styles.legendColor,
-                  {
-                    backgroundColor: config.color,
-                    opacity: config.opacity,
-                  },
-                ]}
-              />
-              <Text style={styles.legendText}>
-                {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
+        {hasData ? (
+          <>
+            <ScrollView
+              horizontal={hasManyItems}
+              showsHorizontalScrollIndicator={hasManyItems}
+              contentContainerStyle={styles.legendItemsContainer}
+            >
+              {Object.entries(rockTypeLegend).map(([rockType, config]) => (
+                <View key={rockType} style={styles.legendItem}>
+                  <View
+                    style={[
+                      styles.legendColor,
+                      {
+                        backgroundColor: config.color,
+                        opacity: config.opacity,
+                      },
+                    ]}
+                  />
+                  <Text style={styles.legendText}>
+                    {rockType.charAt(0).toUpperCase() + rockType.slice(1)}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
 
-        {/* Optional: Add indicator for more items if needed */}
-        {hasManyItems && (
-          <View style={styles.scrollIndicator}>
-            <Text style={styles.scrollIndicatorText}>→ scroll for more</Text>
-          </View>
+            {hasManyItems && (
+              <View style={styles.scrollIndicator}>
+                <Text style={styles.scrollIndicatorText}>
+                  → scroll for more
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <Text style={styles.noDataText}>Block model tidak ada</Text>
         )}
       </View>
     );
@@ -984,13 +1031,7 @@ export default function TopDownViewScreen() {
   );
 
   const renderCreateLineButtons = () => {
-    const hasRequiredData = hasBlockModelData && hasElevationData;
-    const canCreateSection = selectedPoints.length === 2 && hasRequiredData;
-
-    let buttonText = "Create Cross Section";
-    if (!hasRequiredData) {
-      buttonText = "Create Cross Section (Data Required)";
-    }
+    const canCreateSection = selectedPoints.length === 2;
 
     return (
       <View style={styles.createLineButtons}>
@@ -1025,16 +1066,9 @@ export default function TopDownViewScreen() {
               !canCreateSection && styles.disabledButtonText,
             ]}
           >
-            {buttonText}
+            Create Cross Section
           </Text>
         </TouchableOpacity>
-
-        {selectedPoints.length === 2 &&
-          (!hasBlockModelData || !hasElevationData) && (
-            <Text style={styles.warningText}>
-              Block Model and Elevation data required for cross section
-            </Text>
-          )}
       </View>
     );
   };
@@ -1572,6 +1606,14 @@ const styles = StyleSheet.create({
   selectedDropdownItem: {
     backgroundColor: "rgba(25, 135, 84, 0.08)",
     borderColor: "rgba(25, 135, 84, 0.2)",
+  },
+  noDataText: {
+    fontSize: 14,
+    color: "#999",
+    fontStyle: "italic",
+    fontFamily: "Montserrat_400Regular",
+    textAlign: "center",
+    paddingVertical: 10,
   },
   dropdownText: {
     fontSize: 16,

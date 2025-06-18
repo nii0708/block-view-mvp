@@ -15,9 +15,6 @@ export const createBoundingBoxFromBlockModel = (
   }
 
   const startTime = Date.now();
-  // console.log(
-  //   `Creating bounding box from ${blockModelData.length} block model points`
-  // );
 
   // Extract x,y coordinates from block model data
   const xValues = blockModelData
@@ -49,12 +46,6 @@ export const createBoundingBoxFromBlockModel = (
   const minY = Math.min(...yValues) - buffer;
   const maxY = Math.max(...yValues) + buffer;
 
-  // console.log(
-  //   `Created bounding box: [${minX}, ${minY}] to [${maxX}, ${maxY}] in ${
-  //     (Date.now() - startTime) / 1000
-  //   }s`
-  // );
-
   return { minX, maxX, minY, maxY };
 };
 
@@ -82,9 +73,7 @@ export const filterElevationDataByBlockModel = (
   }
 
   const startTime = Date.now();
-  // console.log(`Filtering ${elevationData.length} elevation points...`);
 
-  // Use a more efficient approach with fewer object allocations
   const { minX, maxX, minY, maxY } = blockModelBoundingBox;
 
   // Create a simplified validation function
@@ -100,11 +89,11 @@ export const filterElevationDataByBlockModel = (
   });
 
   const endTime = Date.now();
-  // console.log(
-  //   `Filtered elevation data from ${elevationData.length} to ${
-  //     filteredData.length
-  //   } points (${((endTime - startTime) / 1000).toFixed(2)}s)`
-  // );
+  console.log(
+    `Filtered elevation data from ${elevationData.length} to ${
+      filteredData.length
+    } points (${((endTime - startTime) / 1000).toFixed(2)}s)`
+  );
 
   return filteredData;
 };
@@ -141,6 +130,12 @@ export const processElevationData = (
 
   const startTime = Date.now();
 
+  // Log sample data to debug field names
+  if (data.length > 0) {
+    console.log("Sample elevation data point:", data[0]);
+    console.log("Available fields:", Object.keys(data[0]));
+  }
+
   // Filter data by block model bounding box if provided
   let dataToProcess = data;
   if (blockModelBoundingBox) {
@@ -150,7 +145,6 @@ export const processElevationData = (
       lonField,
       latField
     );
-
   }
 
   // If we still have too many points, sample them
@@ -162,12 +156,12 @@ export const processElevationData = (
     );
   }
 
-  // console.log(
-  //   `Processing ${dataToProcess.length} points, first point:`,
-  //   dataToProcess.length > 0
-  //     ? `x: ${dataToProcess[0][lonField]}, y: ${dataToProcess[0][latField]}, z: ${dataToProcess[0][elevField]}`
-  //     : "No data"
-  // );
+  console.log(
+    `Processing ${dataToProcess.length} points, first point:`,
+    dataToProcess.length > 0
+      ? `x: ${dataToProcess[0][lonField]}, y: ${dataToProcess[0][latField]}, z: ${dataToProcess[0][elevField]}`
+      : "No data"
+  );
 
   const conversionStart = Date.now();
 
@@ -191,8 +185,9 @@ export const processElevationData = (
 
         let wgs84Coords;
         if (sourceProjection !== "EPSG:4326") {
+          // FIX: Use correct coordinate order [x, y] not [y, x]
           wgs84Coords = convertCoordinates(
-            [y, x],
+            [x, y], // Changed from [y, x] to [x, y]
             sourceProjection,
             "EPSG:4326"
           );
@@ -203,6 +198,8 @@ export const processElevationData = (
         return {
           original: { x, y },
           wgs84: { lng: wgs84Coords[0], lat: wgs84Coords[1] },
+          lng: wgs84Coords[0], // Add direct lng/lat for easier access
+          lat: wgs84Coords[1],
           elevation,
         };
       })
@@ -217,17 +214,29 @@ export const processElevationData = (
   }
 
   const endTime = Date.now();
-  // console.log(
-  //   `Completed elevation processing: ${processedData.length} points in ${
-  //     (endTime - startTime) / 1000
-  //   }s`
-  // );
+  console.log(
+    `Completed elevation processing: ${processedData.length} points in ${
+      (endTime - startTime) / 1000
+    }s`
+  );
+
+  // Log sample of processed data to verify coordinates
+  if (processedData.length > 0) {
+    console.log("Sample processed elevation point:", processedData[0]);
+    console.log(
+      "Coordinate range - Lat:",
+      Math.min(...processedData.map((p) => p.lat)),
+      "to",
+      Math.max(...processedData.map((p) => p.lat)),
+      "Lng:",
+      Math.min(...processedData.map((p) => p.lng)),
+      "to",
+      Math.max(...processedData.map((p) => p.lng))
+    );
+  }
 
   return processedData;
 };
-
-// Rest of the functions remain the same...
-// generateElevationProfile, calculateDistance, interpolateElevation, etc.
 
 /**
  * Generates elevation profile data along a line
@@ -321,8 +330,8 @@ const interpolateElevation = (
   // Find nearby points
   const nearbyPoints = elevationPoints.filter(
     (point) =>
-      Math.abs(point.wgs84.lng - lng) < searchRadius &&
-      Math.abs(point.wgs84.lat - lat) < searchRadius
+      Math.abs(point.lng - lng) < searchRadius &&
+      Math.abs(point.lat - lat) < searchRadius
   );
 
   if (nearbyPoints.length === 0) {
@@ -338,12 +347,7 @@ const interpolateElevation = (
   let valueSum = 0;
 
   nearbyPoints.forEach((point) => {
-    const distance = calculateDistance(
-      lng,
-      lat,
-      point.wgs84.lng,
-      point.wgs84.lat
-    );
+    const distance = calculateDistance(lng, lat, point.lng, point.lat);
 
     // Handle exact match
     if (distance < 0.0000001) {

@@ -37,14 +37,14 @@ export default function UploadScreen() {
   const [dialogVisible, setDialogVisible] = useState(false);
   const [isProcessingInDialog, setIsProcessingInDialog] = useState(false);
 
-  // Combined tooltip message untuk semua file types
+  // Updated tooltip message
   const tooltipMessage =
     "File format specifications:\n" +
     "• Block Model: CSV format (Surpac or Vulcan compatible)\n" +
     "• Elevation Data: STR or DXF format with surface topography\n" +
     "• Pit Boundary: STR or DXF format defining excavation limits\n" +
     "• Geospatial Map: PDF format for visual reference and spatial context\n\n" +
-    "You can create a file with either a Geospatial Map alone or a combination of Block Model + Elevation Data.";
+    "Anda bisa membuat file dengan upload salah satu file saja.";
 
   const handleBlockModelUpload = async () => {
     try {
@@ -143,36 +143,18 @@ export default function UploadScreen() {
   };
 
   const handleCreateFile = () => {
-    const hasPDF = !!orthophotoFile;
-    const hasBlockModel = !!blockModelFile;
-    const hasElevation = !!lidarFile;
+    // Check if at least one file is uploaded
+    const hasAnyFile = !!(
+      blockModelFile ||
+      lidarFile ||
+      elevationFile ||
+      orthophotoFile
+    );
 
-    // Check for invalid combinations
-    if (hasBlockModel && !hasElevation) {
-      Alert.alert(
-        "Elevation Data Required",
-        "When uploading a Block Model, you must also upload Topography Data. Please upload both files to proceed."
-      );
-      return;
-    }
-
-    if (hasElevation && !hasBlockModel) {
-      Alert.alert(
-        "Block Model Required",
-        "When uploading Elevation Data, you must also upload Block Model. Please upload both files to proceed."
-      );
-      return;
-    }
-
-    // Check if minimum requirements are met
-    const hasValidCombination =
-      (hasPDF && !hasBlockModel && !hasElevation) ||
-      (hasBlockModel && hasElevation);
-
-    if (!hasValidCombination) {
+    if (!hasAnyFile) {
       Alert.alert(
         "Upload Required",
-        "Please upload either a Geospatial Map PDF alone or both Block Model and Elevation Data together."
+        "Please upload at least one file to proceed."
       );
       return;
     }
@@ -282,18 +264,13 @@ export default function UploadScreen() {
     }
   };
 
-  // Determine if Create File button should be enabled
-  // Complex logic to handle file dependencies
-  const hasOnlyPDF = !!orthophotoFile && !blockModelFile && !lidarFile;
-  const hasBothBlockAndElevation = !!blockModelFile && !!lidarFile;
-  const hasEitherBlockOrElevation = !!blockModelFile || !!lidarFile;
-
-  // Button is enabled only if:
-  // 1. ONLY PDF exists (without Block Model or Elevation)
-  // 2. BOTH Block Model AND Elevation exist (with or without other files)
-  // If either Block Model OR Elevation exists, both must exist
-  const isCreateFileEnabled =
-    hasOnlyPDF || (hasEitherBlockOrElevation && hasBothBlockAndElevation);
+  // Simplified logic: Button is enabled if at least one file is uploaded
+  const isCreateFileEnabled = !!(
+    blockModelFile ||
+    lidarFile ||
+    elevationFile ||
+    orthophotoFile
+  );
 
   return (
     <SafeAreaView style={styles.container}>
