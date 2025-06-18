@@ -183,6 +183,8 @@ export default function TopDownViewScreen() {
         setLoadingMessage("Loading file information...");
         setLoadingProgress(0.1);
 
+        clearData();
+
         if (!fileName) {
           Alert.alert("Error", "No file name provided");
           router.replace("/");

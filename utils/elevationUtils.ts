@@ -50,6 +50,74 @@ export const createBoundingBoxFromBlockModel = (
 };
 
 /**
+ * Detects which fields contain x/y/z coordinates in the data
+ * @param data Sample data array
+ * @returns Object with detected field names
+ */
+const detectCoordinateFields = (data: any[]) => {
+  if (!data || data.length === 0) {
+    return { lonField: "lon", latField: "lat", elevField: "z" };
+  }
+
+  const firstRow = data[0];
+  const keys = Object.keys(firstRow);
+
+  // Debug log to see what fields are available
+  console.log("Available fields in elevation data:", keys);
+  console.log("Sample values:", firstRow);
+
+  // Detect longitude/x field
+  let lonField =
+    keys.find((k) => {
+      const lower = k.toLowerCase();
+      return (
+        lower === "lon" ||
+        lower === "longitude" ||
+        lower === "x" ||
+        lower === "easting" ||
+        lower === "lng"
+      );
+    }) || "lon";
+
+  // Detect latitude/y field
+  let latField =
+    keys.find((k) => {
+      const lower = k.toLowerCase();
+      return (
+        lower === "lat" ||
+        lower === "latitude" ||
+        lower === "y" ||
+        lower === "northing"
+      );
+    }) || "lat";
+
+  // Detect elevation/z field
+  let elevField =
+    keys.find((k) => {
+      const lower = k.toLowerCase();
+      return (
+        lower === "z" ||
+        lower === "elevation" ||
+        lower === "elev" ||
+        lower === "height" ||
+        lower === "alt" ||
+        lower === "altitude"
+      );
+    }) || "z";
+
+  console.log(
+    "Detected fields - lon:",
+    lonField,
+    "lat:",
+    latField,
+    "elev:",
+    elevField
+  );
+
+  return { lonField, latField, elevField };
+};
+
+/**
  * Filters elevation data to only include points within or near block model area
  * @param elevationData Raw elevation data array
  * @param blockModelBoundingBox Bounding box from block model data
@@ -130,10 +198,25 @@ export const processElevationData = (
 
   const startTime = Date.now();
 
+  // Auto-detect fields if using default values
+  if (lonField === "lon" && latField === "lat" && elevField === "z") {
+    const detected = detectCoordinateFields(data);
+    lonField = detected.lonField;
+    latField = detected.latField;
+    elevField = detected.elevField;
+  }
+
   // Log sample data to debug field names
   if (data.length > 0) {
     console.log("Sample elevation data point:", data[0]);
-    console.log("Available fields:", Object.keys(data[0]));
+    console.log(
+      "Using fields - lon:",
+      lonField,
+      "lat:",
+      latField,
+      "elev:",
+      elevField
+    );
   }
 
   // Filter data by block model bounding box if provided
@@ -156,10 +239,24 @@ export const processElevationData = (
     );
   }
 
+  // Filter out invalid points (0,0) before processing
+  const validDataToProcess = dataToProcess.filter((point) => {
+    const x = parseFloat(String(point[lonField]));
+    const y = parseFloat(String(point[latField]));
+    // Filter out 0,0 coordinates which are invalid for Jakarta
+    return !(x === 0 && y === 0) && !isNaN(x) && !isNaN(y);
+  });
+
   console.log(
-    `Processing ${dataToProcess.length} points, first point:`,
-    dataToProcess.length > 0
-      ? `x: ${dataToProcess[0][lonField]}, y: ${dataToProcess[0][latField]}, z: ${dataToProcess[0][elevField]}`
+    `Filtered out ${
+      dataToProcess.length - validDataToProcess.length
+    } invalid (0,0) points`
+  );
+
+  console.log(
+    `Processing ${validDataToProcess.length} valid points, first point:`,
+    validDataToProcess.length > 0
+      ? `x: ${validDataToProcess[0][lonField]}, y: ${validDataToProcess[0][latField]}, z: ${validDataToProcess[0][elevField]}`
       : "No data"
   );
 
@@ -169,8 +266,8 @@ export const processElevationData = (
   const chunkSize = 1000;
   const processedData: any[] = [];
 
-  for (let i = 0; i < dataToProcess.length; i += chunkSize) {
-    const chunk = dataToProcess.slice(i, i + chunkSize);
+  for (let i = 0; i < validDataToProcess.length; i += chunkSize) {
+    const chunk = validDataToProcess.slice(i, i + chunkSize);
 
     // Process this chunk
     const processedChunk = chunk
@@ -185,13 +282,23 @@ export const processElevationData = (
 
         let wgs84Coords;
         if (sourceProjection !== "EPSG:4326") {
-          // FIX: Use correct coordinate order [x, y] not [y, x]
-          wgs84Coords = convertCoordinates(
-            [x, y], // Changed from [y, x] to [x, y]
-            sourceProjection,
-            "EPSG:4326"
-          );
+          // Check if coordinates look like lat/lon (small values) or projected (large values)
+          const isLatLon = Math.abs(x) <= 180 && Math.abs(y) <= 90;
+
+          if (isLatLon) {
+            // Already in WGS84, no conversion needed
+            wgs84Coords = [x, y];
+          } else {
+            // Convert from projected to WGS84
+            // Use [x, y] order for proj4
+            wgs84Coords = convertCoordinates(
+              [x, y],
+              sourceProjection,
+              "EPSG:4326"
+            );
+          }
         } else {
+          // Already WGS84
           wgs84Coords = [x, y];
         }
 
